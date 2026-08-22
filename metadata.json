@@ -1,0 +1,7 @@
+{
+  "name": "ORCA-X — Ocean Reasoning & Collaborative AI",
+  "description": "Marine-intelligence decision-support platform combining live/forecast weather, Copernicus/NOAA ocean conditions, satellite remote sensing, ML risk scoring, and evidence-grounded agentic AI.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
