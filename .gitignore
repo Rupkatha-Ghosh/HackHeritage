@@ -1,8 +1,37 @@
+# Node / frontend
 node_modules/
-build/
 dist/
+build/
 coverage/
-.DS_Store
 *.log
-.env*
-.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ML-generated local artifacts
+ml/data/raw/
+ml/data/processed/*.csv
+ml/data/processed/*.parquet
+
+# Keep the checked-in manifest and trained model artifacts
+!ml/data/processed/dataset_manifest.json
+!ml/models/orca_xgb_risk.json
+!ml/models/orca_xgb_risk_metadata.json
