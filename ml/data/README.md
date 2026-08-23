@@ -1,14 +1,14 @@
 # ORCA-X ML data
 
-This directory contains the datasets used to train and evaluate the ORCA-X marine-risk model.
+This directory documents the reproducible datasets used to train and evaluate the ORCA-X marine-risk model.
 
 ## Layout
 
-- `raw/` — downloaded NDBC source observations. These are reproducible inputs and should normally be regenerated with `ml/src/download_ndbc.py` rather than committed for new stations/years.
-- `processed/` — normalized training/evaluation datasets produced by `ml/src/prepare_dataset.py`.
-- `processed/dataset_manifest.json` — metadata describing the checked-in dataset build.
+- `raw/` — downloaded NDBC source observations. These are reproducible inputs and are intentionally not committed.
+- `processed/` — normalized training/evaluation datasets produced by `ml/src/prepare_dataset.py`; generated CSV/Parquet outputs are intentionally not committed.
+- `processed/dataset_manifest.json` — checked-in metadata describing the dataset build used for the committed model.
 
-Large generated CSV/Parquet files are ignored for future commits. The currently tracked files remain available for reproducibility of this revision.
+Keeping generated datasets out of Git prevents the application repository from carrying large training artifacts. The production inference model remains checked in under `ml/models/`.
 
 ## Rebuild
 
