@@ -5,7 +5,7 @@ import { fetchSatelliteData } from '../../src/services/satellite/satelliteServic
 import { COASTAL_LOCATIONS } from '../../src/data/coastalData.ts';
 import { LanguageCode, SatelliteData } from '../../src/types.ts';
 import { fetchMarineAndWeatherData } from '../services/marineService.ts';
-import { retrieveEvidence } from '../services/evidenceService.ts';
+import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 
 export async function orcaQuery(req: Request, res: Response) {
@@ -69,14 +69,18 @@ export async function satelliteAnalysis(req: Request, res: Response) {
   }
 }
 
-export function evidenceSearch(req: Request, res: Response) {
+export async function evidenceSearch(req: Request, res: Response) {
   try {
     const { query = '', riskLevel = 'MODERATE', locationKey = 'digha' } = req.body;
+    if (typeof query !== 'string' || query.trim().length < 2) {
+      return res.status(400).json({ error: 'A query string with at least 2 characters is required.' });
+    }
     const location = COASTAL_LOCATIONS[locationKey] || COASTAL_LOCATIONS.digha;
-    const evidence = retrieveEvidence(query, location, riskLevel);
-    res.json({ results: evidence, count: evidence.length });
+    const rag = await retrieveRagEvidence(query, location, riskLevel);
+    res.json({ results: rag.evidence, count: rag.evidence.length, provider: rag.provider, model: rag.model, degraded: rag.provider !== 'bge-m3-qdrant' });
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Evidence search failed.' });
+    console.error('Evidence search error:', error);
+    res.status(503).json({ error: error instanceof Error ? error.message : 'Evidence search failed.' });
   }
 }
 
@@ -91,12 +95,13 @@ export function health(_req: Request, res: Response) {
       satelliteProcessing: 'metadata_only',
       riskEngine: 'xgboost_with_rule_based_fallback',
       mlRiskApi: process.env.ORCA_ML_API_URL || 'http://127.0.0.1:8000',
-      evidenceRetrieval: 'local_query_aware_corpus',
+      evidenceRetrieval: 'bge-m3-qdrant_with_lexical_fallback',
+      ragApi: process.env.ORCA_RAG_API_URL || 'http://127.0.0.1:8001',
       agentOrchestrator: 'server_workflow',
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
     },
     capabilities: {
-      vectorRag: false,
+      vectorRag: true,
       evidenceCorpusItems: getEvidenceCorpusSize(),
       satelliteImageProcessing: false,
       mlDeploymentDomainValidated: false,
