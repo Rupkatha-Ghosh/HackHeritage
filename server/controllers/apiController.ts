@@ -6,7 +6,7 @@ import { COASTAL_LOCATIONS } from '../../src/data/coastalData.ts';
 import { LanguageCode, SatelliteData } from '../../src/types.ts';
 import { fetchMarineAndWeatherData } from '../services/marineService.ts';
 import { retrieveEvidence } from '../services/evidenceService.ts';
-import { getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
+import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 
 export async function orcaQuery(req: Request, res: Response) {
   try {
@@ -91,9 +91,15 @@ export function health(_req: Request, res: Response) {
       satelliteProcessing: 'metadata_only',
       riskEngine: 'xgboost_with_rule_based_fallback',
       mlRiskApi: process.env.ORCA_ML_API_URL || 'http://127.0.0.1:8000',
-      vectorRAG: 'not_connected_in_current_build',
+      evidenceRetrieval: 'local_query_aware_corpus',
       agentOrchestrator: 'server_workflow',
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
+    },
+    capabilities: {
+      vectorRag: false,
+      evidenceCorpusItems: getEvidenceCorpusSize(),
+      satelliteImageProcessing: false,
+      mlDeploymentDomainValidated: false,
     },
     supportedLocations: getSupportedLocationCount(),
   });
