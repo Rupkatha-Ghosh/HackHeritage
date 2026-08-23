@@ -1,4 +1,4 @@
-# ORCA-X Refinement 2 — ML environment
+# ORCA-X Refinement 2 — ML + inference API environment
 # Python 3.11+ recommended
 pandas>=2.2,<3
 numpy>=1.26,<3
@@ -8,3 +8,6 @@ joblib>=1.4,<2
 requests>=2.32,<3
 pyarrow>=22,<26
 shap>=0.46,<1
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+pydantic>=2.10,<3
