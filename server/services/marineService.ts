@@ -106,7 +106,7 @@ export async function fetchMarineAndWeatherData(lat: number, lon: number): Promi
   let marineData: any = null;
 
   const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=kn&timezone=auto`;
-  const marineUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,ocean_current_velocity,ocean_current_direction&timezone=auto`;
+  const marineUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction&timezone=auto`;
 
   const [wRes, mRes] = await Promise.allSettled([
     fetch(weatherUrl, { signal: AbortSignal.timeout(7000) }),
@@ -165,7 +165,7 @@ export async function fetchMarineAndWeatherData(lat: number, lon: number): Promi
     swellHeightMeters: currentM?.swell_wave_height ?? Number((waveH * 0.75).toFixed(2)),
     swellPeriodSec: currentM?.swell_wave_period ?? 9.8,
     swellDirectionDeg: currentM?.swell_wave_direction ?? 150,
-    seaSurfaceTemperatureC: Number((28.4 - (lat - 10) * 0.15).toFixed(1)),
+    seaSurfaceTemperatureC: currentM?.sea_surface_temperature ?? Number((28.4 - (lat - 10) * 0.15).toFixed(1)),
     currentSpeedKts: Number((currentM?.ocean_current_velocity ? currentM.ocean_current_velocity * 1.94384 : 1.2).toFixed(1)),
     currentDirectionDeg: currentM?.ocean_current_direction ?? 55,
     salinityPsu: 32.5,
