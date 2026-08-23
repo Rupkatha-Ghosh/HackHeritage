@@ -50,6 +50,11 @@ class InferenceContractTests(unittest.TestCase):
         self.assertTrue(all(0.0 <= value <= 1.0 for value in probabilities.values()))
         self.assertEqual(set(probabilities), {"LOW", "MODERATE", "HIGH", "EXTREME"})
 
+    def test_confidence_matches_exposed_top_probability(self) -> None:
+        result = self.predictor.predict_one(self.sample)
+        self.assertEqual(result["confidence"], max(result["probabilities"].values()))
+        self.assertEqual(result["confidence"], result["probabilities"][result["risk_label"]])
+
     def test_invalid_physical_input_is_rejected(self) -> None:
         invalid = dict(self.sample)
         invalid["wave_height_m"] = -1.0
