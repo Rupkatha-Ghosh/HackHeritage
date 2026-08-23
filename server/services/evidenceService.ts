@@ -13,7 +13,11 @@ function lexicalRelevance(query: string, item: EvidenceItem): number {
   const queryTokens = new Set(normalize(query));
   if (queryTokens.size === 0) return 0;
 
-  const haystack = normalize(`${item.title} ${item.summary} ${item.source} ${item.category}`);
+  // EvidenceItem uses the canonical fields title, excerpt, sourceAuthority,
+  // and documentType. Keep retrieval aligned with that shared contract.
+  const haystack = normalize(
+    `${item.title} ${item.excerpt} ${item.sourceAuthority} ${item.documentType}`,
+  );
   const itemTokens = new Set(haystack);
   let matches = 0;
   for (const token of queryTokens) if (itemTokens.has(token)) matches += 1;
@@ -25,7 +29,7 @@ export function retrieveEvidence(query: string, location: LocationInfo, riskLeve
 
   return MARINE_EVIDENCE_CORPUS.map(item => {
     const lexicalScore = lexicalRelevance(query, item);
-    const locationText = normalize(`${item.title} ${item.summary}`);
+    const locationText = normalize(`${item.title} ${item.excerpt}`);
     const locationMatch = normalizedLocation.some(token => locationText.includes(token)) ? 0.04 : 0;
     const authorityBoost = (riskLevel === 'HIGH' || riskLevel === 'EXTREME') &&
       (item.id.includes('IMD') || item.id.includes('INCOIS')) ? 0.05 : 0;
