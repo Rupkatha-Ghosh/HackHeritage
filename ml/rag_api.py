@@ -65,6 +65,15 @@ def _ensure_collection(client: QdrantClient) -> None:
     if QDRANT_COLLECTION not in names:
         client.create_collection(collection_name=QDRANT_COLLECTION, vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE))
 
+def _query_points(client: QdrantClient, vector: list[float], limit: int):
+    """Use the current Qdrant client API (query_points), compatible with Qdrant 1.19+."""
+    return client.query_points(
+        collection_name=QDRANT_COLLECTION,
+        query=vector,
+        limit=limit,
+        with_payload=True,
+    ).points
+
 @app.post("/ingest")
 def ingest(request: IngestRequest) -> dict[str, Any]:
     try:
@@ -89,7 +98,7 @@ def search(request: SearchRequest) -> dict[str, Any]:
         _ensure_collection(client)
         output = get_embedder().encode([request.query], batch_size=1, max_length=8192, return_dense=True)
         vector = output["dense_vecs"][0].tolist()
-        hits = client.search(collection_name=QDRANT_COLLECTION, query_vector=vector, limit=request.top_k, with_payload=True)
+        hits = _query_points(client, vector, request.top_k)
         results = []
         for hit in hits:
             payload = hit.payload or {}
