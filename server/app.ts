@@ -1,0 +1,40 @@
+import express from 'express';
+import path from 'path';
+import { createServer as createViteServer } from 'vite';
+import dotenv from 'dotenv';
+import apiRouter from './routes/index.ts';
+import { errorHandler, notFound } from './middleware/errorHandler.ts';
+
+dotenv.config();
+
+export const app = express();
+const PORT = Number(process.env.PORT || 3000);
+
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
+app.use('/api', apiRouter);
+
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
+  }
+
+  app.use(notFound);
+  app.use(errorHandler);
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`ORCA-X server running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+if (process.env.NODE_ENV !== 'test') {
+  startServer().catch(error => {
+    console.error('Failed to start ORCA-X server:', error);
+    process.exit(1);
+  });
+}
