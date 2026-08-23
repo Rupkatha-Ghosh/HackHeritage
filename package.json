@@ -11,7 +11,7 @@
     "start": "node -e \"process.env.ORCA_PRODUCTION='true'; require('./dist/server.cjs')\"",
     "start:ml": "uvicorn ml.api:app --host 0.0.0.0 --port 8000",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
