@@ -18,37 +18,48 @@ from predict import OrcaXRiskPredictor  # noqa: E402
 app = FastAPI(
     title="ORCA-X ML Risk API",
     description="XGBoost-based marine environmental risk prediction service.",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 predictor = OrcaXRiskPredictor()
 
 
 class RiskRequest(BaseModel):
-    wind_speed_kts: float | None = None
-    wind_gust_kts: float | None = None
-    wave_height_m: float | None = None
-    wave_period_s: float | None = None
-    mean_wave_period_s: float | None = None
-    wind_direction_deg: float | None = None
-    wave_direction_deg: float | None = None
-    air_pressure_hpa: float | None = None
-    air_temperature_c: float | None = None
-    water_temperature_c: float | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    month: int | None = Field(default=None, ge=1, le=12)
-    hour: int | None = Field(default=None, ge=0, le=23)
+    wind_speed_kts: float
+    wind_gust_kts: float
+    wave_height_m: float
+    wave_period_s: float
+    mean_wave_period_s: float
+    wind_direction_deg: float
+    wave_direction_deg: float
+    air_pressure_hpa: float
+    air_temperature_c: float
+    water_temperature_c: float
+    latitude: float
+    longitude: float
+    month: int = Field(ge=1, le=12)
+    hour: int = Field(ge=0, le=23)
 
 
 @app.get("/")
 def root():
-    return {"service": "ORCA-X ML Risk API", "status": "online", "model": "XGBoost"}
+    return {
+        "service": "ORCA-X ML Risk API",
+        "status": "online",
+        "model": "XGBoost",
+        "model_version": "orca-xgb-risk-v1",
+        "deployment_validation": "NOT_VALIDATED_FOR_INDIAN_COASTAL_DOMAIN",
+    }
 
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "model_loaded": predictor.model is not None}
+    return {
+        "status": "healthy",
+        "model_loaded": predictor.model is not None,
+        "model_version": "orca-xgb-risk-v1",
+        "deployment_validation": "NOT_VALIDATED_FOR_INDIAN_COASTAL_DOMAIN",
+    }
 
 
 @app.post("/predict-risk")
@@ -56,5 +67,7 @@ def predict_risk(request: RiskRequest):
     try:
         result = predictor.predict_one(request.model_dump())
         return {"success": True, **result}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Risk prediction failed: {exc}") from exc
