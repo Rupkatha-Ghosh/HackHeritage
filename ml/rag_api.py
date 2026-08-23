@@ -4,7 +4,11 @@ from __future__ import annotations
 import os
 import uuid
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
