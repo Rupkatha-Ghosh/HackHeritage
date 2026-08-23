@@ -10,7 +10,7 @@ import pandas as pd
 import xgboost as xgb
 
 from config import FEATURE_COLUMNS, MODELS_DIR
-
+from ood import check_input_domain
 
 MODEL_PATH = MODELS_DIR / "orca_xgb_risk.json"
 METADATA_PATH = MODELS_DIR / "orca_xgb_risk_metadata.json"
@@ -32,25 +32,27 @@ class OrcaXRiskPredictor:
         self.model = xgb.XGBClassifier()
         self.model.load_model(str(model_path))
 
-        self.metadata = json.loads(
-            metadata_path.read_text(encoding="utf-8")
-        )
-
-        self.feature_columns = self.metadata.get(
-            "features",
-            FEATURE_COLUMNS,
-        )
+        self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        self.feature_columns = self.metadata.get("features", FEATURE_COLUMNS)
 
     def predict_one(self, features: dict) -> dict:
+        domain = check_input_domain(features)
+        if domain.invalid_features:
+            raise ValueError(
+                f"Invalid or missing model inputs: {', '.join(domain.invalid_features)}"
+            )
+
         row = pd.DataFrame(
-            [[features.get(feature) for feature in self.feature_columns]],
+            [[features[feature] for feature in self.feature_columns]],
             columns=self.feature_columns,
         )
-
         row = row.apply(pd.to_numeric, errors="coerce")
 
-        probabilities = self.model.predict_proba(row)[0]
+        if row.isna().any().any():
+            missing = row.columns[row.isna().any()].tolist()
+            raise ValueError(f"Model inputs became non-numeric: {', '.join(missing)}")
 
+        probabilities = self.model.predict_proba(row)[0]
         predicted_class = int(np.argmax(probabilities))
         confidence = float(probabilities[predicted_class])
 
@@ -62,12 +64,13 @@ class OrcaXRiskPredictor:
                 RISK_CLASS_NAMES[i]: round(float(probabilities[i]), 6)
                 for i in range(len(probabilities))
             },
+            "domain_validation": domain.as_dict(),
+            "model_version": "orca-xgb-risk-v1",
         }
 
 
 def main() -> None:
     predictor = OrcaXRiskPredictor()
-
     sample = {
         "wind_speed_kts": 12.0,
         "wind_gust_kts": 16.0,
@@ -86,19 +89,15 @@ def main() -> None:
     }
 
     result = predictor.predict_one(sample)
-
-    print()
     print("=" * 60)
     print("ORCA-X RISK PREDICTION")
     print("=" * 60)
-
     print(f"Risk class : {result['risk_class']}")
     print(f"Risk label : {result['risk_label']}")
     print(f"Confidence : {result['confidence']:.4f}")
-
+    print(f"Domain     : {result['domain_validation']['status']}")
     print()
     print("Probabilities:")
-
     for label, probability in result["probabilities"].items():
         print(f"  {label:<10}: {probability:.4f}")
 

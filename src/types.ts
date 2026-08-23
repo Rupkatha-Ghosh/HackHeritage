@@ -15,8 +15,8 @@ export interface LocationInfo {
 
 export interface TimeWindow {
   requestedText: string;
-  resolvedStartTime: string; // ISO UTC
-  resolvedEndTime: string;   // ISO UTC
+  resolvedStartTime: string;
+  resolvedEndTime: string;
   localDisplayTime: string;
   isForecast: boolean;
 }
@@ -49,7 +49,7 @@ export interface OceanData {
   currentSpeedKts: number;
   currentDirectionDeg: number;
   salinityPsu: number;
-  seaStateIndex: number; // 0-9 Douglas Sea Scale
+  seaStateIndex: number;
   seaStateDescription: string;
   tidePhase: 'High Tide' | 'Low Tide' | 'Flood Tide' | 'Ebb Tide';
   tideHeightMeters: number;
@@ -104,33 +104,39 @@ export interface FeatureContribution {
   featureName: string;
   featureValue: string | number;
   unit: string;
-  riskWeight: number; // -1.0 to 1.0 (positive increases risk, negative decreases risk)
+  riskWeight: number;
   impactLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   description: string;
 }
 
+export interface RiskDomainValidation {
+  status: 'UNVALIDATED_DEPLOYMENT_DOMAIN' | 'INVALID_INPUT';
+  trainingDataset: string;
+  deploymentValidationStatus: string;
+  warnings: string[];
+  invalidFeatures: string[];
+}
+
 export interface RiskPrediction {
-  riskScore: number; // 0 - 100
+  riskScore: number;
   riskLevel: RiskLevel;
-  confidenceScore: number; // 0 - 100
-  modelVersion: string; // e.g. "v2.4-rule-based-marine-scoring"
-  predictionTarget: string; // "Small-craft vessel fishing & navigation safety"
+  confidenceScore: number;
+  modelVersion: string;
+  predictionTarget: string;
   primaryRecommendation: string;
   safetySummary: string;
   actionableAdvisories: string[];
   restrictedCraftTypes: string[];
   safeCraftTypes: string[];
   featureContributions: FeatureContribution[];
+  domainValidation?: RiskDomainValidation;
   validUntil: string;
   generatedAt: string;
 }
 
 export interface GisGeoJsonFeature {
   type: 'Feature';
-  geometry: {
-    type: 'Polygon' | 'Point' | 'LineString';
-    coordinates: any;
-  };
+  geometry: { type: 'Polygon' | 'Point' | 'LineString'; coordinates: any };
   properties: {
     name: string;
     category: 'hazard_zone' | 'precaution_zone' | 'safe_corridor' | 'port_shelter' | 'buoy_station' | 'bathymetry';
@@ -149,11 +155,11 @@ export interface GisLayerData {
 export interface EvidenceItem {
   id: string;
   title: string;
-  sourceAuthority: string; // e.g. "INCOIS", "IMD", "CMFRI", "Indian Coast Guard", "IMO SOLAS"
+  sourceAuthority: string;
   documentType: 'Fisheries Advisory' | 'Ocean State Forecast' | 'Cyclone Bulletin' | 'Maritime Regulation' | 'Scientific Protocol';
   publicationDate: string;
   excerpt: string;
-  relevanceScore: number; // 0.0 - 1.0 (BGE-reranker score)
+  relevanceScore: number;
   officialUrl?: string;
   complianceRule?: string;
 }
