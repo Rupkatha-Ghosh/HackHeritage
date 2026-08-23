@@ -85,7 +85,17 @@ export async function runOrcaAgentWorkflow(
   const riskTrace = startTrace('RiskEngine', 'Run XGBoost ML risk service with deterministic fallback');
   const mlRisk = await predictMarineRiskWithMl(weather, ocean, satellite, location);
   const risk = mlRisk || calculateMarineRisk(weather, ocean, satellite, location);
-  riskTrace.logs.push(mlRisk ? 'XGBoost prediction received.' : 'ML API unavailable; deterministic fallback used.');
+  if (mlRisk) {
+    riskTrace.logs.push(`XGBoost prediction received: ${mlRisk.riskLevel} (${mlRisk.confidenceScore}%).`);
+    if (mlRisk.domainValidation) {
+      riskTrace.logs.push(`ML deployment validation: ${mlRisk.domainValidation.deploymentValidationStatus}.`);
+      if (mlRisk.domainValidation.status === 'UNVALIDATED_DEPLOYMENT_DOMAIN') {
+        riskTrace.logs.push('Indian coastal deployment is not independently validated by the committed ML dataset.');
+      }
+    }
+  } else {
+    riskTrace.logs.push('ML API unavailable; deterministic fallback used.');
+  }
   completeTrace(riskTrace, `${risk.riskScore}/100 ${risk.riskLevel}`);
 
   const gisTrace = startTrace('GisAgent', 'Generate GeoJSON hazard and navigation layers');
