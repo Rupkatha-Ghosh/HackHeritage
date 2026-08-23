@@ -12,7 +12,8 @@
     "start:ml": "uvicorn ml.api:app --host 0.0.0.0 --port 8000",
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
