@@ -27,6 +27,8 @@ jobs:
         run: python -m pip install --upgrade pip && pip install -r ml/requirements.txt
       - name: Type check
         run: npm run lint
+      - name: Python syntax validation
+        run: python -m py_compile ml/api.py ml/rag_api.py
       - name: Production build
         run: npm run build
       - name: Start ML API
