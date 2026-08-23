@@ -7,9 +7,12 @@
   "scripts": {
     "dev": "tsx server/app.ts",
     "dev:ml": "uvicorn ml.api:app --reload --host 0.0.0.0 --port 8000",
+    "dev:rag": "uvicorn ml.rag_api:app --reload --host 0.0.0.0 --port 8001",
+    "ingest:rag": "tsx scripts/ingest-rag.mjs",
     "build": "vite build && esbuild server/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node -e \"process.env.ORCA_PRODUCTION='true'; require('./dist/server.cjs')\"",
     "start:ml": "uvicorn ml.api:app --host 0.0.0.0 --port 8000",
+    "start:rag": "uvicorn ml.rag_api:app --host 0.0.0.0 --port 8001",
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
@@ -33,7 +36,7 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
+    "tailwindcss": "^4.4.21",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
