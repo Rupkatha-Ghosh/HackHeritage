@@ -7,9 +7,6 @@ import {
   WeatherData,
 } from '../../types.ts';
 
-const ML_API_URL = (process.env.ORCA_ML_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
-const ML_TIMEOUT_MS = Number(process.env.ORCA_ML_API_TIMEOUT_MS || 3500);
-
 type ImpactLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 interface MlRiskResult {
@@ -18,6 +15,13 @@ interface MlRiskResult {
   risk_label: RiskLevel;
   confidence: number;
   probabilities: Record<string, number>;
+}
+
+function getMlApiConfig() {
+  return {
+    url: (process.env.ORCA_ML_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, ''),
+    timeoutMs: Number(process.env.ORCA_ML_API_TIMEOUT_MS || 3500),
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -30,13 +34,11 @@ function riskScoreFromProbabilities(probabilities: Record<string, number>): numb
     (probabilities.MODERATE || 0) * 40 +
     (probabilities.HIGH || 0) * 70 +
     (probabilities.EXTREME || 0) * 95;
-
   return Math.round(clamp(weighted, 8, 98));
 }
 
 function buildFeaturePayload(weather: WeatherData, ocean: OceanData, location: LocationInfo) {
   const observed = new Date(weather.observedAt || new Date().toISOString());
-
   return {
     wind_speed_kts: weather.windSpeedKts,
     wind_gust_kts: weather.windGustKts,
@@ -61,17 +63,17 @@ export async function predictMarineRiskWithMl(
   satellite: SatelliteData,
   location: LocationInfo,
 ): Promise<RiskPrediction | null> {
+  const { url, timeoutMs } = getMlApiConfig();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ML_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${ML_API_URL}/predict-risk`, {
+    const response = await fetch(`${url}/predict-risk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildFeaturePayload(weather, ocean, location)),
       signal: controller.signal,
     });
-
     if (!response.ok) return null;
 
     const result = (await response.json()) as MlRiskResult;
@@ -80,53 +82,30 @@ export async function predictMarineRiskWithMl(
     const riskScore = riskScoreFromProbabilities(result.probabilities || {});
     const confidenceScore = Math.round(clamp(result.confidence * 100, 0, 100));
 
-    const mlImpact: ImpactLevel = result.risk_label === 'EXTREME'
-      ? 'CRITICAL'
-      : result.risk_label === 'HIGH'
-        ? 'HIGH'
-        : result.risk_label === 'MODERATE'
-          ? 'MEDIUM'
-          : 'LOW';
-
-    const waveImpact: ImpactLevel = ocean.waveHeightMeters > 2.5
-      ? 'CRITICAL'
-      : ocean.waveHeightMeters > 1.5
-        ? 'HIGH'
-        : ocean.waveHeightMeters > 0.8
-          ? 'MEDIUM'
-          : 'LOW';
-
-    const gustImpact: ImpactLevel = weather.windGustKts > 34
-      ? 'CRITICAL'
-      : weather.windGustKts > 22
-        ? 'HIGH'
-        : weather.windGustKts > 15
-          ? 'MEDIUM'
-          : 'LOW';
+    const mlImpact: ImpactLevel = result.risk_label === 'EXTREME' ? 'CRITICAL'
+      : result.risk_label === 'HIGH' ? 'HIGH'
+      : result.risk_label === 'MODERATE' ? 'MEDIUM' : 'LOW';
+    const waveImpact: ImpactLevel = ocean.waveHeightMeters > 2.5 ? 'CRITICAL'
+      : ocean.waveHeightMeters > 1.5 ? 'HIGH'
+      : ocean.waveHeightMeters > 0.8 ? 'MEDIUM' : 'LOW';
+    const gustImpact: ImpactLevel = weather.windGustKts > 34 ? 'CRITICAL'
+      : weather.windGustKts > 22 ? 'HIGH'
+      : weather.windGustKts > 15 ? 'MEDIUM' : 'LOW';
 
     const featureContributions = [
       {
-        featureName: 'ML Risk Classification',
-        featureValue: result.risk_label,
-        unit: 'class',
-        riskWeight: clamp((riskScore - 50) / 50, -1, 1),
-        impactLevel: mlImpact,
+        featureName: 'ML Risk Classification', featureValue: result.risk_label, unit: 'class',
+        riskWeight: clamp((riskScore - 50) / 50, -1, 1), impactLevel: mlImpact,
         description: `XGBoost classified the current 14-feature marine state as ${result.risk_label} with ${(result.confidence * 100).toFixed(1)}% probability confidence.`,
       },
       {
-        featureName: 'Significant Wave Height (Hs)',
-        featureValue: ocean.waveHeightMeters.toFixed(2),
-        unit: 'm',
-        riskWeight: clamp((ocean.waveHeightMeters - 1.0) / 3.0, -1, 1),
-        impactLevel: waveImpact,
+        featureName: 'Significant Wave Height (Hs)', featureValue: ocean.waveHeightMeters.toFixed(2), unit: 'm',
+        riskWeight: clamp((ocean.waveHeightMeters - 1.0) / 3.0, -1, 1), impactLevel: waveImpact,
         description: `Observed significant wave height is ${ocean.waveHeightMeters.toFixed(2)}m.`,
       },
       {
-        featureName: 'Wind Gusts',
-        featureValue: weather.windGustKts.toFixed(1),
-        unit: 'kts',
-        riskWeight: clamp((weather.windGustKts - 15) / 25, -1, 1),
-        impactLevel: gustImpact,
+        featureName: 'Wind Gusts', featureValue: weather.windGustKts.toFixed(1), unit: 'kts',
+        riskWeight: clamp((weather.windGustKts - 15) / 25, -1, 1), impactLevel: gustImpact,
         description: `Observed wind gusts reach ${weather.windGustKts.toFixed(1)} knots.`,
       },
     ];
@@ -155,9 +134,7 @@ export async function predictMarineRiskWithMl(
       safeCraftTypes.push('Emergency Disaster Response Vessels Only');
     }
 
-    if (satellite.status !== 'LIVE') {
-      advisories.push('Satellite observations are unavailable or degraded; treat remote-sensing-derived confidence separately from the ML classification.');
-    }
+    if (satellite.status !== 'LIVE') advisories.push('Satellite observations are unavailable or degraded; treat remote-sensing-derived confidence separately from the ML classification.');
 
     return {
       riskScore,
@@ -165,14 +142,13 @@ export async function predictMarineRiskWithMl(
       confidenceScore,
       modelVersion: 'orca-xgb-risk-v1',
       predictionTarget: 'Marine environmental risk classification for fishing and navigation safety',
-      primaryRecommendation:
-        result.risk_label === 'LOW'
-          ? 'Favorable modeled conditions with normal safety precautions.'
-          : result.risk_label === 'MODERATE'
-            ? 'Elevated caution is advised, especially for small craft.'
-            : result.risk_label === 'HIGH'
-              ? 'High modeled risk: restrict small-craft operations and seek safer conditions.'
-              : 'Extreme modeled risk: suspend normal marine operations and follow statutory warnings.',
+      primaryRecommendation: result.risk_label === 'LOW'
+        ? 'Favorable modeled conditions with normal safety precautions.'
+        : result.risk_label === 'MODERATE'
+          ? 'Elevated caution is advised, especially for small craft.'
+          : result.risk_label === 'HIGH'
+            ? 'High modeled risk: restrict small-craft operations and seek safer conditions.'
+            : 'Extreme modeled risk: suspend normal marine operations and follow statutory warnings.',
       safetySummary: `XGBoost marine risk model classified the current environmental state as ${result.risk_label}. Probability distribution: ${Object.entries(result.probabilities || {}).map(([label, value]) => `${label} ${(value * 100).toFixed(1)}%`).join(', ')}.`,
       actionableAdvisories: advisories,
       restrictedCraftTypes,
