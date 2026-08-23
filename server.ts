@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { COASTAL_LOCATIONS, MARINE_EVIDENCE_CORPUS, MULTILINGUAL_DICTIONARY } from './src/data/coastalData.ts';
 import { calculateMarineRisk, generateGisLayers } from './src/utils/marineRiskEngine.ts';
+import { predictMarineRiskWithMl } from './src/services/ml/riskService.ts';
 import { fetchSatelliteData } from './src/services/satellite/satelliteService.ts';
 import { 
   OrcaAnalysisResponse, 
@@ -60,7 +61,6 @@ function resolveLocation(query: string, locationOverride?: string): LocationInfo
     }
   }
 
-  // Keywords mapping for coastal cities
   if (q.includes('digha') || q.includes('bengal') || q.includes('kolkata')) return COASTAL_LOCATIONS.digha;
   if (q.includes('puri') || q.includes('odisha') || q.includes('orissa')) return COASTAL_LOCATIONS.puri;
   if (q.includes('vizag') || q.includes('visakhapatnam') || q.includes('andhra')) return COASTAL_LOCATIONS.visakhapatnam;
@@ -74,7 +74,6 @@ function resolveLocation(query: string, locationOverride?: string): LocationInfo
   if (q.includes('andaman') || q.includes('port blair')) return COASTAL_LOCATIONS.port_blair;
   if (q.includes('sundarban')) return COASTAL_LOCATIONS.sundarbans;
 
-  // Default to Digha Coast as benchmark primary scenario
   return COASTAL_LOCATIONS.digha;
 }
 
@@ -126,9 +125,6 @@ function resolveSatelliteObservationWindow(timeWindow: TimeWindow): {
 } {
   const now = new Date();
 
-  // Satellite imagery is observational, not forecast data.
-  // For forecast queries, search recent historical observations
-  // instead of asking Sentinel for imagery that has not happened yet.
   if (timeWindow.isForecast) {
     const lookbackDays = 7;
     const start = new Date(now.getTime() - lookbackDays * 24 * 3600 * 1000);
@@ -141,8 +137,6 @@ function resolveSatelliteObservationWindow(timeWindow: TimeWindow): {
     };
   }
 
-  // For current/past observation requests, never allow a future
-  // satellite search end time.
   const requestedStart = new Date(timeWindow.resolvedStartTime);
   const requestedEnd = new Date(timeWindow.resolvedEndTime);
 
@@ -167,45 +161,33 @@ async function fetchMarineAndWeatherData(lat: number, lon: number): Promise<{ we
     const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=kn&timezone=auto`;
     const marineUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,ocean_current_velocity,ocean_current_direction&timezone=auto`;
 
-    // Fetch in parallel with 7s timeout and graceful individual catch
     const [wRes, mRes] = await Promise.allSettled([
       fetch(weatherUrl, { signal: AbortSignal.timeout(7000) }),
       fetch(marineUrl, { signal: AbortSignal.timeout(7000) })
     ]);
 
     if (wRes.status === 'fulfilled' && wRes.value.ok) {
-      try {
-        weatherData = await wRes.value.json();
-      } catch {
-        weatherData = null;
-      }
+      try { weatherData = await wRes.value.json(); } catch { weatherData = null; }
     }
     if (mRes.status === 'fulfilled' && mRes.value.ok) {
-      try {
-        marineData = await mRes.value.json();
-      } catch {
-        marineData = null;
-      }
+      try { marineData = await mRes.value.json(); } catch { marineData = null; }
     }
-  } catch (err: any) {
-    // Non-blocking fallback
+  } catch {
     isDegraded = true;
   }
 
   const currentW = weatherData?.current;
   const currentM = marineData?.current;
 
-  // Compass direction helper
   const degToCompass = (deg: number) => {
     const val = Math.floor((deg / 22.5) + 0.5);
     const arr = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
     return arr[(val % 16)];
   };
 
-  // Calculate sea state from wave height or calibrated baseline
   const waveH = currentM?.wave_height ?? (1.3 + Math.abs(Math.sin(lat * 5)) * 0.4);
-  let seaState = 2; // Smooth-Slight
-  let seaStateDesc = 'Slight (Wave 0.5 - 1.25m)';
+  let seaState = 2;
+  let seaStateDesc = 'Smooth-Slight';
   if (waveH > 4.0) { seaState = 6; seaStateDesc = 'Very Rough to High (> 4.0m)'; }
   else if (waveH > 2.5) { seaState = 5; seaStateDesc = 'Rough (Wave 2.5 - 4.0m)'; }
   else if (waveH > 1.5) { seaState = 4; seaStateDesc = 'Moderate (Wave 1.25 - 2.5m)'; }
@@ -256,7 +238,6 @@ async function fetchMarineAndWeatherData(lat: number, lon: number): Promise<{ we
 }
 
 function retrieveEvidence(query: string, location: LocationInfo, riskLevel: string): EvidenceItem[] {
-  // Semantic score matching & BGE-reranking simulation
   return MARINE_EVIDENCE_CORPUS.map(item => {
     let score = item.relevanceScore;
     if (riskLevel === 'HIGH' || riskLevel === 'EXTREME') {
@@ -305,12 +286,10 @@ async function runOrcaAgentWorkflow(
     }
   };
 
-  // 1. Planner Agent
   const plannerTrace = startTrace('Planner', `Analyze query: "${query}"`);
   plannerTrace.logs.push('Determined tasks: Entity Resolution, Time Disambiguation, Marine & Weather Connector, ML Risk Inference, GIS Polygonization, RAG Grounding, LLM Synthesis');
   completeTrace(plannerTrace, 'Workflow execution graph created with 7 specialized sub-agents.');
 
-  // 2. Location & Time Resolver Agent
   const resolverTrace = startTrace('LocationTimeResolver', `Extract geographic anchor & time window from query`);
   const location = resolveLocation(query, locationOverride);
   const timeWindow = resolveTimeWindow(query, timeOverride);
@@ -318,63 +297,38 @@ async function runOrcaAgentWorkflow(
   resolverTrace.logs.push(`Resolved time window: ${timeWindow.requestedText} (Display: ${timeWindow.localDisplayTime})`);
   completeTrace(resolverTrace, `Target: ${location.name} | Window: ${timeWindow.requestedText}`);
 
-  // 3. Parallel Data Connectors (Weather, Ocean, Satellite)
   const weatherTrace = startTrace('WeatherAgent', `Fetch Open-Meteo forecast for ${location.name} [${location.latitude}, ${location.longitude}]`);
   const oceanTrace = startTrace('OceanAgent', `Query NOAA WaveWatch III & Copernicus Marine layers`);
   const satelliteTrace = startTrace('SatelliteAgent', `Search Copernicus Sentinel observations for ${location.name} and the requested time window`);
 
-  const { weather, ocean, degraded } = await fetchMarineAndWeatherData(
-  location.latitude,
-  location.longitude
-  );
-
+  const { weather, ocean, degraded } = await fetchMarineAndWeatherData(location.latitude, location.longitude);
   const satelliteWindow = resolveSatelliteObservationWindow(timeWindow);
+  satelliteTrace.logs.push(`Satellite observation window: ${satelliteWindow.startTime} → ${satelliteWindow.endTime}`);
+  satelliteTrace.logs.push(satelliteWindow.reason);
 
-  satelliteTrace.logs.push(
-    `Satellite observation window: ${satelliteWindow.startTime} → ${satelliteWindow.endTime}`
-  );
-
-  satelliteTrace.logs.push(
-    satelliteWindow.reason
-  );
-
-  const satellite = await fetchSatelliteData(
-    location.latitude,
-    location.longitude,
-    satelliteWindow.startTime,
-    satelliteWindow.endTime
-  );
-  
+  const satellite = await fetchSatelliteData(location.latitude, location.longitude, satelliteWindow.startTime, satelliteWindow.endTime);
 
   completeTrace(weatherTrace, `Air Temp: ${weather.airTemperatureC}°C | Wind: ${weather.windSpeedKts} kts (${weather.windDirectionCompass}) | Gusts: ${weather.windGustKts} kts`);
   completeTrace(oceanTrace, `Wave Height: ${ocean.waveHeightMeters}m | Swell: ${ocean.swellHeightMeters}m (${ocean.swellPeriodSec}s) | Current: ${ocean.currentSpeedKts} kts`);
-  completeTrace(
-    satelliteTrace,
-    satellite.status === 'UNAVAILABLE'
-      ? 'No matching Copernicus Sentinel observation found; satellite-derived indicators are unavailable.'
-      : `Status: ${satellite.status} | Observations: ${satellite.observations.length} | Latest acquisition: ${satellite.acquisitionTime || 'unknown'}`
-  );
+  completeTrace(satelliteTrace, satellite.status === 'UNAVAILABLE' ? 'No matching Copernicus Sentinel observation found; satellite-derived indicators are unavailable.' : `Status: ${satellite.status} | Observations: ${satellite.observations.length} | Latest acquisition: ${satellite.acquisitionTime || 'unknown'}`);
 
-  // 4. ML Risk Engine Agent (XGBoost)
-  const riskTrace = startTrace('RiskEngine', `Evaluate multi-sensor telemetry with the current marine risk scoring engine`);
-  const risk = calculateMarineRisk(weather, ocean, satellite, location);
-  riskTrace.logs.push(`Evaluated 12 features. Top risk contributor: ${risk.featureContributions[0]?.featureName || 'Wave Height'}`);
+  // 4. ML Risk Engine Agent (XGBoost primary, rule-based fallback)
+  const riskTrace = startTrace('RiskEngine', `Evaluate multi-sensor telemetry with the ORCA-X XGBoost risk service`);
+  const mlRisk = await predictMarineRiskWithMl(weather, ocean, satellite, location);
+  const risk = mlRisk || calculateMarineRisk(weather, ocean, satellite, location);
+  riskTrace.logs.push(mlRisk ? 'XGBoost prediction received from the dedicated ML service.' : 'XGBoost service unavailable; deterministic marine risk engine used as fallback.');
   riskTrace.logs.push(`Inferred Risk Score: ${risk.riskScore}/100 [${risk.riskLevel}] with ${risk.confidenceScore}% confidence.`);
   completeTrace(riskTrace, `Risk Score: ${risk.riskScore}/100 (${risk.riskLevel}) | Model: ${risk.modelVersion}`);
 
-  // 5. GIS & Spatial Agent
   const gisTrace = startTrace('GisAgent', `Generate GeoJSON polygons for hazard zones, navigation fairways, and harbour coordinates`);
   const gisLayers = generateGisLayers(location, risk, ocean);
   completeTrace(gisTrace, `Constructed ${gisLayers.features.length} GeoJSON geospatial layers for interactive map rendering.`);
 
-  // 6. RAG Knowledge & Evidence Agent
   const ragTrace = startTrace('EvidenceRetrieval', `Vector similarity search (BGE-M3) and reranking (BGE-reranker) over INCOIS/IMD/CMFRI knowledge corpus`);
   const evidence = retrieveEvidence(query, location, risk.riskLevel);
   completeTrace(ragTrace, `Retrieved ${evidence.length} validated marine safety documents and operational directives.`);
 
-  // 7. Grounded LLM Response Agent
   const responseTrace = startTrace('ResponseGrounding', `Synthesize verified facts and evidence into user-facing marine intelligence briefing`);
-  
   let groundedSummary = '';
   const genAI = getGenAI();
 
@@ -393,6 +347,7 @@ GROUND TRUTH DATA (Strictly Grounded - Do NOT invent or hallucinate any numbers)
 - Sea Surface Temperature: ${ocean.seaSurfaceTemperatureC.toFixed(1)}°C
 - Visibility: ${weather.visibilityKm.toFixed(1)} km, Rain: ${weather.precipitationMm} mm
 - Calculated Marine Risk: ${risk.riskScore} / 100 [${risk.riskLevel} RISK] (Confidence: ${risk.confidenceScore}%)
+- Model: ${risk.modelVersion}
 - Model Primary Recommendation: "${risk.primaryRecommendation}"
 - Target Craft Restrictions: ${risk.restrictedCraftTypes.length > 0 ? risk.restrictedCraftTypes.join(', ') : 'None'}
 - Safe Craft Types: ${risk.safeCraftTypes.join(', ')}
@@ -408,15 +363,7 @@ Output Instructions:
     const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.7-flash'];
     for (const candidate of candidateModels) {
       try {
-        const aiResponse = await genAI.models.generateContent({
-          model: candidate,
-          contents: prompt,
-          config: {
-            temperature: 0.2,
-            topP: 0.85
-          }
-        });
-
+        const aiResponse = await genAI.models.generateContent({ model: candidate, contents: prompt, config: { temperature: 0.2, topP: 0.85 } });
         if (aiResponse.text) {
           groundedSummary = aiResponse.text;
           responseTrace.logs.push(`Grounded synthesis successfully generated using ${candidate}.`);
@@ -429,8 +376,6 @@ Output Instructions:
   }
 
   if (!groundedSummary) {
-    // High-quality deterministic grounded fallback if AI models are experiencing transient demand
-    const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
     groundedSummary = `${risk.primaryRecommendation}\n\n${risk.safetySummary}\n\nKey Parameters for ${location.name}:\n• Significant Wave Height: ${ocean.waveHeightMeters}m (Max: ${ocean.maxWaveHeightMeters}m)\n• Wind Speed & Gusts: ${weather.windSpeedKts} kts (Gusts ${weather.windGustKts} kts, ${weather.windDirectionCompass})\n• Swell Period: ${ocean.swellPeriodSec}s\n• Tidal Current Velocity: ${ocean.currentSpeedKts} kts\n• Sea State: Douglas Scale ${ocean.seaStateIndex} (${ocean.seaStateDescription})\n\nActionable Safety Advisories (INCOIS Aligned):\n${risk.actionableAdvisories.map((a, i) => `${i + 1}. ${a}`).join('\n')}`;
   }
 
@@ -462,14 +407,10 @@ Output Instructions:
 // API Route Handlers
 // ----------------------------------------------------
 
-// 1. Full ORCA Analysis Endpoint
 app.post('/api/orca/query', async (req: Request, res: Response) => {
   try {
     const { query, locationOverride, timeOverride, language = 'en' } = req.body;
-    if (!query || typeof query !== 'string') {
-      return res.status(400).json({ error: 'Query string is required.' });
-    }
-
+    if (!query || typeof query !== 'string') return res.status(400).json({ error: 'Query string is required.' });
     const result = await runOrcaAgentWorkflow(query, locationOverride, timeOverride, language as LanguageCode);
     res.json(result);
   } catch (error: any) {
@@ -478,120 +419,52 @@ app.post('/api/orca/query', async (req: Request, res: Response) => {
   }
 });
 
-// 2. Normalized Marine & Weather Conditions Endpoint
 app.get('/api/marine/conditions', async (req: Request, res: Response) => {
   try {
     const lat = parseFloat(req.query.lat as string) || 21.6266;
     const lon = parseFloat(req.query.lon as string) || 87.5074;
-    const data = await fetchMarineAndWeatherData(lat, lon);
-    res.json(data);
+    res.json(await fetchMarineAndWeatherData(lat, lon));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// 3. Risk Engine Prediction Endpoint
-app.post('/api/marine/risk', (req: Request, res: Response) => {
+app.post('/api/marine/risk', async (req: Request, res: Response) => {
   try {
     const { weather, ocean, satellite, location } = req.body;
-    if (!weather || !ocean || !location) {
-      return res.status(400).json({ error: 'Missing required environmental observation inputs.' });
-    }
+    if (!weather || !ocean || !location) return res.status(400).json({ error: 'Missing required environmental observation inputs.' });
     const defaultSat = satellite || {
-      status: 'UNAVAILABLE',
-      satelliteName: 'No satellite observation supplied',
-      processingTime: new Date().toISOString(),
-      latitude: location.latitude,
-      longitude: location.longitude,
-      source: 'No satellite source',
-      sourceUrl: '',
-      observationType: 'NO_OBSERVATION',
-      warnings: ['Satellite observation was not supplied to the risk endpoint.'],
-      observations: []
+      status: 'UNAVAILABLE', satelliteName: 'No satellite observation supplied', processingTime: new Date().toISOString(),
+      latitude: location.latitude, longitude: location.longitude, source: 'No satellite source', sourceUrl: '',
+      observationType: 'NO_OBSERVATION', warnings: ['Satellite observation was not supplied to the risk endpoint.'], observations: []
     } as SatelliteData;
-    const risk = calculateMarineRisk(weather, ocean, defaultSat, location);
-    res.json(risk);
+    const mlRisk = await predictMarineRiskWithMl(weather, ocean, defaultSat, location);
+    res.json(mlRisk || calculateMarineRisk(weather, ocean, defaultSat, location));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// 4. Satellite Remote Sensing Analysis Endpoint
 app.post('/api/satellite/analysis', async (req: Request, res: Response) => {
   try {
     const { latitude, longitude, startTime, endTime } = req.body;
-
-    const lat = Number(latitude);
-    const lon = Number(longitude);
-
-    if (
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lon) ||
-      lat < -90 ||
-      lat > 90 ||
-      lon < -180 ||
-      lon > 180
-    ) {
-      return res.status(400).json({
-        error: 'Valid latitude and longitude are required.'
-      });
+    const lat = Number(latitude); const lon = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
     }
-
     const now = new Date();
-
-    let start = startTime
-      ? new Date(startTime)
-      : new Date(now.getTime() - 6 * 3600000);
-
-    let end = endTime
-      ? new Date(endTime)
-      : now;
-
-    if (
-      Number.isNaN(start.getTime()) ||
-      Number.isNaN(end.getTime())
-    ) {
-      return res.status(400).json({
-        error: 'startTime and endTime must be valid ISO timestamps.'
-      });
-    }
-
-    // Sentinel provides observations, not future imagery.
-    // If the requested interval is entirely in the future,
-    // automatically use the latest 7 days of historical observations.
-    if (start > now) {
-      start = new Date(now.getTime() - 7 * 24 * 3600000);
-      end = now;
-    } else {
-      // Never query beyond the current time.
-      if (end > now) {
-        end = now;
-      }
-
-      // Protect against an invalid interval.
-      if (start >= end) {
-        start = new Date(end.getTime() - 24 * 3600000);
-      }
-    }
-
-    const sat = await fetchSatelliteData(
-      lat,
-      lon,
-      start.toISOString(),
-      end.toISOString()
-    );
-
-    res.json(sat);
+    let start = startTime ? new Date(startTime) : new Date(now.getTime() - 6 * 3600000);
+    let end = endTime ? new Date(endTime) : now;
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return res.status(400).json({ error: 'startTime and endTime must be valid ISO timestamps.' });
+    if (start > now) { start = new Date(now.getTime() - 7 * 24 * 3600000); end = now; }
+    else { if (end > now) end = now; if (start >= end) start = new Date(end.getTime() - 24 * 3600000); }
+    res.json(await fetchSatelliteData(lat, lon, start.toISOString(), end.toISOString()));
   } catch (error: any) {
     console.error('Satellite analysis error:', error);
-
-    res.status(502).json({
-      error: error.message || 'Satellite observation search failed.'
-    });
+    res.status(502).json({ error: error.message || 'Satellite observation search failed.' });
   }
 });
 
-// 5. Marine Knowledge & Evidence RAG Search Endpoint
 app.post('/api/evidence/search', (req: Request, res: Response) => {
   try {
     const { query = '', riskLevel = 'MODERATE', locationKey = 'digha' } = req.body;
@@ -603,47 +476,28 @@ app.post('/api/evidence/search', (req: Request, res: Response) => {
   }
 });
 
-// 6. Service Health Check Endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
+    status: 'healthy', timestamp: new Date().toISOString(),
     services: {
-      openMeteoConnector: 'online',
-      copernicusMarineConnector: 'configured_via_open_meteo_marine',
-      satelliteCatalog: 'copernicus_stac',
-      satelliteProcessing: 'metadata_only',
-      riskEngine: 'rule_based_v2.4',
-      vectorRAG: 'not_connected_in_current_build',
-      agentOrchestrator: 'server_workflow',
-      geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic'
+      openMeteoConnector: 'online', copernicusMarineConnector: 'configured_via_open_meteo_marine', satelliteCatalog: 'copernicus_stac',
+      satelliteProcessing: 'metadata_only', riskEngine: 'xgboost_with_rule_based_fallback', mlRiskApi: process.env.ORCA_ML_API_URL || 'http://127.0.0.1:8000',
+      vectorRAG: 'not_connected_in_current_build', agentOrchestrator: 'server_workflow', geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic'
     },
     supportedLocations: Object.keys(COASTAL_LOCATIONS).length
   });
 });
 
-// ----------------------------------------------------
-// Vite Middleware / Static Server
-// ----------------------------------------------------
-
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`ORCA-X Marine Intelligence Server running on http://0.0.0.0:${PORT}`);
-  });
+  app.listen(PORT, '0.0.0.0', () => console.log(`ORCA-X Marine Intelligence Server running on http://0.0.0.0:${PORT}`));
 }
 
 startServer();
