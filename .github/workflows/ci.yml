@@ -1,0 +1,59 @@
+name: ORCA-X CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Install ML dependencies
+        run: python -m pip install --upgrade pip && pip install -r ml/requirements.txt
+      - name: Type check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Start ML API
+        run: nohup uvicorn ml.api:app --host 127.0.0.1 --port 8000 > /tmp/orca-ml.log 2>&1 &
+      - name: Wait for ML API
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/ready > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/orca-ml.log
+          exit 1
+      - name: Start ORCA-X server
+        run: nohup npm start > /tmp/orca-server.log 2>&1 &
+      - name: Wait for ORCA-X server
+        run: |
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/api/health > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/orca-server.log
+          exit 1
+      - name: End-to-end smoke test
+        run: npm run smoke
+      - name: Upload service logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orca-x-service-logs
+          path: /tmp/orca-*.log
