@@ -1,6 +1,6 @@
 # ORCA-X — Ocean Reasoning & Collaborative AI
 
-ORCA-X is a marine-intelligence decision-support platform for coastal safety, fishing and navigation. It combines live weather/marine observations, Copernicus Sentinel catalogue metadata, a deterministic marine-risk engine, an XGBoost risk model, GIS layers, evidence retrieval and optional Gemini grounded synthesis.
+ORCA-X is a marine-intelligence decision-support platform for coastal safety, fishing and navigation. It combines live weather/marine observations, Copernicus Sentinel catalogue metadata, a deterministic marine-risk engine, an XGBoost risk model, GIS layers, query-aware evidence retrieval and optional Gemini grounded synthesis.
 
 ## Architecture
 
@@ -58,9 +58,14 @@ HackHeritage/
 │   ├── data/
 │   └── requirements.txt
 │
+├── scripts/
+│   └── smoke-test.mjs          # End-to-end service smoke test
+│
+├── .github/workflows/ci.yml    # Build + integration validation
 ├── .env.example
 ├── .gitignore
 ├── package.json
+├── package-lock.json
 ├── bun.lock
 ├── tsconfig.json
 ├── vite.config.ts
@@ -70,7 +75,7 @@ HackHeritage/
 
 ## Prerequisites
 
-- Node.js 20+ recommended
+- Node.js 20+
 - Python 3.11+
 - npm or Bun
 - A Gemini API key is optional; without it, deterministic grounded summaries are used.
@@ -80,7 +85,7 @@ HackHeritage/
 ### 1. Install frontend/backend dependencies
 
 ```bash
-npm install
+npm ci
 ```
 
 or:
@@ -141,10 +146,10 @@ Or directly:
 uvicorn ml.api:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Check:
+Check readiness:
 
 ```text
-http://127.0.0.1:8000/health
+http://127.0.0.1:8000/ready
 ```
 
 ### 5. Start ORCA-X
@@ -167,11 +172,22 @@ The API health endpoint is:
 http://localhost:3000/api/health
 ```
 
+### 6. Run the integration smoke test
+
+With both services running:
+
+```bash
+npm run smoke
+```
+
+The smoke test verifies ML readiness, the Express health endpoint, risk inference/fallback, and evidence retrieval.
+
 ## Production build
 
 Build the frontend and bundled Express server:
 
 ```bash
+npm run lint
 npm run build
 ```
 
@@ -204,7 +220,27 @@ python ml/src/prepare_dataset.py
 python ml/src/train.py
 ```
 
-The checked-in production model is loaded from `ml/models/`. Generated raw/processed datasets are ignored for future commits; see `ml/data/README.md` for the reproducibility workflow.
+Raw and generated processed datasets are intentionally excluded from the repository. The checked-in dataset manifest and production model provide the reproducibility anchor; see `ml/data/README.md` for the workflow.
+
+## Current capability boundaries
+
+- **ML inference:** XGBoost with deterministic rule-based fallback.
+- **Evidence retrieval:** local query-aware marine evidence corpus; this build does not claim vector-database RAG.
+- **Satellite:** Copernicus STAC catalogue metadata/search; this build does not perform satellite-image-derived feature extraction.
+- **ML deployment domain:** the committed model is explicitly flagged as not independently validated for the Indian coastal deployment domain.
+
+These boundaries are exposed by `/api/health` so the UI and operators do not mistake unavailable capabilities for completed services.
+
+## Continuous integration
+
+GitHub Actions runs:
+
+1. Node and Python dependency installation.
+2. TypeScript validation.
+3. Production build.
+4. ML API readiness check.
+5. Express server readiness check.
+6. End-to-end smoke test.
 
 ## Safety note
 
