@@ -1,0 +1,56 @@
+{
+  "dataset_name": "NOAA NDBC Standard Meteorological Observations",
+  "dataset_version": "historical standard meteorological station/year files",
+  "source": "NOAA National Data Buoy Center (NDBC) historical standard meteorological observations",
+  "raw_files": 6,
+  "raw_rows": 217905,
+  "transformed_rows": 217905,
+  "rows": 217884,
+  "stations": [
+    "41001",
+    "41002",
+    "42002"
+  ],
+  "features": [
+    "wind_speed_kts",
+    "wind_gust_kts",
+    "wave_height_m",
+    "wave_period_s",
+    "mean_wave_period_s",
+    "wind_direction_deg",
+    "wave_direction_deg",
+    "air_pressure_hpa",
+    "air_temperature_c",
+    "water_temperature_c",
+    "latitude",
+    "longitude",
+    "month",
+    "hour"
+  ],
+  "target": "risk_class",
+  "target_type": "proxy operational severity label",
+  "risk_classes": {
+    "0": "LOW",
+    "1": "MODERATE",
+    "2": "HIGH",
+    "3": "EXTREME"
+  },
+  "class_distribution": {
+    "0": 167812,
+    "1": 42594,
+    "2": 5760,
+    "3": 1718
+  },
+  "artifacts": [
+    "ndbc_marine_risk.parquet",
+    "ndbc_marine_risk.csv"
+  ],
+  "unit_conversions": {
+    "wind_speed": "m/s \u2192 knots",
+    "wind_gust": "m/s \u2192 knots",
+    "wave_height": "metres",
+    "wave_period": "seconds",
+    "visibility": "nautical miles"
+  },
+  "warning": "Labels are threshold-derived operational proxies, not historical vessel-incident outcomes."
+}

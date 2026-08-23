@@ -1,0 +1,210 @@
+{
+  "model": "XGBoost",
+  "model_file": "orca_xgb_risk.json",
+  "dataset_name": "NOAA NDBC Standard Meteorological Observations",
+  "dataset_version": "historical standard meteorological station/year files",
+  "target": "risk_class",
+  "classes": {
+    "0": "LOW",
+    "1": "MODERATE",
+    "2": "HIGH",
+    "3": "EXTREME"
+  },
+  "features": [
+    "wind_speed_kts",
+    "wind_gust_kts",
+    "wave_height_m",
+    "wave_period_s",
+    "mean_wave_period_s",
+    "wind_direction_deg",
+    "wave_direction_deg",
+    "air_pressure_hpa",
+    "air_temperature_c",
+    "water_temperature_c",
+    "latitude",
+    "longitude",
+    "month",
+    "hour"
+  ],
+  "feature_count": 14,
+  "random_state": 42,
+  "split": {
+    "train": 0.7,
+    "validation": 0.15,
+    "test": 0.15
+  },
+  "class_weights": {
+    "0": 0.3245947832601219,
+    "1": 1.278826804400322,
+    "2": 9.45672123015873,
+    "3": 31.72171381031614
+  },
+  "hyperparameters": {
+    "n_estimators": 700,
+    "learning_rate": 0.05,
+    "max_depth": 8,
+    "min_child_weight": 3,
+    "subsample": 0.85,
+    "colsample_bytree": 0.85,
+    "reg_alpha": 0.05,
+    "reg_lambda": 1.0,
+    "gamma": 0.0
+  },
+  "validation_metrics": {
+    "accuracy": 0.9999694030535753,
+    "macro_f1": 0.9993699708569407,
+    "weighted_f1": 0.9999693821959647,
+    "classification_report": {
+      "LOW": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 25172.0
+      },
+      "MODERATE": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 6389.0
+      },
+      "HIGH": {
+        "precision": 0.9988439306358381,
+        "recall": 1.0,
+        "f1-score": 0.9994216310005783,
+        "support": 864.0
+      },
+      "EXTREME": {
+        "precision": 1.0,
+        "recall": 0.9961240310077519,
+        "f1-score": 0.9980582524271845,
+        "support": 258.0
+      },
+      "accuracy": 0.9999694030535753,
+      "macro avg": {
+        "precision": 0.9997109826589595,
+        "recall": 0.999031007751938,
+        "f1-score": 0.9993699708569407,
+        "support": 32683.0
+      },
+      "weighted avg": {
+        "precision": 0.9999694384257677,
+        "recall": 0.9999694030535753,
+        "f1-score": 0.9999693821959647,
+        "support": 32683.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        25172,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        6389,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        864,
+        0
+      ],
+      [
+        0,
+        0,
+        1,
+        257
+      ]
+    ]
+  },
+  "test_metrics": {
+    "accuracy": 1.0,
+    "macro_f1": 1.0,
+    "weighted_f1": 1.0,
+    "classification_report": {
+      "LOW": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 25172.0
+      },
+      "MODERATE": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 6389.0
+      },
+      "HIGH": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 864.0
+      },
+      "EXTREME": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 258.0
+      },
+      "accuracy": 1.0,
+      "macro avg": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 32683.0
+      },
+      "weighted avg": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 32683.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        25172,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        6389,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        864,
+        0
+      ],
+      [
+        0,
+        0,
+        0,
+        258
+      ]
+    ]
+  },
+  "feature_importance": {
+    "wave_height_m": 0.51719069480896,
+    "wind_gust_kts": 0.1591579169034958,
+    "wind_speed_kts": 0.12538155913352966,
+    "mean_wave_period_s": 0.0922296941280365,
+    "wave_period_s": 0.05380074307322502,
+    "wave_direction_deg": 0.011017236858606339,
+    "air_pressure_hpa": 0.010359845124185085,
+    "water_temperature_c": 0.005855086725205183,
+    "air_temperature_c": 0.005491985939443111,
+    "latitude": 0.0051762801595032215,
+    "wind_direction_deg": 0.004637244623154402,
+    "month": 0.004578091204166412,
+    "hour": 0.0040433830581605434,
+    "longitude": 0.0010801996104419231
+  },
+  "label_policy": "Transparent threshold-derived operational proxy labels; not historical incident outcomes."
+}
