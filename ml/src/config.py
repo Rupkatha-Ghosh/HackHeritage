@@ -6,7 +6,9 @@ RAW_DIR = ML_ROOT / "data" / "raw" / "ndbc"
 PROCESSED_DIR = ML_ROOT / "data" / "processed"
 MODELS_DIR = ML_ROOT / "models"
 
-DEFAULT_STATIONS = ["41001", "41002", "42002", "42003", "42012"]
+# Keep the default training/evaluation station list aligned with the
+# committed dataset manifest and evaluation artifacts.
+DEFAULT_STATIONS = ["41001", "41002", "42002"]
 DEFAULT_YEARS = [2024, 2025]
 
 NDBC_BASE = "https://www.ndbc.noaa.gov/data/historical/stdmet"
@@ -31,4 +33,4 @@ FEATURE_COLUMNS = [
     "hour",
 ]
 
-    # "visibility_nm",
+# "visibility_nm",
