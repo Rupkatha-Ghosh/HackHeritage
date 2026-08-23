@@ -14,7 +14,7 @@ import {
   resolveSatelliteObservationWindow,
   resolveTimeWindow,
 } from './marineService.ts';
-import { retrieveEvidence } from './evidenceService.ts';
+import { retrieveRagEvidence } from './ragService.ts';
 
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -56,7 +56,7 @@ export async function runOrcaAgentWorkflow(
   };
 
   const planner = startTrace('Planner', `Analyze query: "${query}"`);
-  planner.logs.push('Workflow: location/time resolution, environmental connectors, ML risk, GIS, evidence, grounded synthesis');
+  planner.logs.push('Workflow: location/time resolution, environmental connectors, ML risk, GIS, BGE-M3 + Qdrant evidence, grounded synthesis');
   completeTrace(planner, 'Workflow execution graph created.');
 
   const resolver = startTrace('LocationTimeResolver', 'Resolve geographic and temporal intent');
@@ -102,15 +102,16 @@ export async function runOrcaAgentWorkflow(
   const gisLayers = generateGisLayers(location, risk, ocean);
   completeTrace(gisTrace, `${gisLayers.features.length} GeoJSON features generated.`);
 
-  const ragTrace = startTrace('EvidenceRetrieval', 'Retrieve marine safety evidence corpus');
-  const evidence = retrieveEvidence(query, location, risk.riskLevel);
-  completeTrace(ragTrace, `${evidence.length} evidence items retrieved.`);
+  const ragTrace = startTrace('EvidenceRetrieval', 'Retrieve marine evidence with BGE-M3 embeddings and Qdrant');
+  const rag = await retrieveRagEvidence(query, location, risk.riskLevel);
+  ragTrace.logs.push(`Retrieval provider: ${rag.provider}; embedding model: ${rag.model}.`);
+  completeTrace(ragTrace, `${rag.evidence.length} evidence items retrieved via ${rag.provider}.`);
 
   const responseTrace = startTrace('ResponseGrounding', 'Generate grounded marine intelligence briefing');
   let groundedSummary = '';
   const genAI = getGenAI();
   if (genAI) {
-    const prompt = `You are ORCA-X (Ocean Reasoning & Collaborative AI), an authoritative marine intelligence assistant.\nUser Query: "${query}"\nLocation: ${location.name}, ${location.state || ''}, ${location.country}\nTime Window: ${timeWindow.requestedText}\n\nGROUND TRUTH:\nWave Height: ${ocean.waveHeightMeters}m; Max Wave: ${ocean.maxWaveHeightMeters}m\nSwell: ${ocean.swellHeightMeters}m / ${ocean.swellPeriodSec}s\nWind: ${weather.windSpeedKts} kts; Gusts: ${weather.windGustKts} kts; Direction: ${weather.windDirectionCompass}\nCurrent: ${ocean.currentSpeedKts} kts\nSea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\nSST: ${ocean.seaSurfaceTemperatureC}°C\nVisibility: ${weather.visibilityKm} km\nRisk: ${risk.riskScore}/100 ${risk.riskLevel}; Confidence: ${risk.confidenceScore}%\nRecommendation: ${risk.primaryRecommendation}\nAdvisories: ${risk.actionableAdvisories.join('; ')}\nSources: ${evidence.map(e => e.title).join('; ')}\n\nRespond in ${language}. Never invent measurements. Give a concise verdict, key physical drivers, operational advisories, and a disclaimer that official INCOIS/IMD/MRCC warnings supersede this system.`;
+    const prompt = `You are ORCA-X (Ocean Reasoning & Collaborative AI), an authoritative marine intelligence assistant.\nUser Query: "${query}"\nLocation: ${location.name}, ${location.state || ''}, ${location.country}\nTime Window: ${timeWindow.requestedText}\n\nGROUND TRUTH:\nWave Height: ${ocean.waveHeightMeters}m; Max Wave: ${ocean.maxWaveHeightMeters}m\nSwell: ${ocean.swellHeightMeters}m / ${ocean.swellPeriodSec}s\nWind: ${weather.windSpeedKts} kts; Gusts: ${weather.windGustKts} kts; Direction: ${weather.windDirectionCompass}\nCurrent: ${ocean.currentSpeedKts} kts\nSea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\nSST: ${ocean.seaSurfaceTemperatureC}°C\nVisibility: ${weather.visibilityKm} km\nRisk: ${risk.riskScore}/100 ${risk.riskLevel}; Confidence: ${risk.confidenceScore}%\nRecommendation: ${risk.primaryRecommendation}\nAdvisories: ${risk.actionableAdvisories.join('; ')}\nRetrieved Evidence (BGE-M3 + Qdrant):\n${rag.evidence.map(e => `- ${e.title} | ${e.sourceAuthority} | ${e.excerpt} | ${e.complianceRule}`).join('\n')}\n\nRespond in ${language}. Never invent measurements. Give a concise verdict, key physical drivers, operational advisories, cite the retrieved evidence authorities by name, and state that official INCOIS/IMD/MRCC warnings supersede this system.`;
     for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.7-flash']) {
       try {
         const result = await genAI.models.generateContent({
@@ -126,7 +127,7 @@ export async function runOrcaAgentWorkflow(
   }
 
   if (!groundedSummary) {
-    groundedSummary = `${risk.primaryRecommendation}\n\n${risk.safetySummary}\n\nKey Parameters for ${location.name}:\n• Significant Wave Height: ${ocean.waveHeightMeters}m\n• Wind: ${weather.windSpeedKts} kts (gusts ${weather.windGustKts} kts)\n• Swell Period: ${ocean.swellPeriodSec}s\n• Current: ${ocean.currentSpeedKts} kts\n• Sea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\n\nSafety Advisories:\n${risk.actionableAdvisories.map((a, i) => `${i + 1}. ${a}`).join('\n')}`;
+    groundedSummary = `${risk.primaryRecommendation}\n\n${risk.safetySummary}\n\nKey Parameters for ${location.name}:\n• Significant Wave Height: ${ocean.waveHeightMeters}m\n• Wind: ${weather.windSpeedKts} kts (gusts ${weather.windGustKts} kts)\n• Swell Period: ${ocean.swellPeriodSec}s\n• Current: ${ocean.currentSpeedKts} kts\n• Sea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\n\nSafety Advisories:\n${risk.actionableAdvisories.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nEvidence:\n${rag.evidence.map(e => `• ${e.title} — ${e.sourceAuthority}`).join('\n')}`;
   }
   completeTrace(responseTrace, 'Grounded marine briefing generated.');
 
@@ -142,10 +143,10 @@ export async function runOrcaAgentWorkflow(
     satellite,
     risk,
     gisLayers,
-    evidence,
+    evidence: rag.evidence,
     agentTraces: traces,
     groundedSummary,
-    isDataDegraded: degraded || satellite.status !== 'LIVE',
+    isDataDegraded: degraded || satellite.status !== 'LIVE' || rag.provider !== 'bge-m3-qdrant',
     warnings: satellite.warnings,
     freshnessTimestamp: new Date().toISOString(),
     officialDisclaimer: 'ORCA-X is an AI decision-support platform for marine intelligence. It does NOT supersede statutory warnings from INCOIS, IMD, or Maritime Rescue Coordination Centres (MRCC).',
