@@ -1,0 +1,272 @@
+{
+  "evaluation": "leave_one_station_out",
+  "stations": [
+    "41001",
+    "41002",
+    "42002"
+  ],
+  "experiments": {
+    "41001": {
+      "training_stations": [
+        "41002",
+        "42002"
+      ],
+      "test_station": "41001",
+      "training_rows": 171231,
+      "test_rows": 46653,
+      "metrics": {
+        "accuracy": 0.9982637772490515,
+        "macro_f1": 0.9987011616863232,
+        "weighted_f1": 0.9982644905548328,
+        "classification_report": {
+          "LOW": {
+            "precision": 0.9991756914243484,
+            "recall": 0.9985228951255539,
+            "f1-score": 0.9988491866164666,
+            "support": 35204.0
+          },
+          "MODERATE": {
+            "precision": 0.9948129675810474,
+            "recall": 0.9971005798840232,
+            "f1-score": 0.9959554601288261,
+            "support": 10002.0
+          },
+          "HIGH": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 999.0
+          },
+          "EXTREME": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 448.0
+          },
+          "accuracy": 0.9982637772490515,
+          "macro avg": {
+            "precision": 0.998497164751349,
+            "recall": 0.9989058687523943,
+            "f1-score": 0.9987011616863232,
+            "support": 46653.0
+          },
+          "weighted avg": {
+            "precision": 0.9982659280785459,
+            "recall": 0.9982637772490515,
+            "f1-score": 0.9982644905548328,
+            "support": 46653.0
+          }
+        },
+        "confusion_matrix": [
+          [
+            35152,
+            52,
+            0,
+            0
+          ],
+          [
+            29,
+            9973,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            999,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            448
+          ]
+        ]
+      }
+    },
+    "41002": {
+      "training_stations": [
+        "41001",
+        "42002"
+      ],
+      "test_station": "41002",
+      "training_rows": 129553,
+      "test_rows": 88331,
+      "metrics": {
+        "accuracy": 0.9996830104946168,
+        "macro_f1": 0.9958631365767407,
+        "weighted_f1": 0.9996824566011404,
+        "classification_report": {
+          "LOW": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 63051.0
+          },
+          "MODERATE": {
+            "precision": 0.9999516861532515,
+            "recall": 1.0,
+            "f1-score": 0.9999758424930547,
+            "support": 20697.0
+          },
+          "HIGH": {
+            "precision": 0.9945868945868945,
+            "recall": 0.9974285714285714,
+            "f1-score": 0.9960057061340941,
+            "support": 3500.0
+          },
+          "EXTREME": {
+            "precision": 0.9925373134328358,
+            "recall": 0.9824561403508771,
+            "f1-score": 0.9874709976798144,
+            "support": 1083.0
+          },
+          "accuracy": 0.9996830104946168,
+          "macro avg": {
+            "precision": 0.9967689735432455,
+            "recall": 0.9949711779448621,
+            "f1-score": 0.9958631365767407,
+            "support": 88331.0
+          },
+          "weighted avg": {
+            "precision": 0.9996826945219203,
+            "recall": 0.9996830104946168,
+            "f1-score": 0.9996824566011404,
+            "support": 88331.0
+          }
+        },
+        "confusion_matrix": [
+          [
+            63051,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            20697,
+            0,
+            0
+          ],
+          [
+            0,
+            1,
+            3491,
+            8
+          ],
+          [
+            0,
+            0,
+            19,
+            1064
+          ]
+        ]
+      }
+    },
+    "42002": {
+      "training_stations": [
+        "41001",
+        "41002"
+      ],
+      "test_station": "42002",
+      "training_rows": 134984,
+      "test_rows": 82900,
+      "metrics": {
+        "accuracy": 0.9999517490952955,
+        "macro_f1": 0.9969014144786117,
+        "weighted_f1": 0.9999515264830027,
+        "classification_report": {
+          "LOW": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 69557.0
+          },
+          "MODERATE": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1-score": 1.0,
+            "support": 11895.0
+          },
+          "HIGH": {
+            "precision": 0.9968379446640316,
+            "recall": 1.0,
+            "f1-score": 0.9984164687252574,
+            "support": 1261.0
+          },
+          "EXTREME": {
+            "precision": 1.0,
+            "recall": 0.9786096256684492,
+            "f1-score": 0.9891891891891892,
+            "support": 187.0
+          },
+          "accuracy": 0.9999517490952955,
+          "macro avg": {
+            "precision": 0.9992094861660079,
+            "recall": 0.9946524064171123,
+            "f1-score": 0.9969014144786117,
+            "support": 82900.0
+          },
+          "weighted avg": {
+            "precision": 0.9999519016673262,
+            "recall": 0.9999517490952955,
+            "f1-score": 0.9999515264830027,
+            "support": 82900.0
+          }
+        },
+        "confusion_matrix": [
+          [
+            69557,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            11895,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            1261,
+            0
+          ],
+          [
+            0,
+            0,
+            4,
+            183
+          ]
+        ]
+      }
+    }
+  },
+  "aggregate": {
+    "mean_accuracy": 0.9992995122796545,
+    "mean_macro_f1": 0.9971552375805586,
+    "mean_weighted_f1": 0.9992994912129919,
+    "min_accuracy": 0.9982637772490515,
+    "min_macro_f1": 0.9958631365767407
+  },
+  "features": [
+    "wind_speed_kts",
+    "wind_gust_kts",
+    "wave_height_m",
+    "wave_period_s",
+    "mean_wave_period_s",
+    "wind_direction_deg",
+    "wave_direction_deg",
+    "air_pressure_hpa",
+    "air_temperature_c",
+    "water_temperature_c",
+    "latitude",
+    "longitude",
+    "month",
+    "hour"
+  ],
+  "target": "risk_class",
+  "interpretation": "Each station is completely held out from training and used as an unseen geographic test location. Labels are threshold-derived operational proxy labels rather than historical incident outcomes."
+}

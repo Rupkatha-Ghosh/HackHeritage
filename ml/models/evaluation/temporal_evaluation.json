@@ -1,0 +1,134 @@
+{
+  "evaluation": "temporal_holdout",
+  "training_year": 2024,
+  "test_year": 2025,
+  "training_rows": 115785,
+  "test_rows": 102099,
+  "features": [
+    "wind_speed_kts",
+    "wind_gust_kts",
+    "wave_height_m",
+    "wave_period_s",
+    "mean_wave_period_s",
+    "wind_direction_deg",
+    "wave_direction_deg",
+    "air_pressure_hpa",
+    "air_temperature_c",
+    "water_temperature_c",
+    "latitude",
+    "longitude",
+    "month",
+    "hour"
+  ],
+  "target": "risk_class",
+  "classes": {
+    "0": "LOW",
+    "1": "MODERATE",
+    "2": "HIGH",
+    "3": "EXTREME"
+  },
+  "class_weights": {
+    "0": 0.34218661339133727,
+    "1": 1.0864893776743487,
+    "2": 7.80222371967655,
+    "3": 34.41884661117717
+  },
+  "hyperparameters": {
+    "n_estimators": 700,
+    "learning_rate": 0.05,
+    "max_depth": 8,
+    "min_child_weight": 3,
+    "subsample": 0.85,
+    "colsample_bytree": 0.85,
+    "reg_alpha": 0.05,
+    "reg_lambda": 1.0,
+    "gamma": 0.0
+  },
+  "metrics": {
+    "accuracy": 0.999843289356409,
+    "macro_f1": 0.9976875505223155,
+    "weighted_f1": 0.999843192154214,
+    "classification_report": {
+      "LOW": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1-score": 1.0,
+        "support": 83220.0
+      },
+      "MODERATE": {
+        "precision": 0.9995613760260668,
+        "recall": 1.0,
+        "f1-score": 0.9997806399047351,
+        "support": 15952.0
+      },
+      "HIGH": {
+        "precision": 0.9990186457311089,
+        "recall": 0.9931707317073171,
+        "f1-score": 0.9960861056751468,
+        "support": 2050.0
+      },
+      "EXTREME": {
+        "precision": 0.9920634920634921,
+        "recall": 0.9977194982896237,
+        "f1-score": 0.9948834565093804,
+        "support": 877.0
+      },
+      "accuracy": 0.999843289356409,
+      "macro avg": {
+        "precision": 0.9976608784551669,
+        "recall": 0.9977225574992352,
+        "f1-score": 0.9976875505223155,
+        "support": 102099.0
+      },
+      "weighted avg": {
+        "precision": 0.9998435927546429,
+        "recall": 0.999843289356409,
+        "f1-score": 0.999843192154214,
+        "support": 102099.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        83220,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        15952,
+        0,
+        0
+      ],
+      [
+        0,
+        7,
+        2036,
+        7
+      ],
+      [
+        0,
+        0,
+        2,
+        875
+      ]
+    ]
+  },
+  "feature_importance": {
+    "wave_height_m": 0.4866604506969452,
+    "wind_gust_kts": 0.15850216150283813,
+    "wind_speed_kts": 0.13041581213474274,
+    "mean_wave_period_s": 0.09395083039999008,
+    "wave_period_s": 0.07063697278499603,
+    "air_pressure_hpa": 0.010569971986114979,
+    "month": 0.008034387603402138,
+    "water_temperature_c": 0.007935475558042526,
+    "wave_direction_deg": 0.007864189334213734,
+    "air_temperature_c": 0.0075926692225039005,
+    "wind_direction_deg": 0.00608691805973649,
+    "latitude": 0.005355585366487503,
+    "hour": 0.004799603950232267,
+    "longitude": 0.0015949552180245519
+  },
+  "interpretation": "The model was trained exclusively on 2024 observations and evaluated on unseen 2025 observations. Labels are threshold-derived operational proxy labels, not historical incident outcomes."
+}

@@ -1,0 +1,105 @@
+{
+  "evaluation": "probability_calibration",
+  "training_year": 2024,
+  "test_year": 2025,
+  "training_rows": 115785,
+  "test_rows": 102099,
+  "metrics": {
+    "accuracy": 0.999843289356409,
+    "multiclass_log_loss": 0.0007268912740983069,
+    "expected_calibration_error": 8.633664229266977e-05
+  },
+  "confidence_statistics": {
+    "mean": 0.9999296069145203,
+    "median": 0.9999908208847046,
+    "minimum": 0.7013227343559265,
+    "maximum": 0.9999973773956299,
+    "fraction_ge_0.90": 0.9999020558477556,
+    "fraction_ge_0.95": 0.9998726726020823,
+    "fraction_ge_0.99": 0.9997257563737157
+  },
+  "confidence_buckets": [
+    {
+      "range": "0.00-0.50",
+      "count": 0,
+      "accuracy": null,
+      "mean_confidence": null
+    },
+    {
+      "range": "0.50-0.60",
+      "count": 0,
+      "accuracy": null,
+      "mean_confidence": null
+    },
+    {
+      "range": "0.60-0.70",
+      "count": 0,
+      "accuracy": null,
+      "mean_confidence": null
+    },
+    {
+      "range": "0.70-0.80",
+      "count": 4,
+      "accuracy": 0.0,
+      "mean_confidence": 0.7216387391090393
+    },
+    {
+      "range": "0.80-0.90",
+      "count": 6,
+      "accuracy": 0.6666666666666666,
+      "mean_confidence": 0.8632777333259583
+    },
+    {
+      "range": "0.90-0.95",
+      "count": 3,
+      "accuracy": 0.3333333333333333,
+      "mean_confidence": 0.9218068718910217
+    },
+    {
+      "range": "0.95-1.00",
+      "count": 102086,
+      "accuracy": 0.9999216347001548,
+      "mean_confidence": 0.9999508857727051
+    }
+  ],
+  "per_class": {
+    "LOW": {
+      "brier_score": 2.5244523271794606e-07,
+      "mean_predicted_probability": 0.8150757551193237,
+      "actual_frequency": 0.8150912349778157
+    },
+    "MODERATE": {
+      "brier_score": 6.869203934911638e-05,
+      "mean_predicted_probability": 0.1563161164522171,
+      "actual_frequency": 0.15624051166025132
+    },
+    "HIGH": {
+      "brier_score": 0.00012984532804694027,
+      "mean_predicted_probability": 0.019974887371063232,
+      "actual_frequency": 0.0200785512101
+    },
+    "EXTREME": {
+      "brier_score": 6.124212814029306e-05,
+      "mean_predicted_probability": 0.008633269928395748,
+      "actual_frequency": 0.008589702151833025
+    }
+  },
+  "features": [
+    "wind_speed_kts",
+    "wind_gust_kts",
+    "wave_height_m",
+    "wave_period_s",
+    "mean_wave_period_s",
+    "wind_direction_deg",
+    "wave_direction_deg",
+    "air_pressure_hpa",
+    "air_temperature_c",
+    "water_temperature_c",
+    "latitude",
+    "longitude",
+    "month",
+    "hour"
+  ],
+  "target": "risk_class",
+  "warning": "Risk labels are threshold-derived operational proxy labels and do not represent historical accident outcomes."
+}
