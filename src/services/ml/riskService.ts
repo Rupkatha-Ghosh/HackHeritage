@@ -55,6 +55,16 @@ function hasValidProbabilityDistribution(probabilities: Record<string, number>):
   return Math.abs(total - 1) <= 0.001;
 }
 
+function getDisplayedConfidence(probabilities: Record<string, number>): number {
+  return Math.max(...REQUIRED_PROBABILITY_LABELS.map((label) => probabilities[label]));
+}
+
+function formatProbabilityDistribution(probabilities: Record<string, number>): string {
+  return REQUIRED_PROBABILITY_LABELS
+    .map((label) => `${label} ${(probabilities[label] * 100).toFixed(1)}%`)
+    .join(', ');
+}
+
 function buildFeaturePayload(weather: WeatherData, ocean: OceanData, location: LocationInfo) {
   const observed = new Date(weather.observedAt || new Date().toISOString());
   return {
@@ -103,7 +113,11 @@ export async function predictMarineRiskWithMl(
     if (!result.probabilities || !hasValidProbabilityDistribution(result.probabilities)) return null;
 
     const riskScore = riskScoreFromProbabilities(result.probabilities);
-    const confidenceScore = Math.round(clamp(result.confidence * 100, 0, 100));
+    // Use the same probability vector that is displayed to the user for the
+    // public confidence value. This prevents the API's separately rounded
+    // `confidence` field from disagreeing with the displayed top-class value.
+    const displayedConfidence = getDisplayedConfidence(result.probabilities);
+    const confidenceScore = Math.round(clamp(displayedConfidence * 100, 0, 100));
 
     const mlImpact: ImpactLevel = result.risk_label === 'EXTREME' ? 'CRITICAL'
       : result.risk_label === 'HIGH' ? 'HIGH'
@@ -119,7 +133,7 @@ export async function predictMarineRiskWithMl(
       {
         featureName: 'ML Risk Classification', featureValue: result.risk_label, unit: 'class',
         riskWeight: clamp((riskScore - 50) / 50, -1, 1), impactLevel: mlImpact,
-        description: `XGBoost classified the current 14-feature marine state as ${result.risk_label} with ${(result.confidence * 100).toFixed(1)}% probability confidence.`,
+        description: `XGBoost classified the current 14-feature marine state as ${result.risk_label} with ${(displayedConfidence * 100).toFixed(1)}% probability confidence.`,
       },
       {
         featureName: 'Significant Wave Height (Hs)', featureValue: ocean.waveHeightMeters.toFixed(2), unit: 'm',
@@ -184,7 +198,7 @@ export async function predictMarineRiskWithMl(
           : result.risk_label === 'HIGH'
             ? 'High modeled risk: restrict small-craft operations and seek safer conditions.'
             : 'Extreme modeled risk: suspend normal marine operations and follow statutory warnings.',
-      safetySummary: `XGBoost marine risk model classified the current environmental state as ${result.risk_label}. Probability distribution: ${Object.entries(result.probabilities).map(([label, value]) => `${label} ${(value * 100).toFixed(1)}%`).join(', ')}.`,
+      safetySummary: `XGBoost marine risk model classified the current environmental state as ${result.risk_label}. Probability distribution: ${formatProbabilityDistribution(result.probabilities)}.`,
       actionableAdvisories: advisories,
       restrictedCraftTypes,
       safeCraftTypes,
