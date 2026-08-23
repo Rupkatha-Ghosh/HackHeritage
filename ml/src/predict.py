@@ -14,6 +14,7 @@ from ood import check_input_domain
 
 MODEL_PATH = MODELS_DIR / "orca_xgb_risk.json"
 METADATA_PATH = MODELS_DIR / "orca_xgb_risk_metadata.json"
+MODEL_VERSION = "orca-xgb-risk-v1"
 
 RISK_CLASS_NAMES = {
     0: "LOW",
@@ -35,6 +36,18 @@ class OrcaXRiskPredictor:
         self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         self.feature_columns = self.metadata.get("features", FEATURE_COLUMNS)
 
+        if self.feature_columns != FEATURE_COLUMNS:
+            raise RuntimeError(
+                "Model feature contract mismatch: metadata features do not match config FEATURE_COLUMNS."
+            )
+
+        if self.metadata.get("feature_count") != len(self.feature_columns):
+            raise RuntimeError("Model metadata feature_count does not match the feature list.")
+
+        expected_classes = {str(key): value for key, value in RISK_CLASS_NAMES.items()}
+        if self.metadata.get("classes") != expected_classes:
+            raise RuntimeError("Model class contract mismatch between metadata and inference service.")
+
     def predict_one(self, features: dict) -> dict:
         domain = check_input_domain(features)
         if domain.invalid_features:
@@ -52,7 +65,19 @@ class OrcaXRiskPredictor:
             missing = row.columns[row.isna().any()].tolist()
             raise ValueError(f"Model inputs became non-numeric: {', '.join(missing)}")
 
-        probabilities = self.model.predict_proba(row)[0]
+        if not np.isfinite(row.to_numpy(dtype=float)).all():
+            raise ValueError("Model inputs contain non-finite values.")
+
+        probabilities = np.asarray(self.model.predict_proba(row)[0], dtype=float)
+        if len(probabilities) != len(RISK_CLASS_NAMES):
+            raise RuntimeError("Model returned an unexpected number of class probabilities.")
+        if not np.isfinite(probabilities).all() or (probabilities < 0).any():
+            raise RuntimeError("Model returned invalid class probabilities.")
+
+        probability_total = float(probabilities.sum())
+        if not np.isclose(probability_total, 1.0, atol=1e-6):
+            raise RuntimeError("Model returned probabilities that do not sum to 1.")
+
         predicted_class = int(np.argmax(probabilities))
         confidence = float(probabilities[predicted_class])
 
@@ -65,7 +90,7 @@ class OrcaXRiskPredictor:
                 for i in range(len(probabilities))
             },
             "domain_validation": domain.as_dict(),
-            "model_version": "orca-xgb-risk-v1",
+            "model_version": MODEL_VERSION,
         }
 
 
@@ -76,7 +101,7 @@ def main() -> None:
         "wind_gust_kts": 16.0,
         "wave_height_m": 1.2,
         "wave_period_s": 7.0,
-        "mean_wave_period_s": 5.2,
+        "mean_wave_period_s": 6.0,
         "wind_direction_deg": 220.0,
         "wave_direction_deg": 130.0,
         "air_pressure_hpa": 1015.0,
