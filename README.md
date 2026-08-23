@@ -1,6 +1,6 @@
 # ORCA-X — Ocean Reasoning & Collaborative AI
 
-ORCA-X is a marine-intelligence decision-support platform for coastal safety, fishing and navigation. It combines live weather/marine observations, Copernicus Sentinel catalogue metadata, a deterministic marine-risk engine, an XGBoost risk model, GIS layers, query-aware evidence retrieval and optional Gemini grounded synthesis.
+ORCA-X is a marine-intelligence decision-support platform for coastal safety, fishing and navigation. It combines live weather/marine observations, Copernicus Sentinel catalogue metadata, a deterministic marine-risk engine, an XGBoost risk model, GIS layers, BGE-M3 + Qdrant evidence retrieval and optional Gemini grounded synthesis.
 
 ## Architecture
 
@@ -16,14 +16,68 @@ Express / TypeScript API (port 3000)
     ├── /api/evidence/search
     └── /api/health
             │
-            ▼
-FastAPI + XGBoost ML API (port 8000)
+            ├──────────────► FastAPI + XGBoost ML API (port 8000)
             │
-            ▼
-ml/models/orca_xgb_risk.json
+            └──────────────► FastAPI + BGE-M3 RAG API (port 8001)
+                                      │
+                                      ▼
+                               Qdrant (port 6333)
+                                      │
+                                      ▼
+                         orca_marine_evidence
 ```
 
-The TypeScript backend owns orchestration and external connectors. The Python service owns model inference. If the ML service is unavailable, the TypeScript backend falls back to the deterministic marine-risk engine.
+The TypeScript backend owns orchestration and external connectors. The Python ML service owns XGBoost inference. The Python RAG service owns real BAAI/BGE-M3 dense embeddings and Qdrant vector retrieval. If the RAG service is unavailable, the backend explicitly falls back to the existing lexical evidence retriever and marks the response as degraded.
+
+## Refinement 3 — Real BGE-M3 + Qdrant RAG
+
+Refinement 3 replaces the previous in-memory lexical-only evidence ranking with an actual vector retrieval path:
+
+- Embedding model: `BAAI/bge-m3` via FlagEmbedding.
+- Vector size: 1024-dimensional dense embeddings.
+- Vector database: Qdrant.
+- Collection: `orca_marine_evidence`.
+- Distance: cosine similarity.
+- Canonical source corpus: `MARINE_EVIDENCE_CORPUS` from `src/data/coastalData.ts`.
+- Stable UUID5 point IDs prevent duplicate documents on repeated ingestion.
+- Query path: ORCA query → BGE-M3 query embedding → Qdrant top-K → grounded synthesis.
+- Failure behavior: lexical fallback is retained, but the trace identifies that fallback explicitly.
+
+BGE-M3 is designed for multilingual, multi-functionality retrieval and its authors recommend hybrid retrieval plus reranking for stronger RAG systems. The current Refinement 3 milestone intentionally establishes the real dense BGE-M3 + Qdrant foundation first; sparse/hybrid retrieval and reranking can be layered on afterward. citeturn0search4turn0search11
+
+### Start Qdrant
+
+Run Qdrant locally on port 6333 using your existing Docker setup, or point `QDRANT_URL` at a hosted Qdrant instance.
+
+### Start the RAG API
+
+```bash
+npm run dev:rag
+```
+
+The RAG service runs on:
+
+```text
+http://127.0.0.1:8001
+```
+
+### Ingest the canonical evidence corpus
+
+With Qdrant and the RAG API running:
+
+```bash
+npm run ingest:rag
+```
+
+This embeds the canonical marine evidence documents with BGE-M3 and upserts them into `orca_marine_evidence`.
+
+### Check RAG health
+
+```text
+http://127.0.0.1:8001/health
+```
+
+The response reports the embedding model, 1024-dimensional vector configuration, collection name and Qdrant point count.
 
 ## Project structure
 
@@ -35,8 +89,8 @@ HackHeritage/
 │   ├── services/
 │   │   ├── ml/
 │   │   │   └── riskService.ts
-│   │   └── satellite/
-│   │       └── satelliteService.ts
+│   │   │   └── satellite/
+│   │   │       └── satelliteService.ts
 │   ├── utils/
 │   │   └── marineRiskEngine.ts
 │   ├── App.tsx
@@ -48,28 +102,30 @@ HackHeritage/
 │   ├── app.ts
 │   ├── routes/
 │   ├── services/
+│   │   ├── evidenceService.ts  # lexical fallback
+│   │   ├── marineService.ts
+│   │   ├── orcaService.ts
+│   │   └── ragService.ts       # BGE-M3 RAG bridge
 │   ├── controllers/
 │   └── middleware/
 │
-├── ml/                         # Python ML subsystem
-│   ├── api.py
+├── ml/                         # Python ML + RAG subsystem
+│   ├── api.py                  # XGBoost API
+│   ├── rag_api.py              # BGE-M3 + Qdrant API
 │   ├── src/
 │   ├── models/
 │   ├── data/
 │   └── requirements.txt
 │
 ├── scripts/
+│   ├── ingest-rag.mjs          # Canonical evidence ingestion
 │   └── smoke-test.mjs          # End-to-end service smoke test
 │
-├── .github/workflows/ci.yml    # Build + integration validation
+├── .github/workflows/ci.yml
 ├── .env.example
-├── .gitignore
 ├── package.json
 ├── package-lock.json
 ├── bun.lock
-├── tsconfig.json
-├── vite.config.ts
-├── index.html
 └── README.md
 ```
 
@@ -78,6 +134,7 @@ HackHeritage/
 - Node.js 20+
 - Python 3.11+
 - npm or Bun
+- Qdrant reachable at `QDRANT_URL` (default `http://127.0.0.1:6333`)
 - A Gemini API key is optional; without it, deterministic grounded summaries are used.
 
 ## Local setup
@@ -106,9 +163,9 @@ On Linux/macOS:
 cp .env.example .env
 ```
 
-Set `GEMINI_API_KEY` if Gemini synthesis is desired. Keep `.env` private.
+Keep `.env` private.
 
-### 3. Install ML dependencies
+### 3. Install ML/RAG dependencies
 
 From the repository root:
 
@@ -134,27 +191,31 @@ Then:
 pip install -r ml/requirements.txt
 ```
 
-### 4. Start the ML API
+### 4. Start the XGBoost ML API
 
 ```bash
 npm run dev:ml
 ```
 
-Or directly:
+### 5. Start the BGE-M3 RAG API
+
+In another terminal:
 
 ```bash
-uvicorn ml.api:app --reload --host 0.0.0.0 --port 8000
+npm run dev:rag
 ```
 
-Check readiness:
+The RAG service downloads `BAAI/bge-m3` on first model use unless the model is already cached locally.
 
-```text
-http://127.0.0.1:8000/ready
+### 6. Ingest evidence into Qdrant
+
+```bash
+npm run ingest:rag
 ```
 
-### 5. Start ORCA-X
+### 7. Start ORCA-X
 
-In a second terminal:
+In another terminal:
 
 ```bash
 npm run dev
@@ -166,21 +227,15 @@ The application will be available at:
 http://localhost:3000
 ```
 
-The API health endpoint is:
+### 8. Run the integration smoke test
 
-```text
-http://localhost:3000/api/health
-```
-
-### 6. Run the integration smoke test
-
-With both services running:
+With the Express and ML services running:
 
 ```bash
 npm run smoke
 ```
 
-The smoke test verifies ML readiness, the Express health endpoint, risk inference/fallback, and evidence retrieval.
+The smoke test continues to validate the core application path. For the full Refinement 3 path, also verify the RAG health endpoint and run `npm run ingest:rag` before issuing an ORCA query.
 
 ## Production build
 
@@ -191,24 +246,22 @@ npm run lint
 npm run build
 ```
 
-Start the TypeScript application:
+Start the services separately:
 
 ```bash
 npm start
-```
-
-Start the ML service separately:
-
-```bash
 npm run start:ml
+npm run start:rag
 ```
 
-The production deployment therefore consists of two processes:
+Production therefore consists of three processes plus Qdrant:
 
 1. ORCA-X web/API server on port 3000.
 2. XGBoost inference API on port 8000.
+3. BGE-M3 RAG API on port 8001.
+4. Qdrant vector database on port 6333 or a hosted equivalent.
 
-Set `ORCA_ML_API_URL` to the reachable ML service URL when the two processes run on different hosts.
+Set `ORCA_ML_API_URL`, `ORCA_RAG_API_URL` and `QDRANT_URL` to the reachable service endpoints when deployed on different hosts.
 
 ## ML workflow
 
@@ -225,11 +278,11 @@ Raw and generated processed datasets are intentionally excluded from the reposit
 ## Current capability boundaries
 
 - **ML inference:** XGBoost with deterministic rule-based fallback.
-- **Evidence retrieval:** local query-aware marine evidence corpus; this build does not claim vector-database RAG.
+- **Evidence retrieval:** real BGE-M3 dense embeddings stored and searched in Qdrant, with an explicit lexical fallback when the RAG service is unavailable.
 - **Satellite:** Copernicus STAC catalogue metadata/search; this build does not perform satellite-image-derived feature extraction.
 - **ML deployment domain:** the committed model is explicitly flagged as not independently validated for the Indian coastal deployment domain.
 
-These boundaries are exposed by `/api/health` so the UI and operators do not mistake unavailable capabilities for completed services.
+These boundaries are exposed through the workflow traces so the UI and operators do not mistake unavailable capabilities for completed services.
 
 ## Continuous integration
 
