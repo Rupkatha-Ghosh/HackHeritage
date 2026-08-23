@@ -15,6 +15,14 @@ interface MlRiskResult {
   risk_label: RiskLevel;
   confidence: number;
   probabilities: Record<string, number>;
+  model_version?: string;
+  domain_validation?: {
+    status: 'UNVALIDATED_DEPLOYMENT_DOMAIN' | 'INVALID_INPUT';
+    training_dataset: string;
+    deployment_validation_status: string;
+    warnings: string[];
+    invalid_features: string[];
+  };
 }
 
 function getMlApiConfig() {
@@ -136,11 +144,23 @@ export async function predictMarineRiskWithMl(
 
     if (satellite.status !== 'LIVE') advisories.push('Satellite observations are unavailable or degraded; treat remote-sensing-derived confidence separately from the ML classification.');
 
+    const domainValidation = result.domain_validation ? {
+      status: result.domain_validation.status,
+      trainingDataset: result.domain_validation.training_dataset,
+      deploymentValidationStatus: result.domain_validation.deployment_validation_status,
+      warnings: result.domain_validation.warnings,
+      invalidFeatures: result.domain_validation.invalid_features,
+    } : undefined;
+
+    if (domainValidation?.status === 'UNVALIDATED_DEPLOYMENT_DOMAIN') {
+      advisories.push('ML domain validation is incomplete for this deployment region; use the prediction as decision support only and defer to authoritative maritime warnings.');
+    }
+
     return {
       riskScore,
       riskLevel: result.risk_label,
       confidenceScore,
-      modelVersion: 'orca-xgb-risk-v1',
+      modelVersion: result.model_version || 'orca-xgb-risk-v1',
       predictionTarget: 'Marine environmental risk classification for fishing and navigation safety',
       primaryRecommendation: result.risk_label === 'LOW'
         ? 'Favorable modeled conditions with normal safety precautions.'
@@ -154,6 +174,7 @@ export async function predictMarineRiskWithMl(
       restrictedCraftTypes,
       safeCraftTypes,
       featureContributions,
+      domainValidation,
       validUntil: new Date(Date.now() + 3 * 3600 * 1000).toISOString(),
       generatedAt: new Date().toISOString(),
     };
