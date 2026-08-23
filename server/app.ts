@@ -9,13 +9,14 @@ dotenv.config();
 
 export const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || process.env.ORCA_PRODUCTION === 'true';
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use('/api', apiRouter);
 
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (!IS_PRODUCTION) {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
