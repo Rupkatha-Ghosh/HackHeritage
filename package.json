@@ -8,7 +8,7 @@
     "dev": "tsx server/app.ts",
     "dev:ml": "uvicorn ml.api:app --reload --host 0.0.0.0 --port 8000",
     "build": "vite build && esbuild server/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "NODE_ENV=production node dist/server.cjs",
+    "start": "node -e \"process.env.ORCA_PRODUCTION='true'; require('./dist/server.cjs')\"",
     "start:ml": "uvicorn ml.api:app --host 0.0.0.0 --port 8000",
     "preview": "vite preview",
     "clean": "rm -rf dist",
