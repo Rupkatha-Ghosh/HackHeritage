@@ -79,16 +79,19 @@ class OrcaXRiskPredictor:
             raise RuntimeError("Model returned probabilities that do not sum to 1.")
 
         predicted_class = int(np.argmax(probabilities))
-        confidence = float(probabilities[predicted_class])
+        probability_map = {
+            RISK_CLASS_NAMES[i]: round(float(probabilities[i]), 6)
+            for i in range(len(probabilities))
+        }
+        # Keep confidence derived from the same rounded vector exposed by the
+        # API so clients never display conflicting confidence values.
+        confidence = max(probability_map.values())
 
         return {
             "risk_class": predicted_class,
             "risk_label": RISK_CLASS_NAMES[predicted_class],
-            "confidence": round(confidence, 6),
-            "probabilities": {
-                RISK_CLASS_NAMES[i]: round(float(probabilities[i]), 6)
-                for i in range(len(probabilities))
-            },
+            "confidence": confidence,
+            "probabilities": probability_map,
             "domain_validation": domain.as_dict(),
             "model_version": MODEL_VERSION,
         }

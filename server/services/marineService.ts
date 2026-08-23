@@ -133,7 +133,7 @@ export async function fetchMarineAndWeatherData(lat: number, lon: number): Promi
   let seaStateDesc = 'Smooth-Slight';
   if (waveH > 4) { seaState = 6; seaStateDesc = 'Very Rough to High (> 4.0m)'; }
   else if (waveH > 2.5) { seaState = 5; seaStateDesc = 'Rough (Wave 2.5 - 4.0m)'; }
-  else if (waveH > 1.5) { seaState = 4; seaStateDesc = 'Moderate (Wave 1.25 - 2.5m)'; }
+  else if (waveH > 1.25) { seaState = 4; seaStateDesc = 'Moderate (Wave 1.25 - 2.5m)'; }
   else if (waveH > 0.5) { seaState = 3; seaStateDesc = 'Slight (Wave 0.5 - 1.25m)'; }
   else { seaState = 1; seaStateDesc = 'Calm to Smooth (< 0.5m)'; }
 
