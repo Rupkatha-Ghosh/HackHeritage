@@ -7,6 +7,23 @@ export interface RagRetrievalResult {
   model: string;
 }
 
+const EVIDENCE_DOCUMENT_TYPES = [
+  'Fisheries Advisory',
+  'Ocean State Forecast',
+  'Cyclone Bulletin',
+  'Maritime Regulation',
+  'Scientific Protocol',
+] as const;
+
+type EvidenceDocumentType = typeof EVIDENCE_DOCUMENT_TYPES[number];
+
+function normalizeDocumentType(value: unknown): EvidenceDocumentType {
+  const documentType = String(value ?? '').trim();
+  return EVIDENCE_DOCUMENT_TYPES.includes(documentType as EvidenceDocumentType)
+    ? (documentType as EvidenceDocumentType)
+    : 'Scientific Protocol';
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
     promise,
@@ -39,7 +56,7 @@ export async function retrieveRagEvidence(
       id: String(item.sourceId || item.id || 'QDRANT-EVIDENCE'),
       title: String(item.title || ''),
       sourceAuthority: String(item.sourceAuthority || ''),
-      documentType: String(item.documentType || ''),
+      documentType: normalizeDocumentType(item.documentType),
       publicationDate: String(item.publicationDate || ''),
       excerpt: String(item.excerpt || ''),
       relevanceScore: Number(item.score || 0),
