@@ -9,6 +9,8 @@ import {
 
 type ImpactLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
+const REQUIRED_PROBABILITY_LABELS = ['LOW', 'MODERATE', 'HIGH', 'EXTREME'] as const;
+
 interface MlRiskResult {
   success: boolean;
   risk_class: number;
@@ -45,6 +47,14 @@ function riskScoreFromProbabilities(probabilities: Record<string, number>): numb
   return Math.round(clamp(weighted, 8, 98));
 }
 
+function hasValidProbabilityDistribution(probabilities: Record<string, number>): boolean {
+  const values = REQUIRED_PROBABILITY_LABELS.map((label) => probabilities[label]);
+  if (values.some((value) => !Number.isFinite(value) || value < 0 || value > 1)) return false;
+
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return Math.abs(total - 1) <= 0.001;
+}
+
 function buildFeaturePayload(weather: WeatherData, ocean: OceanData, location: LocationInfo) {
   const observed = new Date(weather.observedAt || new Date().toISOString());
   return {
@@ -52,7 +62,11 @@ function buildFeaturePayload(weather: WeatherData, ocean: OceanData, location: L
     wind_gust_kts: weather.windGustKts,
     wave_height_m: ocean.waveHeightMeters,
     wave_period_s: ocean.wavePeriodSec,
-    mean_wave_period_s: ocean.swellPeriodSec,
+    // The committed training feature is NDBC APD (average wave period).
+    // Open-Meteo's wave_period represents the period between mean waves, so it
+    // is the closest available operational input; swell period is a different
+    // physical quantity and must not be substituted here.
+    mean_wave_period_s: ocean.wavePeriodSec,
     wind_direction_deg: weather.windDirectionDeg,
     wave_direction_deg: ocean.waveDirectionDeg,
     air_pressure_hpa: weather.pressureHpa,
@@ -86,8 +100,9 @@ export async function predictMarineRiskWithMl(
 
     const result = (await response.json()) as MlRiskResult;
     if (!result.success || !result.risk_label || !Number.isFinite(result.confidence)) return null;
+    if (!result.probabilities || !hasValidProbabilityDistribution(result.probabilities)) return null;
 
-    const riskScore = riskScoreFromProbabilities(result.probabilities || {});
+    const riskScore = riskScoreFromProbabilities(result.probabilities);
     const confidenceScore = Math.round(clamp(result.confidence * 100, 0, 100));
 
     const mlImpact: ImpactLevel = result.risk_label === 'EXTREME' ? 'CRITICAL'
@@ -169,7 +184,7 @@ export async function predictMarineRiskWithMl(
           : result.risk_label === 'HIGH'
             ? 'High modeled risk: restrict small-craft operations and seek safer conditions.'
             : 'Extreme modeled risk: suspend normal marine operations and follow statutory warnings.',
-      safetySummary: `XGBoost marine risk model classified the current environmental state as ${result.risk_label}. Probability distribution: ${Object.entries(result.probabilities || {}).map(([label, value]) => `${label} ${(value * 100).toFixed(1)}%`).join(', ')}.`,
+      safetySummary: `XGBoost marine risk model classified the current environmental state as ${result.risk_label}. Probability distribution: ${Object.entries(result.probabilities).map(([label, value]) => `${label} ${(value * 100).toFixed(1)}%`).join(', ')}.`,
       actionableAdvisories: advisories,
       restrictedCraftTypes,
       safeCraftTypes,
