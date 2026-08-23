@@ -1,9 +1,6 @@
 import { EvidenceItem, LocationInfo } from '../../src/types.ts';
 import { retrieveEvidence } from './evidenceService.ts';
 
-const RAG_API_URL = process.env.ORCA_RAG_API_URL || 'http://127.0.0.1:8001';
-const RAG_TIMEOUT_MS = Number(process.env.ORCA_RAG_API_TIMEOUT_MS || 2500);
-
 export interface RagRetrievalResult {
   evidence: EvidenceItem[];
   provider: 'bge-m3-qdrant' | 'lexical-fallback';
@@ -22,12 +19,15 @@ export async function retrieveRagEvidence(
   location: LocationInfo,
   riskLevel: string,
 ): Promise<RagRetrievalResult> {
+  const ragApiUrl = process.env.ORCA_RAG_API_URL || 'http://127.0.0.1:8001';
+  const timeoutMs = Number(process.env.ORCA_RAG_API_TIMEOUT_MS || 2500);
+
   try {
-    const response = await withTimeout(fetch(`${RAG_API_URL}/search`, {
+    const response = await withTimeout(fetch(`${ragApiUrl}/search`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query, top_k: 8 }),
-    }), RAG_TIMEOUT_MS);
+      body: JSON.stringify({ query, top_k: Number(process.env.RAG_TOP_K || 8) }),
+    }), timeoutMs);
 
     if (!response.ok) throw new Error(`RAG API returned ${response.status}`);
     const payload = await response.json() as {
