@@ -12,27 +12,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install Node dependencies
         run: npm ci
+
       - name: Install ML dependencies
         run: python -m pip install --upgrade pip && pip install -r ml/requirements.txt
+
       - name: Type check
         run: npm run lint
+
       - name: Python syntax validation
         run: python -m py_compile ml/api.py ml/rag_api.py
+
       - name: Production build
         run: npm run build
+
       - name: Start ML API
         run: nohup uvicorn ml.api:app --host 127.0.0.1 --port 8000 > /tmp/orca-ml.log 2>&1 &
+
       - name: Wait for ML API
         run: |
           for i in {1..30}; do
@@ -41,8 +50,61 @@ jobs:
           done
           cat /tmp/orca-ml.log
           exit 1
+
+      # Refinement 3 integration environment: the smoke test requires a real
+      # Qdrant server and the real BGE-M3 RAG API, not mocks or a lexical stub.
+      - name: Start Qdrant
+        run: |
+          docker run -d --name orca-qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:latest
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:6333/ > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs orca-qdrant
+          exit 1
+
+      - name: Start BGE-M3 RAG API
+        run: nohup uvicorn ml.rag_api:app --host 127.0.0.1 --port 8001 > /tmp/orca-rag.log 2>&1 &
+
+      - name: Wait for BGE-M3 RAG API
+        run: |
+          for i in {1..90}; do
+            if curl --fail --silent http://127.0.0.1:8001/health > /tmp/orca-rag-health.json; then
+              python - <<'PY'
+          import json
+          with open('/tmp/orca-rag-health.json', encoding='utf-8') as f:
+              body = json.load(f)
+          assert body.get('status') == 'healthy', body
+          assert body.get('embedding_model') == 'BAAI/bge-m3', body
+          assert int(body.get('embedding_dimension', 0)) == 1024, body
+          PY
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/orca-rag.log
+          exit 1
+
+      - name: Ingest Refinement 3 marine evidence into Qdrant
+        run: npm run ingest:rag
+
+      - name: Verify Qdrant evidence collection
+        run: |
+          curl --fail --silent http://127.0.0.1:8001/health > /tmp/orca-rag-health-final.json
+          python - <<'PY'
+          import json
+          with open('/tmp/orca-rag-health-final.json', encoding='utf-8') as f:
+              body = json.load(f)
+          assert body.get('status') == 'healthy', body
+          assert body.get('embedding_model') == 'BAAI/bge-m3', body
+          assert int(body.get('embedding_dimension', 0)) == 1024, body
+          assert int(body.get('points_count', 0)) > 0, body
+          print(json.dumps(body, indent=2))
+          PY
+
       - name: Start ORCA-X server
         run: nohup npm start > /tmp/orca-server.log 2>&1 &
+
       - name: Wait for ORCA-X server
         run: |
           for i in {1..30}; do
@@ -51,11 +113,17 @@ jobs:
           done
           cat /tmp/orca-server.log
           exit 1
-      - name: End-to-end smoke test
+
+      - name: End-to-end Refinement 3 smoke test
         run: npm run smoke
+
       - name: Upload service logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: orca-x-service-logs
           path: /tmp/orca-*.log
+
+      - name: Cleanup Qdrant
+        if: always()
+        run: docker rm -f orca-qdrant || true
