@@ -13,10 +13,6 @@ HOLDOUT_LOCATION = "digha_wb"
 RISK_ORDER = [RISK_CLASS_NAMES[i] for i in range(4)]
 
 
-def _risk_label(row: pd.Series) -> str:
-    return assign_operational_risk(row)
-
-
 def load_dataset() -> pd.DataFrame:
     path = PROCESSED_DIR / "orca_historical_marine_risk.parquet"
     if not path.exists():
@@ -33,32 +29,33 @@ def load_dataset() -> pd.DataFrame:
     duplicates = int(df.duplicated(["location_id", "timestamp"]).sum())
     if duplicates:
         raise ValueError(f"Duplicate location/timestamp rows detected: {duplicates}")
-    # Rebuild the target exclusively from the future environmental state.
+
+    # The stored contemporaneous risk_class is deliberately ignored. Build the target
+    # from environmental conditions exactly one horizon ahead.
     future = df[["location_id", "timestamp", "wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m"]].copy()
-    future["future_risk"] = future.apply(_risk_label, axis=1)
-    future["prediction_timestamp"] = future["timestamp"] - pd.Timedelta(hours=RISK_HORIZON_HOURS)
+    future["future_risk"] = future.apply(assign_operational_risk, axis=1)
+    horizon = pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
+    future["prediction_timestamp"] = future["timestamp"] - horizon
     target = future[["location_id", "prediction_timestamp", "future_risk"]].rename(columns={"prediction_timestamp": "timestamp"})
     df = df.merge(target, on=["location_id", "timestamp"], how="left", suffixes=("", "_future"))
-    df[TARGET_COLUMN] = df["future_risk"].map({name: i for i, name in enumerate(RISK_ORDER)})
+    # assign_operational_risk returns the integer class directly (0..3).
+    df[TARGET_COLUMN] = pd.to_numeric(df["future_risk"], errors="coerce")
     df = df.drop(columns=["future_risk"], errors="ignore").dropna(subset=[TARGET_COLUMN]).copy()
     df[TARGET_COLUMN] = df[TARGET_COLUMN].astype(int)
     if df.empty:
-        raise ValueError("No rows remain after constructing the forward risk target.")
+        raise ValueError("No rows remain after constructing the forward risk target. Check historical timestamp spacing and the prediction horizon.")
     return df
 
 
 def add_dynamic_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     out = df.copy().sort_values(["location_id", "timestamp"])
     base = list(FEATURE_COLUMNS)
-    # Missingness indicators are explicit information, not fabricated observations.
     for col in base:
         out[f"{col}_missing"] = out[col].isna().astype(np.int8)
-    # Circular directions are represented as vectors instead of raw angular distance.
     for col, prefix in [("wind_direction_deg", "wind"), ("wave_direction_deg", "wave"), ("swell_direction_deg", "swell")]:
         radians = np.deg2rad(out[col])
         out[f"{prefix}_direction_sin"] = np.sin(radians)
         out[f"{prefix}_direction_cos"] = np.cos(radians)
-    # Only historical/current observations are used to construct these changes.
     for col in ["wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m", "air_pressure_hpa"]:
         for hours in (3, 6):
             out[f"{col}_delta_{hours}h"] = out.groupby("location_id")[col].diff(periods=hours)
@@ -106,13 +103,13 @@ def main() -> None:
     df = load_dataset()
     df, feature_columns = add_dynamic_features(df)
     print(f"Dataset rows after forward-target construction: {len(df):,}; locations: {df.location_id.nunique()}")
-    print(f"Prediction horizon: +{RISK_HORIZON_HOURS}h")
+    print(f"Prediction horizon: +{int(RISK_HORIZON_HOURS)}h")
     print(f"Feature count: {len(feature_columns)} ({len(FEATURE_COLUMNS)} base + engineered dynamics/missingness)")
     print("Feature dtypes validated: all numeric")
     print("Missing percentage by feature:")
     print((df[feature_columns].isna().mean() * 100).round(2).to_string())
     print("Forward target distribution:")
-    print(df[TARGET_COLUMN].map(dict(enumerate(RISK_ORDER))).value_counts().reindex(RISK_ORDER, fill_value=0))
+    print(df[TARGET_COLUMN].map(RISK_CLASS_NAMES).value_counts().reindex(RISK_ORDER, fill_value=0))
     if df[TARGET_COLUMN].nunique() < 4:
         raise ValueError("Forward target does not contain all four risk classes.")
 
@@ -138,10 +135,12 @@ def main() -> None:
     print(f"Temporal validation: accuracy={validation_metrics['accuracy']:.4f} balanced_accuracy={validation_metrics['balanced_accuracy']:.4f} macro_f1={validation_metrics['macro_f1']:.4f} weighted_f1={validation_metrics['weighted_f1']:.4f} rows={len(validation_df):,}")
     print(f"Digha spatial holdout: accuracy={digha_metrics['accuracy']:.4f} balanced_accuracy={digha_metrics['balanced_accuracy']:.4f} macro_f1={digha_metrics['macro_f1']:.4f} weighted_f1={digha_metrics['weighted_f1']:.4f} rows={len(digha):,}")
 
-    # Production fit intentionally excludes Digha, preserving an honest geographic generalization boundary.
+    # Production fit intentionally excludes Digha.
     production = train_pool.copy()
     production_weights = class_weights(production[TARGET_COLUMN])
-    final_model = make_model(n_estimators=getattr(model, "best_iteration", None) + 1 if getattr(model, "best_iteration", None) is not None else 500)
+    best_iteration = getattr(model, "best_iteration", None)
+    production_estimators = int(best_iteration + 1) if best_iteration is not None else 500
+    final_model = make_model(n_estimators=max(100, production_estimators))
     final_model.fit(production[feature_columns], production[TARGET_COLUMN], sample_weight=production[TARGET_COLUMN].map(production_weights).to_numpy(dtype=np.float32), verbose=100)
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = MODELS_DIR / "orca_xgb_risk.json"
@@ -151,17 +150,14 @@ def main() -> None:
     metadata = {
         "model": "XGBoost", "model_version": "orca-xgb-risk-v2.2",
         "dataset_name": DATASET_NAME, "dataset_version": DATASET_VERSION,
-        "prediction_horizon_hours": RISK_HORIZON_HOURS,
-        "target": "future_risk_class",
-        "classes": {str(i): name for i, name in enumerate(RISK_ORDER)},
-        "features": feature_columns, "base_features": FEATURE_COLUMNS,
-        "feature_count": len(feature_columns),
+        "prediction_horizon_hours": int(RISK_HORIZON_HOURS), "target": "future_risk_class",
+        "classes": {str(i): name for i, name in RISK_CLASS_NAMES.items()},
+        "features": feature_columns, "base_features": FEATURE_COLUMNS, "feature_count": len(feature_columns),
         "missing_data_policy": "Native XGBoost missing handling plus explicit missingness indicators; no synthetic visibility imputation.",
         "evaluation": {"temporal": validation_metrics, "digha_spatial_holdout": digha_metrics, "temporal_majority_baseline": majority_baseline(validation_df[TARGET_COLUMN]), "digha_majority_baseline": majority_baseline(digha[TARGET_COLUMN])},
         "class_weights": {str(k): v for k, v in production_weights.items()},
         "feature_importance": {name: float(value) for name, value in importance},
-        "training_locations": sorted(train_pool.location_id.unique().tolist()),
-        "digha_excluded_from_training": True,
+        "training_locations": sorted(train_pool.location_id.unique().tolist()), "digha_excluded_from_training": True,
         "label_policy": "Six-hour forward ORCA-X operational severity proxy anchored to documented marine safety criteria; not official warning labels or incident outcomes.",
         "warning": "RAG and authoritative IMD/INCOIS/Coast Guard evidence remain higher-priority safety evidence.",
     }
@@ -170,5 +166,4 @@ def main() -> None:
     print(f"Saved metadata: {metadata_path}")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
