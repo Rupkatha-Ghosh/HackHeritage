@@ -8,7 +8,6 @@ import {
 } from '../../types.ts';
 
 type ImpactLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-
 const REQUIRED_PROBABILITY_LABELS = ['LOW', 'MODERATE', 'HIGH', 'EXTREME'] as const;
 
 interface MlRiskResult {
@@ -33,126 +32,80 @@ function getMlApiConfig() {
     timeoutMs: Number(process.env.ORCA_ML_API_TIMEOUT_MS || 3500),
   };
 }
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
+function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
 function riskScoreFromProbabilities(probabilities: Record<string, number>): number {
-  const weighted =
-    (probabilities.LOW || 0) * 10 +
-    (probabilities.MODERATE || 0) * 40 +
-    (probabilities.HIGH || 0) * 70 +
-    (probabilities.EXTREME || 0) * 95;
+  const weighted = (probabilities.LOW || 0) * 10 + (probabilities.MODERATE || 0) * 40 + (probabilities.HIGH || 0) * 70 + (probabilities.EXTREME || 0) * 95;
   return Math.round(clamp(weighted, 8, 98));
 }
-
 function hasValidProbabilityDistribution(probabilities: Record<string, number>): boolean {
   const values = REQUIRED_PROBABILITY_LABELS.map((label) => probabilities[label]);
   if (values.some((value) => !Number.isFinite(value) || value < 0 || value > 1)) return false;
-
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return Math.abs(total - 1) <= 0.001;
+  return Math.abs(values.reduce((sum, value) => sum + value, 0) - 1) <= 0.001;
 }
-
-function getDisplayedConfidence(probabilities: Record<string, number>): number {
-  return Math.max(...REQUIRED_PROBABILITY_LABELS.map((label) => probabilities[label]));
-}
-
-function formatProbabilityDistribution(probabilities: Record<string, number>): string {
-  return REQUIRED_PROBABILITY_LABELS
-    .map((label) => `${label} ${(probabilities[label] * 100).toFixed(1)}%`)
-    .join(', ');
+function getDisplayedConfidence(probabilities: Record<string, number>): number { return Math.max(...REQUIRED_PROBABILITY_LABELS.map((label) => probabilities[label])); }
+function formatProbabilityDistribution(probabilities: Record<string, number>): string { return REQUIRED_PROBABILITY_LABELS.map((label) => `${label} ${(probabilities[label] * 100).toFixed(1)}%`).join(', '); }
+function seasonForMonth(month: number): number {
+  if ([12, 1, 2].includes(month)) return 0;
+  if ([3, 4, 5].includes(month)) return 1;
+  if ([6, 7, 8, 9].includes(month)) return 2;
+  return 3;
 }
 
 function buildFeaturePayload(weather: WeatherData, ocean: OceanData, location: LocationInfo) {
   const observed = new Date(weather.observedAt || new Date().toISOString());
+  const month = observed.getUTCMonth() + 1;
   return {
     wind_speed_kts: weather.windSpeedKts,
     wind_gust_kts: weather.windGustKts,
     wave_height_m: ocean.waveHeightMeters,
     wave_period_s: ocean.wavePeriodSec,
-    // The committed training feature is NDBC APD (average wave period).
-    // Open-Meteo's wave_period represents the period between mean waves, so it
-    // is the closest available operational input; swell period is a different
-    // physical quantity and must not be substituted here.
-    mean_wave_period_s: ocean.wavePeriodSec,
+    swell_height_m: ocean.swellHeightMeters,
+    swell_period_s: ocean.swellPeriodSec,
     wind_direction_deg: weather.windDirectionDeg,
     wave_direction_deg: ocean.waveDirectionDeg,
+    swell_direction_deg: ocean.swellDirectionDeg,
     air_pressure_hpa: weather.pressureHpa,
     air_temperature_c: weather.airTemperatureC,
-    water_temperature_c: ocean.seaSurfaceTemperatureC,
+    sea_surface_temperature_c: ocean.seaSurfaceTemperatureC,
+    precipitation_mm: weather.precipitationMm,
+    visibility_km: weather.visibilityKm,
     latitude: location.latitude,
     longitude: location.longitude,
-    month: observed.getUTCMonth() + 1,
-    hour: observed.getUTCHours(),
+    month,
+    season: seasonForMonth(month),
   };
 }
 
-export async function predictMarineRiskWithMl(
-  weather: WeatherData,
-  ocean: OceanData,
-  satellite: SatelliteData,
-  location: LocationInfo,
-): Promise<RiskPrediction | null> {
+export async function predictMarineRiskWithMl(weather: WeatherData, ocean: OceanData, satellite: SatelliteData, location: LocationInfo): Promise<RiskPrediction | null> {
   const { url, timeoutMs } = getMlApiConfig();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(`${url}/predict-risk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildFeaturePayload(weather, ocean, location)),
-      signal: controller.signal,
-    });
+    const response = await fetch(`${url}/predict-risk`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildFeaturePayload(weather, ocean, location)), signal: controller.signal });
     if (!response.ok) return null;
-
     const result = (await response.json()) as MlRiskResult;
     if (!result.success || !result.risk_label || !Number.isFinite(result.confidence)) return null;
     if (!result.probabilities || !hasValidProbabilityDistribution(result.probabilities)) return null;
 
     const riskScore = riskScoreFromProbabilities(result.probabilities);
-    // Use the same probability vector that is displayed to the user for the
-    // public confidence value. This prevents the API's separately rounded
-    // `confidence` field from disagreeing with the displayed top-class value.
     const displayedConfidence = getDisplayedConfidence(result.probabilities);
     const confidenceScore = Math.round(clamp(displayedConfidence * 100, 0, 100));
-
-    const mlImpact: ImpactLevel = result.risk_label === 'EXTREME' ? 'CRITICAL'
-      : result.risk_label === 'HIGH' ? 'HIGH'
-      : result.risk_label === 'MODERATE' ? 'MEDIUM' : 'LOW';
-    const waveImpact: ImpactLevel = ocean.waveHeightMeters > 2.5 ? 'CRITICAL'
-      : ocean.waveHeightMeters > 1.5 ? 'HIGH'
-      : ocean.waveHeightMeters > 0.8 ? 'MEDIUM' : 'LOW';
-    const gustImpact: ImpactLevel = weather.windGustKts > 34 ? 'CRITICAL'
-      : weather.windGustKts > 22 ? 'HIGH'
-      : weather.windGustKts > 15 ? 'MEDIUM' : 'LOW';
+    const mlImpact: ImpactLevel = result.risk_label === 'EXTREME' ? 'CRITICAL' : result.risk_label === 'HIGH' ? 'HIGH' : result.risk_label === 'MODERATE' ? 'MEDIUM' : 'LOW';
+    const waveImpact: ImpactLevel = ocean.waveHeightMeters >= 4 ? 'CRITICAL' : ocean.waveHeightMeters >= 2.5 ? 'HIGH' : ocean.waveHeightMeters >= 1.25 ? 'MEDIUM' : 'LOW';
+    const gustImpact: ImpactLevel = weather.windGustKts >= 48 ? 'CRITICAL' : weather.windGustKts >= 34 ? 'HIGH' : weather.windGustKts >= 25 ? 'MEDIUM' : 'LOW';
 
     const featureContributions = [
-      {
-        featureName: 'ML Risk Classification', featureValue: result.risk_label, unit: 'class',
-        riskWeight: clamp((riskScore - 50) / 50, -1, 1), impactLevel: mlImpact,
-        description: `XGBoost classified the current 14-feature marine state as ${result.risk_label} with ${(displayedConfidence * 100).toFixed(1)}% probability confidence.`,
-      },
-      {
-        featureName: 'Significant Wave Height (Hs)', featureValue: ocean.waveHeightMeters.toFixed(2), unit: 'm',
-        riskWeight: clamp((ocean.waveHeightMeters - 1.0) / 3.0, -1, 1), impactLevel: waveImpact,
-        description: `Observed significant wave height is ${ocean.waveHeightMeters.toFixed(2)}m.`,
-      },
-      {
-        featureName: 'Wind Gusts', featureValue: weather.windGustKts.toFixed(1), unit: 'kts',
-        riskWeight: clamp((weather.windGustKts - 15) / 25, -1, 1), impactLevel: gustImpact,
-        description: `Observed wind gusts reach ${weather.windGustKts.toFixed(1)} knots.`,
-      },
+      { featureName: 'ML Risk Classification', featureValue: result.risk_label, unit: 'class', riskWeight: clamp((riskScore - 50) / 50, -1, 1), impactLevel: mlImpact, description: `XGBoost v2 classified the 18-feature marine state as ${result.risk_label} with ${(displayedConfidence * 100).toFixed(1)}% probability confidence.` },
+      { featureName: 'Significant Wave Height (Hs)', featureValue: ocean.waveHeightMeters.toFixed(2), unit: 'm', riskWeight: clamp((ocean.waveHeightMeters - 1.0) / 3.0, -1, 1), impactLevel: waveImpact, description: `Observed significant wave height is ${ocean.waveHeightMeters.toFixed(2)}m.` },
+      { featureName: 'Wind Gusts', featureValue: weather.windGustKts.toFixed(1), unit: 'kts', riskWeight: clamp((weather.windGustKts - 15) / 35, -1, 1), impactLevel: gustImpact, description: `Observed wind gusts reach ${weather.windGustKts.toFixed(1)} knots.` },
+      { featureName: 'Swell Height', featureValue: ocean.swellHeightMeters.toFixed(2), unit: 'm', riskWeight: clamp((ocean.swellHeightMeters - 1) / 4, -1, 1), impactLevel: ocean.swellHeightMeters >= 4 ? 'CRITICAL' : ocean.swellHeightMeters >= 2 ? 'HIGH' : ocean.swellHeightMeters >= 1 ? 'MEDIUM' : 'LOW', description: `Observed swell height is ${ocean.swellHeightMeters.toFixed(2)}m.` },
     ];
 
     const advisories: string[] = [];
     const restrictedCraftTypes: string[] = [];
     const safeCraftTypes: string[] = [];
-
     if (result.risk_label === 'LOW') {
-      advisories.push("Conditions are within the model's low-risk operating envelope; maintain normal marine safety procedures.");
+      advisories.push("Conditions are within ORCA-X's low-risk modeled envelope; maintain normal marine safety procedures.");
       safeCraftTypes.push('Traditional Non-motorized Crafts', 'Motorized FRP Crafts', 'Mechanized Fishing Vessels');
     } else if (result.risk_label === 'MODERATE') {
       advisories.push('Exercise increased caution, particularly during surf-zone crossings and harbour approaches.');
@@ -170,46 +123,18 @@ export async function predictMarineRiskWithMl(
       restrictedCraftTypes.push('All Fishing Crafts', 'Small and Medium Commercial Vessels', 'Recreational Vessels');
       safeCraftTypes.push('Emergency Disaster Response Vessels Only');
     }
-
     if (satellite.status !== 'LIVE') advisories.push('Satellite observations are unavailable or degraded; treat remote-sensing-derived confidence separately from the ML classification.');
-
-    const domainValidation = result.domain_validation ? {
-      status: result.domain_validation.status,
-      trainingDataset: result.domain_validation.training_dataset,
-      deploymentValidationStatus: result.domain_validation.deployment_validation_status,
-      warnings: result.domain_validation.warnings,
-      invalidFeatures: result.domain_validation.invalid_features,
-    } : undefined;
-
-    if (domainValidation?.status === 'UNVALIDATED_DEPLOYMENT_DOMAIN') {
-      advisories.push('ML domain validation is incomplete for this deployment region; use the prediction as decision support only and defer to authoritative maritime warnings.');
-    }
+    const domainValidation = result.domain_validation ? { status: result.domain_validation.status, trainingDataset: result.domain_validation.training_dataset, deploymentValidationStatus: result.domain_validation.deployment_validation_status, warnings: result.domain_validation.warnings, invalidFeatures: result.domain_validation.invalid_features } : undefined;
+    if (domainValidation?.status === 'UNVALIDATED_DEPLOYMENT_DOMAIN') advisories.push('This model is evaluated on historical Indian-coastal environmental data, but its target is an operational proxy rather than an official warning. Defer to IMD/INCOIS/Coast Guard advisories for statutory safety decisions.');
 
     return {
-      riskScore,
-      riskLevel: result.risk_label,
-      confidenceScore,
-      modelVersion: result.model_version || 'orca-xgb-risk-v1',
+      riskScore, riskLevel: result.risk_label, confidenceScore,
+      modelVersion: result.model_version || 'orca-xgb-risk-v2',
       predictionTarget: 'Marine environmental risk classification for fishing and navigation safety',
-      primaryRecommendation: result.risk_label === 'LOW'
-        ? 'Favorable modeled conditions with normal safety precautions.'
-        : result.risk_label === 'MODERATE'
-          ? 'Elevated caution is advised, especially for small craft.'
-          : result.risk_label === 'HIGH'
-            ? 'High modeled risk: restrict small-craft operations and seek safer conditions.'
-            : 'Extreme modeled risk: suspend normal marine operations and follow statutory warnings.',
-      safetySummary: `XGBoost marine risk model classified the current environmental state as ${result.risk_label}. Probability distribution: ${formatProbabilityDistribution(result.probabilities)}.`,
-      actionableAdvisories: advisories,
-      restrictedCraftTypes,
-      safeCraftTypes,
-      featureContributions,
-      domainValidation,
-      validUntil: new Date(Date.now() + 3 * 3600 * 1000).toISOString(),
-      generatedAt: new Date().toISOString(),
+      primaryRecommendation: result.risk_label === 'LOW' ? 'Favorable modeled conditions with normal safety precautions.' : result.risk_label === 'MODERATE' ? 'Elevated caution is advised, especially for small craft.' : result.risk_label === 'HIGH' ? 'High modeled risk: restrict small-craft operations and seek safer conditions.' : 'Extreme modeled risk: suspend normal marine operations and follow statutory warnings.',
+      safetySummary: `XGBoost v2 classified the current environmental state as ${result.risk_label}. Probability distribution: ${formatProbabilityDistribution(result.probabilities)}.`,
+      actionableAdvisories: advisories, restrictedCraftTypes, safeCraftTypes, featureContributions, domainValidation,
+      validUntil: new Date(Date.now() + 3 * 3600 * 1000).toISOString(), generatedAt: new Date().toISOString(),
     };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
+  } catch { return null; } finally { clearTimeout(timeout); }
 }
