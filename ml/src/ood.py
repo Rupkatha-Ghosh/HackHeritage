@@ -1,30 +1,34 @@
-"""Conservative validation metadata for ORCA-X ML inference."""
-
+"""Conservative physical-domain validation for ORCA-X v2."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from config import FEATURE_COLUMNS
 
 PHYSICAL_RANGES: dict[str, tuple[float, float]] = {
     "wind_speed_kts": (0.0, 150.0),
     "wind_gust_kts": (0.0, 180.0),
     "wave_height_m": (0.0, 30.0),
     "wave_period_s": (0.0, 40.0),
-    "mean_wave_period_s": (0.0, 40.0),
+    "swell_height_m": (0.0, 30.0),
+    "swell_period_s": (0.0, 60.0),
     "wind_direction_deg": (0.0, 360.0),
     "wave_direction_deg": (0.0, 360.0),
+    "swell_direction_deg": (0.0, 360.0),
     "air_pressure_hpa": (850.0, 1100.0),
     "air_temperature_c": (-80.0, 60.0),
-    "water_temperature_c": (-5.0, 45.0),
+    "sea_surface_temperature_c": (-5.0, 45.0),
+    "precipitation_mm": (0.0, 500.0),
+    "visibility_km": (0.0, 100.0),
     "latitude": (-90.0, 90.0),
     "longitude": (-180.0, 180.0),
     "month": (1.0, 12.0),
-    "hour": (0.0, 23.0),
+    "season": (0.0, 3.0),
 }
 
-TRAINING_DATASET = "NOAA NDBC stations 41001, 41002 and 42002"
-DEPLOYMENT_VALIDATION_STATUS = "NOT_VALIDATED_FOR_INDIAN_COASTAL_DOMAIN"
+TRAINING_DATASET = "Open-Meteo historical weather + marine observations at six Indian coastal regions (2020-2025)"
+DEPLOYMENT_VALIDATION_STATUS = "INDIAN_COASTAL_HISTORICAL_PROXY_VALIDATED_NOT_A_STATUTORY_WARNING"
 
 
 @dataclass(frozen=True)
@@ -48,8 +52,8 @@ class DomainCheck:
 def check_input_domain(features: dict[str, Any]) -> DomainCheck:
     invalid: list[str] = []
     warnings: list[str] = []
-
-    for name, (minimum, maximum) in PHYSICAL_RANGES.items():
+    for name in FEATURE_COLUMNS:
+        minimum, maximum = PHYSICAL_RANGES[name]
         value = features.get(name)
         try:
             numeric = float(value)
@@ -58,16 +62,9 @@ def check_input_domain(features: dict[str, Any]) -> DomainCheck:
             continue
         if not minimum <= numeric <= maximum:
             invalid.append(name)
-
     if invalid:
-        warnings.append(
-            "One or more model inputs are missing or outside conservative physical bounds."
-        )
-
-    warnings.append(
-        "The committed model is trained on NOAA NDBC observations; Indian coastal deployment is not independently validated by the committed dataset."
-    )
-
+        warnings.append("One or more model inputs are missing or outside conservative physical bounds.")
+    warnings.append("The v2 model is trained on historical Indian-coastal environmental observations, but its labels are operational proxies rather than incident outcomes or statutory warnings.")
     return DomainCheck(
         status="INVALID_INPUT" if invalid else "UNVALIDATED_DEPLOYMENT_DOMAIN",
         invalid_features=invalid,
