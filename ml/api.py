@@ -1,5 +1,4 @@
-"""ORCA-X XGBoost ML inference API."""
-
+"""ORCA-X v2 XGBoost ML inference API."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,8 +16,8 @@ from predict import MODEL_VERSION, OrcaXRiskPredictor  # noqa: E402
 
 app = FastAPI(
     title="ORCA-X ML Risk API",
-    description="XGBoost-based marine environmental risk prediction service.",
-    version="1.2.0",
+    description="XGBoost marine environmental risk prediction using real historical coastal data.",
+    version="2.0.0",
 )
 
 predictor = OrcaXRiskPredictor()
@@ -29,16 +28,20 @@ class RiskRequest(BaseModel):
     wind_gust_kts: float = Field(ge=0, le=180)
     wave_height_m: float = Field(ge=0, le=30)
     wave_period_s: float = Field(ge=0, le=40)
-    mean_wave_period_s: float = Field(ge=0, le=40)
+    swell_height_m: float = Field(ge=0, le=30)
+    swell_period_s: float = Field(ge=0, le=60)
     wind_direction_deg: float = Field(ge=0, le=360)
     wave_direction_deg: float = Field(ge=0, le=360)
+    swell_direction_deg: float = Field(ge=0, le=360)
     air_pressure_hpa: float = Field(ge=850, le=1100)
     air_temperature_c: float = Field(ge=-80, le=60)
-    water_temperature_c: float = Field(ge=-5, le=45)
+    sea_surface_temperature_c: float = Field(ge=-5, le=45)
+    precipitation_mm: float = Field(ge=0, le=500)
+    visibility_km: float = Field(ge=0, le=100)
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     month: int = Field(ge=1, le=12)
-    hour: int = Field(ge=0, le=23)
+    season: int = Field(ge=0, le=3)
 
 
 @app.get("/")
@@ -49,7 +52,7 @@ def root():
         "model": "XGBoost",
         "model_version": MODEL_VERSION,
         "feature_count": len(predictor.feature_columns),
-        "deployment_validation": "NOT_VALIDATED_FOR_INDIAN_COASTAL_DOMAIN",
+        "deployment_validation": "INDIAN_COASTAL_HISTORICAL_PROXY_VALIDATED_NOT_A_STATUTORY_WARNING",
     }
 
 
@@ -60,22 +63,14 @@ def health():
         "model_loaded": predictor.model is not None,
         "model_version": MODEL_VERSION,
         "feature_count": len(predictor.feature_columns),
-        "deployment_validation": "NOT_VALIDATED_FOR_INDIAN_COASTAL_DOMAIN",
     }
 
 
 @app.get("/ready")
 def ready():
-    model_loaded = predictor.model is not None
-    if not model_loaded:
+    if predictor.model is None:
         raise HTTPException(status_code=503, detail="ML model is not loaded")
-
-    return {
-        "status": "ready",
-        "model_loaded": True,
-        "model_version": MODEL_VERSION,
-        "feature_count": len(predictor.feature_columns),
-    }
+    return {"status": "ready", "model_loaded": True, "model_version": MODEL_VERSION, "feature_count": len(predictor.feature_columns)}
 
 
 @app.post("/predict-risk")
