@@ -16,7 +16,7 @@ export async function orcaQuery(req: Request, res: Response) {
     res.json(await runOrcaAgentWorkflow(query, locationOverride, timeOverride, language as LanguageCode));
   } catch (error) {
     console.error('ORCA query error:', error);
-    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error processing ORCA query.' });
+    res.status(502).json({ error: error instanceof Error ? error.message : 'Live ORCA data pipeline failed.' });
   }
 }
 
@@ -29,7 +29,7 @@ export async function marineConditions(req: Request, res: Response) {
     }
     res.json(await fetchMarineAndWeatherData(lat, lon));
   } catch (error) {
-    res.status(502).json({ error: error instanceof Error ? error.message : 'Marine data fetch failed.' });
+    res.status(502).json({ error: error instanceof Error ? error.message : 'Live marine/weather fetch failed.' });
   }
 }
 
@@ -89,9 +89,9 @@ export function health(_req: Request, res: Response) {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     services: {
-      openMeteoConnector: 'online',
-      copernicusMarineConnector: 'configured_via_open_meteo_marine',
-      satelliteCatalog: 'copernicus_stac',
+      liveWeather: 'open_meteo_current_conditions',
+      liveMarine: 'open_meteo_marine_current_conditions',
+      satelliteCatalog: 'copernicus_dataspace_stac',
       satelliteProcessing: 'metadata_only',
       riskEngine: 'xgboost_with_rule_based_fallback',
       mlRiskApi: process.env.ORCA_ML_API_URL || 'http://127.0.0.1:8000',
@@ -101,8 +101,11 @@ export function health(_req: Request, res: Response) {
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
     },
     capabilities: {
+      realtimeWeather: true,
+      realtimeMarine: true,
       vectorRag: true,
       evidenceCorpusItems: getEvidenceCorpusSize(),
+      latestSatelliteCatalogueSearch: true,
       satelliteImageProcessing: false,
       mlDeploymentDomainValidated: false,
     },
