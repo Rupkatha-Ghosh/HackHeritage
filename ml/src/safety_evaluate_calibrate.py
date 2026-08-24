@@ -1,8 +1,8 @@
 """Refinement 4.4: safety-oriented evaluation and probability calibration.
 
 Uses the selected small-craft-conservative forward target, keeps Digha completely
-out of fitting, reports class-wise safety metrics, and calibrates the validation
-probabilities for downstream ORCA/RAG decisions.
+out of fitting, reports class-wise safety metrics, and calibrates validation
+probabilities without retraining the already-fitted XGBoost model.
 """
 from __future__ import annotations
 import json
@@ -10,9 +10,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.frozen import FrozenEstimator
 from sklearn.metrics import (
     accuracy_score, balanced_accuracy_score, brier_score_loss, classification_report,
-    confusion_matrix, f1_score, log_loss
+    confusion_matrix, f1_score, recall_score, log_loss
 )
 from sklearn.preprocessing import label_binarize
 from xgboost import XGBClassifier
@@ -65,19 +66,24 @@ def build_target(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def metrics(y, pred, proba=None) -> dict:
+    y_arr = np.asarray(y)
+    pred_arr = np.asarray(pred)
+    high_extreme_true = (y_arr >= 2).astype(int)
+    high_extreme_pred = (pred_arr >= 2).astype(int)
     result = {
-        "accuracy": float(accuracy_score(y, pred)),
-        "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
-        "macro_f1": float(f1_score(y, pred, average="macro", zero_division=0)),
-        "weighted_f1": float(f1_score(y, pred, average="weighted", zero_division=0)),
-        "classification_report": classification_report(y, pred, labels=[0,1,2,3], target_names=RISK_ORDER, output_dict=True, zero_division=0),
-        "confusion_matrix": confusion_matrix(y, pred, labels=[0,1,2,3]).tolist(),
-        "high_extreme_recall": float(f1_score((np.asarray(y)>=2).astype(int), (np.asarray(pred)>=2).astype(int), average="binary", zero_division=0)),
-        "rows": int(len(y)),
+        "accuracy": float(accuracy_score(y_arr, pred_arr)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_arr, pred_arr)),
+        "macro_f1": float(f1_score(y_arr, pred_arr, average="macro", zero_division=0)),
+        "weighted_f1": float(f1_score(y_arr, pred_arr, average="weighted", zero_division=0)),
+        "classification_report": classification_report(y_arr, pred_arr, labels=[0,1,2,3], target_names=RISK_ORDER, output_dict=True, zero_division=0),
+        "confusion_matrix": confusion_matrix(y_arr, pred_arr, labels=[0,1,2,3]).tolist(),
+        "high_extreme_recall": float(recall_score(high_extreme_true, high_extreme_pred, zero_division=0)),
+        "high_extreme_f1": float(f1_score(high_extreme_true, high_extreme_pred, zero_division=0)),
+        "rows": int(len(y_arr)),
     }
     if proba is not None:
-        y_bin = label_binarize(y, classes=[0,1,2,3])
-        result["multiclass_log_loss"] = float(log_loss(y, proba, labels=[0,1,2,3]))
+        y_bin = label_binarize(y_arr, classes=[0,1,2,3])
+        result["multiclass_log_loss"] = float(log_loss(y_arr, proba, labels=[0,1,2,3]))
         result["brier_mean"] = float(np.mean([brier_score_loss(y_bin[:, i], proba[:, i]) for i in range(4)]))
     return result
 
@@ -89,19 +95,36 @@ def main() -> None:
     df = df.sort_values(["location_id", "timestamp"]).copy()
     features = make_features(df)
     data = build_target(df); data["risk"] = data["risk"].astype(int)
-    pool = data[data.location_id != HOLDOUT_LOCATION].sort_values("timestamp"); digha = data[data.location_id == HOLDOUT_LOCATION]
-    n = len(pool); a, b = int(n*.70), int(n*.85); train, val = pool.iloc[:a], pool.iloc[a:b]
-    counts = train.risk.value_counts().sort_index(); weights = {int(k): float(len(train)/(4*v)) for k,v in counts.items()}
-    base = XGBClassifier(objective="multi:softprob", num_class=4, n_estimators=900, learning_rate=.035, max_depth=6, min_child_weight=8, subsample=.85, colsample_bytree=.85, reg_alpha=.15, reg_lambda=2, gamma=.05, tree_method="hist", eval_metric="mlogloss", random_state=RANDOM_STATE, n_jobs=-1)
+    pool = data[data.location_id != HOLDOUT_LOCATION].sort_values("timestamp")
+    digha = data[data.location_id == HOLDOUT_LOCATION]
+    n = len(pool); a, b = int(n*.70), int(n*.85)
+    train, val = pool.iloc[:a], pool.iloc[a:b]
+    counts = train.risk.value_counts().sort_index()
+    weights = {int(k): float(len(train)/(4*v)) for k,v in counts.items()}
+    base = XGBClassifier(
+        objective="multi:softprob", num_class=4, n_estimators=900,
+        learning_rate=.035, max_depth=6, min_child_weight=8,
+        subsample=.85, colsample_bytree=.85, reg_alpha=.15, reg_lambda=2,
+        gamma=.05, tree_method="hist", eval_metric="mlogloss",
+        random_state=RANDOM_STATE, n_jobs=-1,
+    )
     base.fit(train[features], train.risk, sample_weight=train.risk.map(weights).to_numpy(dtype=np.float32), verbose=False)
-    raw_proba = base.predict_proba(val[features]); raw_pred = raw_proba.argmax(axis=1)
-    # Calibrate on the held-out temporal validation set using a separate calibration split.
-    cal_cut = int(len(val) * .50); calibration_df, test_df = val.iloc[:cal_cut], val.iloc[cal_cut:]
-    calibrator = CalibratedClassifierCV(base, method="sigmoid", cv="prefit")
+
+    # Split the temporal validation block chronologically: calibration first, final test second.
+    cal_cut = int(len(val) * 0.50)
+    calibration_df, test_df = val.iloc[:cal_cut], val.iloc[cal_cut:]
+    raw_test_proba = base.predict_proba(test_df[features])
+    raw_test_pred = raw_test_proba.argmax(axis=1)
+
+    # sklearn >=1.6: FrozenEstimator explicitly marks the fitted model as prefit.
+    # This prevents CalibratedClassifierCV from refitting XGBoost on calibration data.
+    frozen = FrozenEstimator(base)
+    calibrator = CalibratedClassifierCV(frozen, method="sigmoid")
     calibrator.fit(calibration_df[features], calibration_df.risk)
+
     cal_proba = calibrator.predict_proba(test_df[features]); cal_pred = cal_proba.argmax(axis=1)
     digha_proba = calibrator.predict_proba(digha[features]); digha_pred = digha_proba.argmax(axis=1)
-    raw_metrics = metrics(test_df.risk, base.predict(test_df[features]).astype(int), base.predict_proba(test_df[features]))
+    raw_metrics = metrics(test_df.risk, raw_test_pred, raw_test_proba)
     calibrated_metrics = metrics(test_df.risk, cal_pred, cal_proba)
     digha_metrics = metrics(digha.risk, digha_pred, digha_proba)
     result = {
@@ -114,7 +137,9 @@ def main() -> None:
         "calibrated_digha_holdout": digha_metrics,
         "note": "Calibration is fit only on the first half of the temporal validation block; Digha remains completely unseen during fitting and calibration.",
     }
-    out = MODELS_DIR / "safety_calibration_results.json"; out.parent.mkdir(parents=True, exist_ok=True); out.write_text(json.dumps(result, indent=2, default=float), encoding="utf-8")
+    out = MODELS_DIR / "safety_calibration_results.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(result, indent=2, default=float), encoding="utf-8")
     print("\n=== RAW TEMPORAL TEST ==="); print({k:v for k,v in raw_metrics.items() if k not in ("classification_report", "confusion_matrix")})
     print("\n=== CALIBRATED TEMPORAL TEST ==="); print({k:v for k,v in calibrated_metrics.items() if k not in ("classification_report", "confusion_matrix")})
     print("\n=== CALIBRATED DIGHA HOLDOUT ==="); print({k:v for k,v in digha_metrics.items() if k not in ("classification_report", "confusion_matrix")})
