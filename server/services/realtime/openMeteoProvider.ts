@@ -1,7 +1,8 @@
 import { OceanData, WeatherData } from '../../../src/types.ts';
 
-const WEATHER_API_URL = 'https://api.open-meteo.com/v1/forecast';
-const MARINE_API_URL = 'https://marine-api.open-meteo.com/v1/marine';
+const WEATHER_API_URL = process.env.OPEN_METEO_WEATHER_API_URL || 'https://api.open-meteo.com/v1/forecast';
+const MARINE_API_URL = process.env.OPEN_METEO_MARINE_API_URL || 'https://marine-api.open-meteo.com/v1/marine';
+const REQUEST_TIMEOUT_MS = Number(process.env.REALTIME_DATA_TIMEOUT_MS || 8000);
 
 interface OpenMeteoCurrentWeather {
   time?: string;
@@ -17,10 +18,7 @@ interface OpenMeteoCurrentWeather {
   cloud_cover?: number;
 }
 
-interface OpenMeteoWeatherResponse {
-  current?: OpenMeteoCurrentWeather;
-  current_units?: Record<string, string>;
-}
+interface OpenMeteoWeatherResponse { current?: OpenMeteoCurrentWeather; }
 
 interface OpenMeteoCurrentMarine {
   time?: string;
@@ -38,10 +36,7 @@ interface OpenMeteoCurrentMarine {
 
 interface OpenMeteoMarineResponse {
   current?: OpenMeteoCurrentMarine;
-  daily?: {
-    wave_height_max?: number[];
-  };
-  daily_units?: Record<string, string>;
+  daily?: { wave_height_max?: number[] };
 }
 
 function compass(degrees: number): string {
@@ -56,7 +51,7 @@ function requiredNumber(value: unknown, field: string): number {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`Open-Meteo ${response.status}: ${(await response.text().catch(() => '')).slice(0, 200)}`);
   }
@@ -78,7 +73,6 @@ export async function fetchOpenMeteoCurrent(lat: number, lon: number): Promise<{
     current: 'wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
     daily: 'wave_height_max',
     timezone: 'auto',
-    wind_speed_unit: 'kn',
   });
 
   const retrievedAt = new Date().toISOString();
