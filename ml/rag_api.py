@@ -51,19 +51,37 @@ class EvidenceDocument(BaseModel):
 class IngestRequest(BaseModel):
     documents: list[EvidenceDocument] = Field(min_length=1, max_length=1000)
 
+def _ensure_collection(client: QdrantClient) -> None:
+    """Create the configured collection if this is a fresh Qdrant instance.
+
+    This keeps /health usable as a readiness probe in CI and first-run local
+    development. Ingestion/search remain responsible for populating/querying it.
+    """
+    names = {item.name for item in client.get_collections().collections}
+    if QDRANT_COLLECTION not in names:
+        client.create_collection(
+            collection_name=QDRANT_COLLECTION,
+            vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE),
+        )
+
+def _collection_info(client: QdrantClient):
+    _ensure_collection(client)
+    return client.get_collection(QDRANT_COLLECTION)
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     try:
         client = get_qdrant()
-        collection = client.get_collection(QDRANT_COLLECTION)
-        return {"status": "healthy", "embedding_model": EMBEDDING_MODEL, "embedding_dimension": 1024, "qdrant_collection": QDRANT_COLLECTION, "points_count": collection.points_count}
+        collection = _collection_info(client)
+        return {
+            "status": "healthy",
+            "embedding_model": EMBEDDING_MODEL,
+            "embedding_dimension": 1024,
+            "qdrant_collection": QDRANT_COLLECTION,
+            "points_count": collection.points_count,
+        }
     except Exception as exc:
         return {"status": "degraded", "error": str(exc), "embedding_model": EMBEDDING_MODEL}
-
-def _ensure_collection(client: QdrantClient) -> None:
-    names = {item.name for item in client.get_collections().collections}
-    if QDRANT_COLLECTION not in names:
-        client.create_collection(collection_name=QDRANT_COLLECTION, vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE))
 
 def _query_points(client: QdrantClient, vector: list[float], limit: int):
     """Use the current Qdrant client API (query_points), compatible with Qdrant 1.19+."""
