@@ -1,82 +1,61 @@
-"""ORCA-X v2 XGBoost ML inference API."""
+"""ORCA-X XGBoost ML inference API with staged v1/v2 model compatibility."""
 from __future__ import annotations
-
 from pathlib import Path
 import sys
-
+from typing import Optional
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 ML_ROOT = Path(__file__).resolve().parent
 ML_SRC = ML_ROOT / "src"
 if str(ML_SRC) not in sys.path:
     sys.path.insert(0, str(ML_SRC))
-
 from predict import MODEL_VERSION, OrcaXRiskPredictor  # noqa: E402
 
-app = FastAPI(
-    title="ORCA-X ML Risk API",
-    description="XGBoost marine environmental risk prediction using real historical coastal data.",
-    version="2.0.0",
-)
-
+app = FastAPI(title="ORCA-X ML Risk API", description="XGBoost marine environmental risk prediction service.", version="2.0.0")
 predictor = OrcaXRiskPredictor()
 
-
 class RiskRequest(BaseModel):
-    wind_speed_kts: float = Field(ge=0, le=150)
-    wind_gust_kts: float = Field(ge=0, le=180)
-    wave_height_m: float = Field(ge=0, le=30)
-    wave_period_s: float = Field(ge=0, le=40)
-    swell_height_m: float = Field(ge=0, le=30)
-    swell_period_s: float = Field(ge=0, le=60)
-    wind_direction_deg: float = Field(ge=0, le=360)
-    wave_direction_deg: float = Field(ge=0, le=360)
-    swell_direction_deg: float = Field(ge=0, le=360)
-    air_pressure_hpa: float = Field(ge=850, le=1100)
-    air_temperature_c: float = Field(ge=-80, le=60)
-    sea_surface_temperature_c: float = Field(ge=-5, le=45)
-    precipitation_mm: float = Field(ge=0, le=500)
-    visibility_km: float = Field(ge=0, le=100)
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
-    month: int = Field(ge=1, le=12)
-    season: int = Field(ge=0, le=3)
-
+    wind_speed_kts: Optional[float] = None
+    wind_gust_kts: Optional[float] = None
+    wave_height_m: Optional[float] = None
+    wave_period_s: Optional[float] = None
+    mean_wave_period_s: Optional[float] = None
+    swell_height_m: Optional[float] = None
+    swell_period_s: Optional[float] = None
+    wind_direction_deg: Optional[float] = None
+    wave_direction_deg: Optional[float] = None
+    swell_direction_deg: Optional[float] = None
+    air_pressure_hpa: Optional[float] = None
+    air_temperature_c: Optional[float] = None
+    water_temperature_c: Optional[float] = None
+    sea_surface_temperature_c: Optional[float] = None
+    precipitation_mm: Optional[float] = None
+    visibility_km: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    month: Optional[int] = None
+    hour: Optional[int] = None
+    season: Optional[int] = None
 
 @app.get("/")
 def root():
-    return {
-        "service": "ORCA-X ML Risk API",
-        "status": "online",
-        "model": "XGBoost",
-        "model_version": MODEL_VERSION,
-        "feature_count": len(predictor.feature_columns),
-        "deployment_validation": "INDIAN_COASTAL_HISTORICAL_PROXY_VALIDATED_NOT_A_STATUTORY_WARNING",
-    }
-
+    return {"service": "ORCA-X ML Risk API", "status": "online", "model": "XGBoost", "model_version": MODEL_VERSION, "loaded_model_version": predictor.model_version, "feature_count": len(predictor.feature_columns), "feature_contract": predictor.feature_columns}
 
 @app.get("/health")
 def health():
-    return {
-        "status": "healthy",
-        "model_loaded": predictor.model is not None,
-        "model_version": MODEL_VERSION,
-        "feature_count": len(predictor.feature_columns),
-    }
-
+    return {"status": "healthy", "model_loaded": predictor.model is not None, "model_version": predictor.model_version, "feature_count": len(predictor.feature_columns)}
 
 @app.get("/ready")
 def ready():
     if predictor.model is None:
         raise HTTPException(status_code=503, detail="ML model is not loaded")
-    return {"status": "ready", "model_loaded": True, "model_version": MODEL_VERSION, "feature_count": len(predictor.feature_columns)}
-
+    return {"status": "ready", "model_loaded": True, "model_version": predictor.model_version, "feature_count": len(predictor.feature_columns)}
 
 @app.post("/predict-risk")
 def predict_risk(request: RiskRequest):
     try:
-        result = predictor.predict_one(request.model_dump())
+        result = predictor.predict_one(request.model_dump(exclude_none=True))
         return {"success": True, **result}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
