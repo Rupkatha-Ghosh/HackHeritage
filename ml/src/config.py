@@ -7,39 +7,25 @@ RAW_HISTORICAL_DIR = ML_ROOT / "data" / "raw" / "open_meteo"
 PROCESSED_DIR = ML_ROOT / "data" / "processed"
 MODELS_DIR = ML_ROOT / "models"
 
-# Legacy NDBC source remains available for reproducibility/comparison.
 DEFAULT_STATIONS = ["41001", "41002", "42002"]
 DEFAULT_YEARS = [2024, 2025]
 NDBC_BASE = "https://www.ndbc.noaa.gov/data/historical/stdmet"
 
 DATASET_NAME = "ORCA-X Historical Marine Risk Dataset"
-DATASET_VERSION = "2.0-open-meteo-historical"
+DATASET_VERSION = "2.1-forward-risk-target"
 TARGET_COLUMN = "risk_class"
 
-# Real historical weather + marine variables used by the upgraded model.
+# Features available at decision time. Visibility is intentionally excluded from v2
+# because the historical Open-Meteo archive used for this build returned it missing
+# for every observation. We never turn an entirely missing feature into fake data.
 FEATURE_COLUMNS = [
-    "wind_speed_kts",
-    "wind_gust_kts",
-    "wave_height_m",
-    "wave_period_s",
-    "swell_height_m",
-    "swell_period_s",
-    "wind_direction_deg",
-    "wave_direction_deg",
-    "swell_direction_deg",
-    "air_pressure_hpa",
-    "air_temperature_c",
-    "sea_surface_temperature_c",
-    "precipitation_mm",
-    "visibility_km",
-    "latitude",
-    "longitude",
-    "month",
-    "season",
+    "wind_speed_kts", "wind_gust_kts", "wave_height_m", "wave_period_s",
+    "swell_height_m", "swell_period_s", "wind_direction_deg", "wave_direction_deg",
+    "swell_direction_deg", "air_pressure_hpa", "air_temperature_c",
+    "sea_surface_temperature_c", "precipitation_mm", "latitude", "longitude",
+    "month", "season",
 ]
 
-# Representative Indian coastal regions. These are offshore/coastal model points,
-# not port-navigation coordinates. The model is decision support, not a statutory warning service.
 HISTORICAL_LOCATIONS = [
     {"id": "digha_wb", "name": "Digha Coast", "region": "West Bengal", "latitude": 21.626, "longitude": 87.508},
     {"id": "paradip_od", "name": "Paradip Coast", "region": "Odisha", "latitude": 20.264, "longitude": 86.679},
@@ -52,9 +38,8 @@ HISTORICAL_LOCATIONS = [
 HISTORICAL_START_DATE = "2020-01-01"
 HISTORICAL_END_DATE = "2025-12-31"
 
-RISK_CLASS_NAMES = {
-    0: "LOW",
-    1: "MODERATE",
-    2: "HIGH",
-    3: "EXTREME",
-}
+RISK_CLASS_NAMES = {0: "LOW", 1: "MODERATE", 2: "HIGH", 3: "EXTREME"}
+
+# Predict the environmental severity six hours ahead instead of labeling the same
+# observation used as input. This removes the direct contemporaneous target leakage.
+RISK_HORIZON_HOURS = 6
