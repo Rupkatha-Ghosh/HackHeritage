@@ -3,164 +3,41 @@ import { COASTAL_LOCATIONS, MARINE_EVIDENCE_CORPUS } from '../../src/data/coasta
 import { calculateMarineRisk, generateGisLayers } from '../../src/utils/marineRiskEngine.ts';
 import { predictMarineRiskWithMl } from '../../src/services/ml/riskService.ts';
 import { fetchSatelliteData } from '../../src/services/satellite/satelliteService.ts';
-import {
-  AgentStepTrace,
-  LanguageCode,
-  OrcaAnalysisResponse,
-} from '../../src/types.ts';
-import {
-  fetchMarineAndWeatherData,
-  resolveLocation,
-  resolveSatelliteObservationWindow,
-  resolveTimeWindow,
-} from './marineService.ts';
+import { AgentStepTrace, LanguageCode, OrcaAnalysisResponse } from '../../src/types.ts';
+import { fetchMarineAndWeatherData, resolveLocation, resolveSatelliteObservationWindow, resolveTimeWindow } from './marineService.ts';
 import { retrieveRagEvidence } from './ragService.ts';
 
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
-  if (!genAIClient && process.env.GEMINI_API_KEY) {
-    genAIClient = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: { headers: { 'User-Agent': 'orca-x-server' } },
-    });
-  }
+  if (!genAIClient && process.env.GEMINI_API_KEY) genAIClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { 'User-Agent': 'orca-x-server' } } });
   return genAIClient;
 }
 
-export async function runOrcaAgentWorkflow(
-  query: string,
-  locationOverride?: string,
-  timeOverride?: string,
-  language: LanguageCode = 'en',
-): Promise<OrcaAnalysisResponse> {
+export async function runOrcaAgentWorkflow(query: string, locationOverride?: string, timeOverride?: string, language: LanguageCode = 'en'): Promise<OrcaAnalysisResponse> {
   const queryId = `orca-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const traces: AgentStepTrace[] = [];
-  const startTrace = (agentName: AgentStepTrace['agentName'], inputSummary: string) => {
-    const trace: AgentStepTrace = {
-      agentName,
-      status: 'running',
-      startedAt: new Date().toISOString(),
-      inputSummary,
-      outputSummary: '',
-      logs: [`Started ${agentName} processing`],
-    };
-    traces.push(trace);
-    return trace;
-  };
-  const completeTrace = (trace: AgentStepTrace, outputSummary: string, error?: string) => {
-    trace.status = error ? 'failed' : 'completed';
-    trace.completedAt = new Date().toISOString();
-    trace.durationMs = Math.max(1, Date.now() - new Date(trace.startedAt).getTime());
-    trace.outputSummary = outputSummary;
-    if (error) trace.error = error;
-  };
+  const startTrace = (agentName: AgentStepTrace['agentName'], inputSummary: string) => { const trace: AgentStepTrace = { agentName, status: 'running', startedAt: new Date().toISOString(), inputSummary, outputSummary: '', logs: [`Started ${agentName} processing`] }; traces.push(trace); return trace; };
+  const completeTrace = (trace: AgentStepTrace, outputSummary: string, error?: string) => { trace.status = error ? 'failed' : 'completed'; trace.completedAt = new Date().toISOString(); trace.durationMs = Math.max(1, Date.now() - new Date(trace.startedAt).getTime()); trace.outputSummary = outputSummary; if (error) trace.error = error; };
 
-  const planner = startTrace('Planner', `Analyze query: "${query}"`);
-  planner.logs.push('Workflow: location/time resolution, live environmental connectors, ML risk, GIS, BGE-M3 + Qdrant evidence, grounded synthesis');
-  completeTrace(planner, 'Workflow execution graph created.');
+  const planner = startTrace('Planner', `Analyze query: "${query}"`); planner.logs.push('Workflow: location/time resolution, live environmental connectors, ML risk, GIS, BGE-M3 + Qdrant evidence, grounded synthesis'); completeTrace(planner, 'Workflow execution graph created.');
+  const resolver = startTrace('LocationTimeResolver', 'Resolve geographic and temporal intent'); const location = resolveLocation(query, locationOverride); const timeWindow = resolveTimeWindow(query, timeOverride); resolver.logs.push(`Matched location: ${location.name} (${location.latitude}, ${location.longitude})`); completeTrace(resolver, `Target: ${location.name} | ${timeWindow.requestedText}`);
 
-  const resolver = startTrace('LocationTimeResolver', 'Resolve geographic and temporal intent');
-  const location = resolveLocation(query, locationOverride);
-  const timeWindow = resolveTimeWindow(query, timeOverride);
-  resolver.logs.push(`Matched location: ${location.name} (${location.latitude}, ${location.longitude})`);
-  completeTrace(resolver, `Target: ${location.name} | ${timeWindow.requestedText}`);
+  const weatherTrace = startTrace('WeatherAgent', `Fetch LIVE weather for ${location.name}`); const oceanTrace = startTrace('OceanAgent', `Fetch LIVE marine conditions for ${location.name}`); const satelliteTrace = startTrace('SatelliteAgent', `Search latest Copernicus observations for ${location.name}`);
+  const realtime = await fetchMarineAndWeatherData(location.latitude, location.longitude); const { weather, ocean, degraded } = realtime; const satelliteWindow = resolveSatelliteObservationWindow(timeWindow); const satellite = await fetchSatelliteData(location.latitude, location.longitude, satelliteWindow.startTime, satelliteWindow.endTime);
+  weatherTrace.logs.push(`Source: ${weather.source}; observed at ${weather.observedAt}; retrieved at ${weather.retrievedAt || realtime.metadata.retrievedAt}.`); oceanTrace.logs.push(`Source: ${ocean.source}; observed at ${ocean.observedAt}; retrieved at ${ocean.retrievedAt || realtime.metadata.retrievedAt}.`); for (const warning of realtime.metadata.warnings) oceanTrace.logs.push(warning); completeTrace(weatherTrace, `LIVE | Temperature ${weather.airTemperatureC}°C | Wind ${weather.windSpeedKts} kts | Gust ${weather.windGustKts} kts`); completeTrace(oceanTrace, `LIVE | Wave ${ocean.waveHeightMeters}m | Swell ${ocean.swellHeightMeters}m | Current ${ocean.currentSpeedKts} kts`); completeTrace(satelliteTrace, `${satellite.status} | ${satellite.observations.length} observations`);
 
-  const weatherTrace = startTrace('WeatherAgent', `Fetch LIVE weather for ${location.name}`);
-  const oceanTrace = startTrace('OceanAgent', `Fetch LIVE marine conditions for ${location.name}`);
-  const satelliteTrace = startTrace('SatelliteAgent', `Search latest Copernicus observations for ${location.name}`);
+  const riskTrace = startTrace('RiskEngine', 'Run XGBoost ML risk service with deterministic fallback'); const mlRisk = await predictMarineRiskWithMl(weather, ocean, satellite, location); const risk = mlRisk || calculateMarineRisk(weather, ocean, satellite, location); if (mlRisk) { riskTrace.logs.push(`XGBoost prediction received: ${mlRisk.riskLevel} (${mlRisk.confidenceScore}%).`); if (mlRisk.domainValidation) { riskTrace.logs.push(`ML deployment validation: ${mlRisk.domainValidation.deploymentValidationStatus}.`); if (mlRisk.domainValidation.status === 'UNVALIDATED_DEPLOYMENT_DOMAIN') riskTrace.logs.push('Indian coastal deployment is not independently validated by the committed ML dataset.'); } } else riskTrace.logs.push('ML API unavailable; deterministic fallback used.'); completeTrace(riskTrace, `${risk.riskScore}/100 ${risk.riskLevel}`);
+  const gisTrace = startTrace('GisAgent', 'Generate GeoJSON hazard and navigation layers'); const gisLayers = generateGisLayers(location, risk, ocean); completeTrace(gisTrace, `${gisLayers.features.length} GeoJSON features generated.`);
 
-  const realtime = await fetchMarineAndWeatherData(location.latitude, location.longitude);
-  const { weather, ocean, degraded } = realtime;
-  const satelliteWindow = resolveSatelliteObservationWindow(timeWindow);
-  const satellite = await fetchSatelliteData(
-    location.latitude,
-    location.longitude,
-    satelliteWindow.startTime,
-    satelliteWindow.endTime,
-  );
+  const ragTrace = startTrace('EvidenceRetrieval', 'Retrieve marine evidence with BGE-M3 embeddings and Qdrant'); const rag = await retrieveRagEvidence(query, location, risk.riskLevel); ragTrace.logs.push(`Retrieval provider: ${rag.provider}; retrieval: ${rag.retrieval}; embedding model: ${rag.model}.`); if (rag.degraded && rag.error) ragTrace.logs.push(`Fallback reason: ${rag.error}`); completeTrace(ragTrace, `${rag.evidence.length} evidence items retrieved via ${rag.provider}.`);
 
-  weatherTrace.logs.push(`Source: ${weather.source}; observed at ${weather.observedAt}; retrieved at ${weather.retrievedAt || realtime.metadata.retrievedAt}.`);
-  oceanTrace.logs.push(`Source: ${ocean.source}; observed at ${ocean.observedAt}; retrieved at ${ocean.retrievedAt || realtime.metadata.retrievedAt}.`);
-  for (const warning of realtime.metadata.warnings) oceanTrace.logs.push(warning);
-  completeTrace(weatherTrace, `LIVE | Temperature ${weather.airTemperatureC}°C | Wind ${weather.windSpeedKts} kts | Gust ${weather.windGustKts} kts`);
-  completeTrace(oceanTrace, `LIVE | Wave ${ocean.waveHeightMeters}m | Swell ${ocean.swellHeightMeters}m | Current ${ocean.currentSpeedKts} kts`);
-  completeTrace(satelliteTrace, `${satellite.status} | ${satellite.observations.length} observations`);
-
-  const riskTrace = startTrace('RiskEngine', 'Run XGBoost ML risk service with deterministic fallback');
-  const mlRisk = await predictMarineRiskWithMl(weather, ocean, satellite, location);
-  const risk = mlRisk || calculateMarineRisk(weather, ocean, satellite, location);
-  if (mlRisk) {
-    riskTrace.logs.push(`XGBoost prediction received: ${mlRisk.riskLevel} (${mlRisk.confidenceScore}%).`);
-    if (mlRisk.domainValidation) {
-      riskTrace.logs.push(`ML deployment validation: ${mlRisk.domainValidation.deploymentValidationStatus}.`);
-      if (mlRisk.domainValidation.status === 'UNVALIDATED_DEPLOYMENT_DOMAIN') {
-        riskTrace.logs.push('Indian coastal deployment is not independently validated by the committed ML dataset.');
-      }
-    }
-  } else {
-    riskTrace.logs.push('ML API unavailable; deterministic fallback used.');
-  }
-  completeTrace(riskTrace, `${risk.riskScore}/100 ${risk.riskLevel}`);
-
-  const gisTrace = startTrace('GisAgent', 'Generate GeoJSON hazard and navigation layers');
-  const gisLayers = generateGisLayers(location, risk, ocean);
-  completeTrace(gisTrace, `${gisLayers.features.length} GeoJSON features generated.`);
-
-  const ragTrace = startTrace('EvidenceRetrieval', 'Retrieve marine evidence with BGE-M3 embeddings and Qdrant');
-  const rag = await retrieveRagEvidence(query, location, risk.riskLevel);
-  ragTrace.logs.push(`Retrieval provider: ${rag.provider}; embedding model: ${rag.model}.`);
-  completeTrace(ragTrace, `${rag.evidence.length} evidence items retrieved via ${rag.provider}.`);
-
-  const responseTrace = startTrace('ResponseGrounding', 'Generate grounded marine intelligence briefing');
-  let groundedSummary = '';
-  const genAI = getGenAI();
-  if (genAI) {
-    const prompt = `You are ORCA-X (Ocean Reasoning & Collaborative AI), an authoritative marine intelligence assistant.\nUser Query: "${query}"\nLocation: ${location.name}, ${location.state || ''}, ${location.country}\nTime Window: ${timeWindow.requestedText}\n\nLIVE ENVIRONMENTAL DATA:\nWeather source: ${weather.source}; observed: ${weather.observedAt}; retrieved: ${weather.retrievedAt || realtime.metadata.retrievedAt}\nMarine source: ${ocean.source}; observed: ${ocean.observedAt}; retrieved: ${ocean.retrievedAt || realtime.metadata.retrievedAt}\nWave Height: ${ocean.waveHeightMeters}m; Max Wave Today: ${ocean.maxWaveHeightMeters}m\nSwell: ${ocean.swellHeightMeters}m / ${ocean.swellPeriodSec}s\nWind: ${weather.windSpeedKts} kts; Gusts: ${weather.windGustKts} kts; Direction: ${weather.windDirectionCompass}\nCurrent: ${ocean.currentSpeedKts} kts\nSea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\nSST: ${ocean.seaSurfaceTemperatureC}°C\nVisibility: ${weather.visibilityKm} km\nRisk: ${risk.riskScore}/100 ${risk.riskLevel}; Confidence: ${risk.confidenceScore}%\nRecommendation: ${risk.primaryRecommendation}\nAdvisories: ${risk.actionableAdvisories.join('; ')}\nRetrieved Evidence (BGE-M3 + Qdrant):\n${rag.evidence.map(e => `- ${e.title} | ${e.sourceAuthority} | ${e.excerpt} | ${e.complianceRule}`).join('\n')}\n\nRespond in ${language}. Never invent measurements. Clearly distinguish live/modelled observations from authoritative evidence, give a concise verdict, key physical drivers, operational advisories, cite the retrieved evidence authorities by name, and state that official INCOIS/IMD/MRCC warnings supersede this system.`;
-    for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.7-flash']) {
-      try {
-        const result = await genAI.models.generateContent({
-          model,
-          contents: prompt,
-          config: { temperature: 0.2, topP: 0.85 },
-        });
-        if (result.text) { groundedSummary = result.text; break; }
-      } catch (error) {
-        responseTrace.logs.push(`Model ${model} unavailable; trying next model.`);
-      }
-    }
-  }
-
-  if (!groundedSummary) {
-    groundedSummary = `${risk.primaryRecommendation}\n\n${risk.safetySummary}\n\nLIVE DATA (${weather.source} / ${ocean.source}):\n• Significant Wave Height: ${ocean.waveHeightMeters}m\n• Wind: ${weather.windSpeedKts} kts (gusts ${weather.windGustKts} kts)\n• Swell Period: ${ocean.swellPeriodSec}s\n• Current: ${ocean.currentSpeedKts} kts\n• Sea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\n• Retrieved: ${realtime.metadata.retrievedAt}\n\nSafety Advisories:\n${risk.actionableAdvisories.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nEvidence:\n${rag.evidence.map(e => `• ${e.title} — ${e.sourceAuthority}`).join('\n')}`;
-  }
+  const responseTrace = startTrace('ResponseGrounding', 'Generate grounded marine intelligence briefing'); let groundedSummary = ''; const genAI = getGenAI();
+  if (genAI) { const prompt = `You are ORCA-X (Ocean Reasoning & Collaborative AI), an authoritative marine intelligence assistant.\nUser Query: "${query}"\nLocation: ${location.name}, ${location.state || ''}, ${location.country}\nTime Window: ${timeWindow.requestedText}\n\nLIVE ENVIRONMENTAL DATA:\nWeather source: ${weather.source}; observed: ${weather.observedAt}; retrieved: ${weather.retrievedAt || realtime.metadata.retrievedAt}\nMarine source: ${ocean.source}; observed: ${ocean.observedAt}; retrieved: ${ocean.retrievedAt || realtime.metadata.retrievedAt}\nWave Height: ${ocean.waveHeightMeters}m; Max Wave Today: ${ocean.maxWaveHeightMeters}m\nSwell: ${ocean.swellHeightMeters}m / ${ocean.swellPeriodSec}s\nWind: ${weather.windSpeedKts} kts; Gusts: ${weather.windGustKts} kts; Direction: ${weather.windDirectionCompass}\nCurrent: ${ocean.currentSpeedKts} kts\nSea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\nSST: ${ocean.seaSurfaceTemperatureC}°C\nVisibility: ${weather.visibilityKm} km\nRisk: ${risk.riskScore}/100 ${risk.riskLevel}; Confidence: ${risk.confidenceScore}%\nRecommendation: ${risk.primaryRecommendation}\nAdvisories: ${risk.actionableAdvisories.join('; ')}\nRetrieved Evidence (${rag.provider}, ${rag.model}):\n${rag.evidence.map(e => `- ${e.title} | ${e.sourceAuthority} | ${e.excerpt} | ${e.complianceRule}`).join('\n')}\n\nRespond in ${language}. Never invent measurements. Clearly distinguish live/modelled observations from authoritative evidence, give a concise verdict, key physical drivers, operational advisories, cite the retrieved evidence authorities by name, and state that official INCOIS/IMD/MRCC warnings supersede this system.`; for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.7-flash']) { try { const result = await genAI.models.generateContent({ model, contents: prompt, config: { temperature: 0.2, topP: 0.85 } }); if (result.text) { groundedSummary = result.text; break; } } catch { responseTrace.logs.push(`Model ${model} unavailable; trying next model.`); } } }
+  if (!groundedSummary) groundedSummary = `${risk.primaryRecommendation}\n\n${risk.safetySummary}\n\nLIVE DATA (${weather.source} / ${ocean.source}):\n• Significant Wave Height: ${ocean.waveHeightMeters}m\n• Wind: ${weather.windSpeedKts} kts (gusts ${weather.windGustKts} kts)\n• Swell Period: ${ocean.swellPeriodSec}s\n• Current: ${ocean.currentSpeedKts} kts\n• Sea State: ${ocean.seaStateIndex} (${ocean.seaStateDescription})\n• Retrieved: ${realtime.metadata.retrievedAt}\n\nSafety Advisories:\n${risk.actionableAdvisories.map((a, i) => `${i + 1}. ${a}`).join('\n')}\n\nEvidence (${rag.provider}):\n${rag.evidence.map(e => `• ${e.title} — ${e.sourceAuthority}`).join('\n')}`;
   completeTrace(responseTrace, 'Grounded marine briefing generated from live environmental data plus retrieved authoritative evidence.');
 
-  return {
-    queryId,
-    originalQuery: query,
-    language,
-    detectedIntent: 'marine_safety_fishing_advisory',
-    location,
-    timeWindow,
-    weather,
-    ocean,
-    satellite,
-    risk,
-    gisLayers,
-    evidence: rag.evidence,
-    agentTraces: traces,
-    groundedSummary,
-    isDataDegraded: degraded || satellite.status !== 'LIVE' || rag.provider !== 'bge-m3-qdrant',
-    warnings: [...realtime.metadata.warnings, ...satellite.warnings],
-    freshnessTimestamp: realtime.metadata.retrievedAt,
-    officialDisclaimer: 'ORCA-X is an AI decision-support platform for marine intelligence. It does NOT supersede statutory warnings from INCOIS, IMD, or Maritime Rescue Coordination Centres (MRCC). Open-Meteo modelled marine currents/tides are advisory and do not replace nautical navigation information.',
-  };
+  return { queryId, originalQuery: query, language, detectedIntent: 'marine_safety_fishing_advisory', location, timeWindow, weather, ocean, satellite, risk, gisLayers, evidence: rag.evidence, agentTraces: traces, groundedSummary, isDataDegraded: degraded || satellite.status !== 'LIVE' || rag.degraded, warnings: [...realtime.metadata.warnings, ...satellite.warnings, ...(rag.error ? [`BGE-M3/Qdrant retrieval degraded: ${rag.error}`] : [])], freshnessTimestamp: realtime.metadata.retrievedAt, officialDisclaimer: 'ORCA-X is an AI decision-support platform for marine intelligence. It does NOT supersede statutory warnings from INCOIS, IMD, or Maritime Rescue Coordination Centres (MRCC). Open-Meteo modelled marine currents/tides are advisory and do not replace nautical navigation information.' };
 }
 
-export function getSupportedLocationCount(): number {
-  return Object.keys(COASTAL_LOCATIONS).length;
-}
-
-export function getEvidenceCorpusSize(): number {
-  return MARINE_EVIDENCE_CORPUS.length;
-}
+export function getSupportedLocationCount(): number { return Object.keys(COASTAL_LOCATIONS).length; }
+export function getEvidenceCorpusSize(): number { return MARINE_EVIDENCE_CORPUS.length; }
