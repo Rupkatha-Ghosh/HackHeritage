@@ -21,6 +21,8 @@ export interface TimeWindow {
   isForecast: boolean;
 }
 
+export type DataQuality = 'LIVE' | 'DEGRADED' | 'UNAVAILABLE';
+
 export interface WeatherData {
   airTemperatureC: number;
   windSpeedKts: number;
@@ -34,7 +36,10 @@ export interface WeatherData {
   weatherCode: number;
   weatherDescription: string;
   source: string;
+  sourceUrl?: string;
   observedAt: string;
+  retrievedAt?: string;
+  dataQuality?: DataQuality;
 }
 
 export interface OceanData {
@@ -48,16 +53,24 @@ export interface OceanData {
   seaSurfaceTemperatureC: number;
   currentSpeedKts: number;
   currentDirectionDeg: number;
-  salinityPsu: number;
+  salinityPsu?: number;
   seaStateIndex: number;
   seaStateDescription: string;
-  tidePhase: 'High Tide' | 'Low Tide' | 'Flood Tide' | 'Ebb Tide';
-  tideHeightMeters: number;
+  tidePhase: 'High Tide' | 'Low Tide' | 'Flood Tide' | 'Ebb Tide' | 'Unknown';
+  tideHeightMeters?: number;
   source: string;
+  sourceUrl?: string;
   observedAt: string;
+  retrievedAt?: string;
+  dataQuality?: DataQuality;
 }
 
-export type SatelliteStatus = 'LIVE' | 'DEGRADED' | 'UNAVAILABLE' | 'SIMULATED';
+export interface RealtimeObservationMetadata {
+  retrievedAt: string;
+  providers: string[];
+  dataQuality: DataQuality;
+  warnings: string[];
+}
 
 export interface SatelliteObservation {
   collectionId: string;
@@ -70,6 +83,8 @@ export interface SatelliteObservation {
   cloudCoverPct?: number;
   distanceKm?: number;
 }
+
+export type SatelliteStatus = 'LIVE' | 'DEGRADED' | 'UNAVAILABLE' | 'SIMULATED';
 
 export interface SatelliteData {
   status: SatelliteStatus;
