@@ -2,8 +2,6 @@
 
 Selection is performed only on the temporal validation slice inside each
 training-location pool. The held-out coastline is never used for selection.
-This script compares a small targeted XGBoost search on the 62-feature
-physics-robust representation and reports cross-location audit metrics.
 No production model, policy, calibration, or thresholds are modified.
 """
 from __future__ import annotations
@@ -21,6 +19,7 @@ DATA = ROOT / "ml" / "data" / "processed" / "orca_historical_marine_risk.parquet
 OUT = ROOT / "ml" / "models" / "spatial_generalization"
 RANDOM_STATE = 42
 LOCATIONS = ["digha_wb", "paradip_od", "vizag_ap", "chennai_tn", "goa", "kochi_kl"]
+LABEL_MAP = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "EXTREME": 3}
 
 
 def add_physics_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -47,19 +46,28 @@ def add_physics_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     x["severe_wave_flag"] = (x["wave_height_m"] >= 4).astype(int)
     x["extreme_wave_flag"] = (x["wave_height_m"] >= 6).astype(int)
     physics = [
-        "gust_excess_kts", "gust_to_wind_ratio", "wave_to_wind_ratio",
-        "swell_to_wave_ratio", "combined_sea_height_m", "wave_energy_proxy",
-        "swell_energy_proxy", "combined_energy_proxy", "wave_steepness_proxy",
-        "swell_steepness_proxy", "wind_wave_loading", "gust_wave_loading",
-        "wind_swell_loading", "wave_swell_height_sum", "wave_swell_period_mean",
-        "swell_fraction", "sst_air_delta_c", "gale_gust_flag", "severe_wave_flag",
-        "extreme_wave_flag",
+        "gust_excess_kts", "gust_to_wind_ratio", "wave_to_wind_ratio", "swell_to_wave_ratio",
+        "combined_sea_height_m", "wave_energy_proxy", "swell_energy_proxy", "combined_energy_proxy",
+        "wave_steepness_proxy", "swell_steepness_proxy", "wind_wave_loading", "gust_wave_loading",
+        "wind_swell_loading", "wave_swell_height_sum", "wave_swell_period_mean", "swell_fraction",
+        "sst_air_delta_c", "gale_gust_flag", "severe_wave_flag", "extreme_wave_flag",
     ]
     return x, physics
 
 
+def encode_labels(series: pd.Series) -> np.ndarray:
+    """Normalize the repository's string risk labels to XGBoost class IDs."""
+    if pd.api.types.is_numeric_dtype(series):
+        y = series.astype(int).to_numpy()
+    else:
+        y = series.astype(str).str.upper().map(LABEL_MAP).to_numpy()
+    if np.isnan(y).any() if np.issubdtype(y.dtype, np.floating) else False:
+        raise ValueError("Unknown risk_label value encountered")
+    return y.astype(int)
+
+
 def metrics(y, p):
-    y = np.asarray(y); p = np.asarray(p)
+    y = np.asarray(y, dtype=int); p = np.asarray(p, dtype=int)
     return {
         "accuracy": float(accuracy_score(y, p)),
         "balanced_accuracy": float(balanced_accuracy_score(y, p)),
@@ -78,14 +86,16 @@ def model(params):
     )
 
 
-def weights(y):
-    c = pd.Series(y).value_counts().sort_index()
-    return {int(k): float(len(y) / (4 * v)) for k, v in c.items()}
+def weights(y: np.ndarray) -> dict[int, float]:
+    """Return inverse-frequency class weights using encoded 0..3 labels."""
+    counts = np.bincount(y, minlength=4)
+    if np.any(counts == 0):
+        raise ValueError(f"Training split is missing a risk class: counts={counts.tolist()}")
+    n = len(y)
+    return {cls: float(n / (4 * counts[cls])) for cls in range(4)}
 
 
 def objective(m):
-    # Balanced objective with a safety preference; values are deliberately
-    # reported separately so the selection decision remains auditable.
     severe = m["high_extreme_recall"]
     return float(0.45 * m["macro_f1"] + 0.30 * m["balanced_accuracy"] + 0.25 * severe)
 
@@ -99,7 +109,8 @@ def main():
     if "location_id" not in df.columns or "risk_label" not in df.columns:
         raise ValueError("Dataset must contain location_id and risk_label")
     df, physics = add_physics_features(df)
-    base = [c for c in df.columns if c not in {"risk_label", "location_id", "timestamp"} and pd.api.types.is_numeric_dtype(df[c])]
+    df["risk_id"] = encode_labels(df["risk_label"])
+    base = [c for c in df.columns if c not in {"risk_label", "risk_id", "location_id", "timestamp"} and pd.api.types.is_numeric_dtype(df[c])]
     features = [c for c in base if c not in {"latitude", "longitude"}]
     print(f"Rows: {len(df):,} | Physics features: {len(physics)} | Model features: {len(features)}")
 
@@ -119,17 +130,17 @@ def main():
     all_results = []
     for trial_no, params in enumerate(trials, 1):
         fold_metrics = []
-        # Selection is based only on temporal validation inside the pooled
-        # non-held-out locations. No held-out result contributes to objective.
         for held in LOCATIONS:
             pool = df[df.location_id != held].sort_values("timestamp")
             n = len(pool); tr_end, va_end = int(.70*n), int(.85*n)
             tr, va = pool.iloc[:tr_end], pool.iloc[tr_end:va_end]
-            w = weights(tr.risk_label)
+            ytr = tr["risk_id"].to_numpy(dtype=int)
+            yva = va["risk_id"].to_numpy(dtype=int)
+            w = weights(ytr)
             mdl = model(params)
-            mdl.fit(tr[features], tr.risk_label, sample_weight=tr.risk_label.map(w).to_numpy(), verbose=False)
+            mdl.fit(tr[features], ytr, sample_weight=np.array([w[v] for v in ytr]), verbose=False)
             pred = mdl.predict(va[features]).astype(int)
-            fold_metrics.append(metrics(va.risk_label, pred))
+            fold_metrics.append(metrics(yva, pred))
         avg = {k: float(np.mean([m[k] for m in fold_metrics])) for k in fold_metrics[0]}
         obj = objective(avg)
         safety_ok = avg["high_extreme_recall"] >= .60
