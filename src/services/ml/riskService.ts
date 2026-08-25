@@ -1,4 +1,4 @@
-import { LocationInfo, OceanData, RiskLevel, RiskPrediction, SatelliteData, WeatherData } from '../../types.ts';
+import { FeatureContribution, LocationInfo, OceanData, RiskLevel, RiskPrediction, SatelliteData, WeatherData } from '../../types.ts';
 
 type ImpactLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 const REQUIRED_PROBABILITY_LABELS = ['LOW', 'MODERATE', 'HIGH', 'EXTREME'] as const;
@@ -118,12 +118,43 @@ export async function predictMarineRiskWithMl(
     const mlImpact: ImpactLevel = result.risk_label === 'EXTREME' ? 'CRITICAL' : result.risk_label === 'HIGH' ? 'HIGH' : result.risk_label === 'MODERATE' ? 'MEDIUM' : 'LOW';
     const waveImpact: ImpactLevel = ocean.waveHeightMeters >= 4 ? 'CRITICAL' : ocean.waveHeightMeters >= 2.5 ? 'HIGH' : ocean.waveHeightMeters >= 1.25 ? 'MEDIUM' : 'LOW';
     const gustImpact: ImpactLevel = weather.windGustKts >= 48 ? 'CRITICAL' : weather.windGustKts >= 34 ? 'HIGH' : weather.windGustKts >= 25 ? 'MEDIUM' : 'LOW';
+    const swellImpact: ImpactLevel = ocean.swellHeightMeters >= 4 ? 'CRITICAL' : ocean.swellHeightMeters >= 2 ? 'HIGH' : ocean.swellHeightMeters >= 1 ? 'MEDIUM' : 'LOW';
 
-    const featureContributions = [
-      { featureName: 'ML Risk Classification', featureValue: result.risk_label, unit: 'class', riskWeight: clamp((riskScore - 50) / 50, -1, 1), impactLevel: mlImpact, description: `XGBoost ${result.model_version || 'unknown'} classified the live marine state as ${result.risk_label} with ${(displayedConfidence * 100).toFixed(1)}% probability confidence.` },
-      { featureName: 'Significant Wave Height (Hs)', featureValue: ocean.waveHeightMeters.toFixed(2), unit: 'm', riskWeight: clamp((ocean.waveHeightMeters - 1.0) / 3.0, -1, 1), impactLevel: waveImpact, description: `Observed significant wave height is ${ocean.waveHeightMeters.toFixed(2)}m.` },
-      { featureName: 'Wind Gusts', featureValue: weather.windGustKts.toFixed(1), unit: 'kts', riskWeight: clamp((weather.windGustKts - 15) / 35, -1, 1), impactLevel: gustImpact, description: `Observed wind gusts reach ${weather.windGustKts.toFixed(1)} knots.` },
-      { featureName: 'Swell Height', featureValue: ocean.swellHeightMeters.toFixed(2), unit: 'm', riskWeight: clamp((ocean.swellHeightMeters - 1) / 4, -1, 1), impactLevel: ocean.swellHeightMeters >= 4 ? 'CRITICAL' : ocean.swellHeightMeters >= 2 ? 'HIGH' : ocean.swellHeightMeters >= 1 ? 'MEDIUM' : 'LOW', description: `Observed swell height is ${ocean.swellHeightMeters.toFixed(2)}m.` },
+    // Keep this array explicitly typed so TypeScript preserves the ImpactLevel
+    // literal union required by RiskPrediction.featureContributions.
+    const featureContributions: FeatureContribution[] = [
+      {
+        featureName: 'ML Risk Classification',
+        featureValue: result.risk_label,
+        unit: 'class',
+        riskWeight: clamp((riskScore - 50) / 50, -1, 1),
+        impactLevel: mlImpact,
+        description: `XGBoost ${result.model_version || 'unknown'} classified the live marine state as ${result.risk_label} with ${(displayedConfidence * 100).toFixed(1)}% probability confidence.`,
+      },
+      {
+        featureName: 'Significant Wave Height (Hs)',
+        featureValue: ocean.waveHeightMeters.toFixed(2),
+        unit: 'm',
+        riskWeight: clamp((ocean.waveHeightMeters - 1.0) / 3.0, -1, 1),
+        impactLevel: waveImpact,
+        description: `Observed significant wave height is ${ocean.waveHeightMeters.toFixed(2)}m.`,
+      },
+      {
+        featureName: 'Wind Gusts',
+        featureValue: weather.windGustKts.toFixed(1),
+        unit: 'kts',
+        riskWeight: clamp((weather.windGustKts - 15) / 35, -1, 1),
+        impactLevel: gustImpact,
+        description: `Observed wind gusts reach ${weather.windGustKts.toFixed(1)} knots.`,
+      },
+      {
+        featureName: 'Swell Height',
+        featureValue: ocean.swellHeightMeters.toFixed(2),
+        unit: 'm',
+        riskWeight: clamp((ocean.swellHeightMeters - 1) / 4, -1, 1),
+        impactLevel: swellImpact,
+        description: `Observed swell height is ${ocean.swellHeightMeters.toFixed(2)}m.`,
+      },
     ];
 
     const advisories: string[] = [];
