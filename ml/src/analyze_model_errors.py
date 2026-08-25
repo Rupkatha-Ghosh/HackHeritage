@@ -1,18 +1,11 @@
 """Frozen ORCA-X model error analysis for the current Refinement 4 pipeline.
 
-This diagnostic script intentionally reuses the exact dataset/target/feature
-construction from train.py. It never retrains the model, changes the label
-policy, or overwrites the production model.
+Reuses the exact dataset/target/feature construction from train.py. It never
+re-trains the model, changes the label policy, or overwrites the production
+model.
 
 Run from the repository root:
     python ml/src/analyze_model_errors.py
-
-Artifacts:
-    ml/models/error_analysis/error_analysis.json
-    ml/models/error_analysis/misclassified_rows.csv
-    ml/models/error_analysis/feature_importance.csv
-    ml/models/error_analysis/shap_feature_importance.csv (when SHAP works)
-    ml/models/error_analysis/shap_class_importance.csv (when SHAP works)
 """
 from __future__ import annotations
 
@@ -36,8 +29,7 @@ SRC_DIR = Path(__file__).resolve().parent
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-# Reuse the production training contract. This prevents target/feature drift.
-from config import MODELS_DIR, PROCESSED_DIR, RISK_CLASS_NAMES  # noqa: E402
+from config import MODELS_DIR, PROCESSED_DIR, RISK_CLASS_NAMES, TARGET_COLUMN  # noqa: E402
 from train import HOLDOUT_LOCATION, add_dynamic_features, load_dataset  # noqa: E402
 
 RANDOM_STATE = 42
@@ -67,14 +59,9 @@ def native_feature_importance(model: xgb.XGBClassifier, feature_columns: list[st
     weight = booster.get_score(importance_type="weight")
     rows = []
     for index, feature in enumerate(feature_columns):
-        # Models saved from pandas/XGBoost may preserve names or use f0..fn.
         gain_value = gain.get(feature, gain.get(f"f{index}", 0.0))
         weight_value = weight.get(feature, weight.get(f"f{index}", 0.0))
-        rows.append({
-            "feature": feature,
-            "gain": float(gain_value),
-            "split_count": int(weight_value),
-        })
+        rows.append({"feature": feature, "gain": float(gain_value), "split_count": int(weight_value)})
     result = pd.DataFrame(rows)
     total = result["gain"].sum()
     result["gain_fraction"] = result["gain"] / total if total else 0.0
@@ -106,30 +93,26 @@ def compute_shap(model: xgb.XGBClassifier, X: pd.DataFrame, feature_columns: lis
         scores = np.mean(np.abs(matrix), axis=0)
         global_scores += scores
         for feature, score in zip(feature_columns, scores):
-            class_rows.append({
-                "class_id": class_id,
-                "class": label(class_id),
-                "feature": feature,
-                "mean_abs_shap": float(score),
-            })
+            class_rows.append({"class_id": class_id, "class": label(class_id), "feature": feature, "mean_abs_shap": float(score)})
     global_scores /= max(len(class_values), 1)
-    global_df = pd.DataFrame({
-        "feature": feature_columns,
-        "mean_abs_shap": global_scores,
-    }).sort_values("mean_abs_shap", ascending=False).reset_index(drop=True)
-    class_df = pd.DataFrame(class_rows).sort_values(
-        ["class_id", "mean_abs_shap"], ascending=[True, False]
-    ).reset_index(drop=True)
+    global_df = pd.DataFrame({"feature": feature_columns, "mean_abs_shap": global_scores}).sort_values("mean_abs_shap", ascending=False).reset_index(drop=True)
+    class_df = pd.DataFrame(class_rows).sort_values(["class_id", "mean_abs_shap"], ascending=[True, False]).reset_index(drop=True)
     return global_df, class_df
 
 
-def make_error_table(
-    df: pd.DataFrame,
-    predictions: np.ndarray,
-    probabilities: np.ndarray,
-) -> pd.DataFrame:
+def make_error_table(df: pd.DataFrame, predictions: np.ndarray, probabilities: np.ndarray) -> pd.DataFrame:
+    """Attach predictions to a split without assuming a non-existent future_risk column.
+
+    train.load_dataset() constructs the forward target and stores it in
+    config.TARGET_COLUMN (currently risk_class). Keeping this reference tied to
+    TARGET_COLUMN prevents analyzer/train target-name drift.
+    """
     out = df.reset_index(drop=True).copy()
-    out["actual_class"] = out["future_risk"].astype(int)
+    if TARGET_COLUMN not in out.columns:
+        raise RuntimeError(
+            f"Target column {TARGET_COLUMN!r} is missing after train.py dataset construction."
+        )
+    out["actual_class"] = out[TARGET_COLUMN].astype(int)
     out["actual_label"] = out["actual_class"].map(label)
     out["predicted_class"] = predictions.astype(int)
     out["predicted_label"] = out["predicted_class"].map(label)
@@ -156,10 +139,7 @@ def evaluate_split(name: str, y: pd.Series, probabilities: np.ndarray) -> dict:
         "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
         "macro_f1": float(f1_score(y, pred, average="macro", zero_division=0)),
         "weighted_f1": float(f1_score(y, pred, average="weighted", zero_division=0)),
-        "classification_report": classification_report(
-            y, pred, labels=CLASSES, target_names=RISK_ORDER,
-            output_dict=True, zero_division=0,
-        ),
+        "classification_report": classification_report(y, pred, labels=CLASSES, target_names=RISK_ORDER, output_dict=True, zero_division=0),
         "confusion_matrix": confusion_matrix(y, pred, labels=CLASSES).tolist(),
     }
 
@@ -175,12 +155,10 @@ def main() -> None:
     df, feature_columns = add_dynamic_features(raw)
     model = load_model()
 
-    # Verify the inference contract before making predictions.
     expected = int(model.get_booster().num_features())
     if expected != len(feature_columns):
         raise RuntimeError(
-            f"Feature contract mismatch: model expects {expected} features, "
-            f"but train.py currently constructs {len(feature_columns)}. "
+            f"Feature contract mismatch: model expects {expected} features, but train.py currently constructs {len(feature_columns)}. "
             "Do not analyze until the production model and training code are aligned."
         )
 
@@ -189,23 +167,18 @@ def main() -> None:
     if digha.empty:
         raise ValueError(f"Spatial holdout {HOLDOUT_LOCATION!r} is missing.")
 
-    # This is the same chronological split used by train.py.
     n = len(train_pool)
     validation_start = int(n * 0.70)
     validation_end = int(n * 0.85)
     temporal_validation = train_pool.iloc[validation_start:validation_end].copy()
 
-    splits = {
-        "all_data": df,
-        "temporal_validation": temporal_validation,
-        "digha_spatial_holdout": digha,
-    }
+    splits = {"all_data": df, "temporal_validation": temporal_validation, "digha_spatial_holdout": digha}
     split_results = {}
     error_frames = []
 
     for name, split in splits.items():
         X = split[feature_columns]
-        y = split["future_risk"].astype(int)
+        y = split[TARGET_COLUMN].astype(int)
         probabilities = model.predict_proba(X)
         predictions = probabilities.argmax(axis=1)
         split_results[name] = evaluate_split(name, y, probabilities)
@@ -214,10 +187,7 @@ def main() -> None:
         error_frames.append(errors)
 
     errors_all = pd.concat(error_frames, ignore_index=True)
-    # Keep only misclassifications in the diagnostic file, with critical
-    # underpredictions first and low-confidence errors first.
-    misclassified = errors_all[~errors_all["correct"]].copy()
-    misclassified = misclassified.sort_values(
+    misclassified = errors_all[~errors_all["correct"]].copy().sort_values(
         ["critical_underprediction", "margin_top1_top2", "predicted_probability"],
         ascending=[False, True, True],
     )
@@ -229,7 +199,6 @@ def main() -> None:
     native = native_feature_importance(model, feature_columns)
     native.to_csv(output_dir / "feature_importance.csv", index=False)
 
-    # Safety-focused error summary on the genuinely unseen Digha holdout.
     digha_errors = errors_all[errors_all["evaluation_split"] == "digha_spatial_holdout"]
     severe = digha_errors["actual_class"] >= 2
     critical = digha_errors["critical_underprediction"]
@@ -243,18 +212,11 @@ def main() -> None:
         "digha_overpredictions": int(digha_errors["overprediction"].sum()),
     }
 
-    # Per-class Digha diagnostics are especially important for MODERATE/HIGH/EXTREME.
     precision, recall, f1, support = precision_recall_fscore_support(
-        digha_errors["actual_class"], digha_errors["predicted_class"],
-        labels=CLASSES, zero_division=0,
+        digha_errors["actual_class"], digha_errors["predicted_class"], labels=CLASSES, zero_division=0,
     )
     error_summary["digha_per_class"] = {
-        label(c): {
-            "precision": float(precision[i]),
-            "recall": float(recall[i]),
-            "f1": float(f1[i]),
-            "support": int(support[i]),
-        }
+        label(c): {"precision": float(precision[i]), "recall": float(recall[i]), "f1": float(f1[i]), "support": int(support[i])}
         for i, c in enumerate(CLASSES)
     }
 
@@ -272,6 +234,7 @@ def main() -> None:
         "analysis": "frozen_model_error_analysis_refinement_4",
         "dataset_file": str(PROCESSED_DIR / "orca_historical_marine_risk.parquet"),
         "model_file": str(MODELS_DIR / "orca_xgb_risk.json"),
+        "target_column": TARGET_COLUMN,
         "feature_count": len(feature_columns),
         "features": feature_columns,
         "holdout_location": HOLDOUT_LOCATION,
@@ -285,18 +248,11 @@ def main() -> None:
         results["shap_global_importance"] = shap_global.to_dict(orient="records")
         results["shap_class_importance"] = shap_class.to_dict(orient="records")
 
-    (output_dir / "error_analysis.json").write_text(
-        json.dumps(results, indent=2, default=float), encoding="utf-8"
-    )
+    (output_dir / "error_analysis.json").write_text(json.dumps(results, indent=2, default=float), encoding="utf-8")
 
     print()
     for name, metrics in split_results.items():
-        print(
-            f"{name:24s}: rows={metrics['rows']:,} "
-            f"accuracy={metrics['accuracy']:.4f} "
-            f"balanced_accuracy={metrics['balanced_accuracy']:.4f} "
-            f"macro_f1={metrics['macro_f1']:.4f}"
-        )
+        print(f"{name:24s}: rows={metrics['rows']:,} accuracy={metrics['accuracy']:.4f} balanced_accuracy={metrics['balanced_accuracy']:.4f} macro_f1={metrics['macro_f1']:.4f}")
     print(f"Digha critical underpredictions: {error_summary['digha_critical_underpredictions']:,}")
     print(f"Digha critical-underprediction rate: {error_summary['digha_critical_underprediction_rate']:.4f}")
 
