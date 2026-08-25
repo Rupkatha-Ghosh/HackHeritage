@@ -33,7 +33,9 @@ def load_dataset() -> pd.DataFrame:
 
     # Construct a genuinely forward target. The stored contemporaneous label is ignored.
     future = df[["location_id", "timestamp", "wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m"]].copy()
-    future["future_risk"] = future.apply(assign_operational_risk, axis=1)
+    future_observable = future[["wind_speed_kts", "wave_height_m", "swell_height_m"]].notna().any(axis=1)
+    future["future_risk"] = np.nan
+    future.loc[future_observable, "future_risk"] = future.loc[future_observable].apply(assign_operational_risk, axis=1)
     horizon = pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
     future["prediction_timestamp"] = future["timestamp"] - horizon
     target = future[["location_id", "prediction_timestamp", "future_risk"]].rename(columns={"prediction_timestamp": "timestamp"})
@@ -47,13 +49,7 @@ def load_dataset() -> pd.DataFrame:
 
 
 def add_dynamic_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Add only features that can be reproduced from one live observation.
-
-    Historical lag/delta features were intentionally removed from the production
-    contract: the live API receives one observation and therefore cannot derive
-    a 3h/6h trend without a separate time-series state store. Keeping those
-    features in training would create an inference/training contract mismatch.
-    """
+    """Add only features that can be reproduced from one live observation."""
     out = df.copy()
     base = list(FEATURE_COLUMNS)
     engineered: list[str] = []
@@ -71,8 +67,7 @@ def add_dynamic_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
         out[cos_name] = np.cos(radians)
         engineered.extend([sin_name, cos_name])
 
-    # Gust structure is explicitly represented so the model can distinguish a
-    # moderate sustained wind with a large gust from genuinely strong sustained wind.
+    # Gust structure is point-in-time and therefore reproducible by the live API.
     epsilon = 0.1
     out["gust_excess_kts"] = out["wind_gust_kts"] - out["wind_speed_kts"]
     out["gust_to_wind_ratio"] = out["wind_gust_kts"] / out["wind_speed_kts"].clip(lower=epsilon)
@@ -125,7 +120,6 @@ def main() -> None:
     print(f"Prediction horizon: +{int(RISK_HORIZON_HOURS)}h")
     print(f"Risk policy: {POLICY_VERSION}")
     print(f"Feature count: {len(feature_columns)} ({len(FEATURE_COLUMNS)} base + point-in-time engineered features)")
-    print("Feature dtypes validated: all numeric")
     print("Missing percentage by feature:")
     print((df[feature_columns].isna().mean() * 100).round(2).to_string())
     print("Forward target distribution:")
@@ -148,11 +142,7 @@ def main() -> None:
 
     weights = class_weights(train_df[TARGET_COLUMN])
     model = make_model()
-    model.fit(
-        train_df[feature_columns], train_df[TARGET_COLUMN],
-        sample_weight=train_df[TARGET_COLUMN].map(weights).to_numpy(dtype=np.float32),
-        eval_set=[(validation_df[feature_columns], validation_df[TARGET_COLUMN])], verbose=100,
-    )
+    model.fit(train_df[feature_columns], train_df[TARGET_COLUMN], sample_weight=train_df[TARGET_COLUMN].map(weights).to_numpy(dtype=np.float32), eval_set=[(validation_df[feature_columns], validation_df[TARGET_COLUMN])], verbose=100)
     validation_metrics = metrics(validation_df[TARGET_COLUMN], model.predict(validation_df[feature_columns]).astype(int))
     digha_metrics = metrics(digha[TARGET_COLUMN], model.predict(digha[feature_columns]).astype(int))
     print(f"Temporal validation: accuracy={validation_metrics['accuracy']:.4f} balanced_accuracy={validation_metrics['balanced_accuracy']:.4f} macro_f1={validation_metrics['macro_f1']:.4f} weighted_f1={validation_metrics['weighted_f1']:.4f} rows={len(validation_df):,}")
@@ -163,10 +153,7 @@ def main() -> None:
     best_iteration = getattr(model, "best_iteration", None)
     production_estimators = int(best_iteration + 1) if best_iteration is not None else 500
     final_model = make_model(n_estimators=max(100, production_estimators))
-    final_model.fit(
-        production[feature_columns], production[TARGET_COLUMN],
-        sample_weight=production[TARGET_COLUMN].map(production_weights).to_numpy(dtype=np.float32), verbose=100,
-    )
+    final_model.fit(production[feature_columns], production[TARGET_COLUMN], sample_weight=production[TARGET_COLUMN].map(production_weights).to_numpy(dtype=np.float32), verbose=100)
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     model_path = MODELS_DIR / "orca_xgb_risk.json"
@@ -182,12 +169,7 @@ def main() -> None:
         "inference_contract": "point-in-time features only; no lag/trend features that require hidden historical state",
         "missing_data_policy": "Native XGBoost missing handling plus explicit missingness indicators; no synthetic visibility imputation.",
         "gust_policy": "Gust is represented as excess, ratio and threshold features; gust alone cannot create EXTREME in the target policy.",
-        "evaluation": {
-            "temporal": validation_metrics,
-            "digha_spatial_holdout": digha_metrics,
-            "temporal_majority_baseline": majority_baseline(validation_df[TARGET_COLUMN]),
-            "digha_majority_baseline": majority_baseline(digha[TARGET_COLUMN]),
-        },
+        "evaluation": {"temporal": validation_metrics, "digha_spatial_holdout": digha_metrics, "temporal_majority_baseline": majority_baseline(validation_df[TARGET_COLUMN]), "digha_majority_baseline": majority_baseline(digha[TARGET_COLUMN])},
         "class_weights": {str(k): v for k, v in production_weights.items()},
         "feature_importance": {name: float(value) for name, value in importance},
         "training_locations": sorted(train_pool.location_id.unique().tolist()), "digha_excluded_from_training": True,
