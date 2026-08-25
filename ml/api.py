@@ -1,8 +1,11 @@
 """ORCA-X XGBoost ML inference API with staged v1/v2 model compatibility."""
 from __future__ import annotations
+
+from datetime import datetime
 from pathlib import Path
 import sys
 from typing import Optional
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -12,8 +15,13 @@ if str(ML_SRC) not in sys.path:
     sys.path.insert(0, str(ML_SRC))
 from predict import MODEL_VERSION, OrcaXRiskPredictor  # noqa: E402
 
-app = FastAPI(title="ORCA-X ML Risk API", description="XGBoost marine environmental risk prediction service.", version="2.0.0")
+app = FastAPI(
+    title="ORCA-X ML Risk API",
+    description="XGBoost marine environmental risk prediction service.",
+    version="2.0.0",
+)
 predictor = OrcaXRiskPredictor()
+
 
 class RiskRequest(BaseModel):
     wind_speed_kts: Optional[float] = None
@@ -37,25 +45,51 @@ class RiskRequest(BaseModel):
     month: Optional[int] = None
     hour: Optional[int] = None
     season: Optional[int] = None
+    observed_at: Optional[datetime] = None
+
 
 @app.get("/")
 def root():
-    return {"service": "ORCA-X ML Risk API", "status": "online", "model": "XGBoost", "model_version": MODEL_VERSION, "loaded_model_version": predictor.model_version, "feature_count": len(predictor.feature_columns), "feature_contract": predictor.feature_columns}
+    return {
+        "service": "ORCA-X ML Risk API",
+        "status": "online",
+        "model": "XGBoost",
+        "model_version": MODEL_VERSION,
+        "loaded_model_version": predictor.model_version,
+        "feature_count": len(predictor.feature_columns),
+        "feature_contract": predictor.feature_columns,
+    }
+
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "model_loaded": predictor.model is not None, "model_version": predictor.model_version, "feature_count": len(predictor.feature_columns)}
+    return {
+        "status": "healthy",
+        "model_loaded": predictor.model is not None,
+        "model_version": predictor.model_version,
+        "feature_count": len(predictor.feature_columns),
+    }
+
 
 @app.get("/ready")
 def ready():
     if predictor.model is None:
         raise HTTPException(status_code=503, detail="ML model is not loaded")
-    return {"status": "ready", "model_loaded": True, "model_version": predictor.model_version, "feature_count": len(predictor.feature_columns)}
+    return {
+        "status": "ready",
+        "model_loaded": True,
+        "model_version": predictor.model_version,
+        "feature_count": len(predictor.feature_columns),
+    }
+
 
 @app.post("/predict-risk")
 def predict_risk(request: RiskRequest):
     try:
-        result = predictor.predict_one(request.model_dump(exclude_none=True))
+        payload = request.model_dump(exclude_none=True)
+        if isinstance(payload.get("observed_at"), datetime):
+            payload["observed_at"] = payload["observed_at"].isoformat()
+        result = predictor.predict_one(payload)
         return {"success": True, **result}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
