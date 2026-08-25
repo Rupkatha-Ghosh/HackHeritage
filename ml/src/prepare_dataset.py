@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import pandas as pd
-from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, HISTORICAL_LOCATIONS, PROCESSED_DIR, RAW_HISTORICAL_DIR, TARGET_COLUMN, RISK_POLICY_VERSION
+from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, HISTORICAL_LOCATIONS, PROCESSED_DIR, RAW_HISTORICAL_DIR, TARGET_COLUMN
 from label_policy import POLICY_VERSION, RISK_CLASS_NAMES, assign_operational_risk
 
 KTS_PER_MS = 1.943844492
@@ -19,10 +19,28 @@ def load_hourly_json(path: Path) -> pd.DataFrame:
 
 
 def season_number(month: int) -> int:
-    if month in (12, 1, 2): return 0
-    if month in (3, 4, 5): return 1
-    if month in (6, 7, 8, 9): return 2
+    if month in (12, 1, 2):
+        return 0
+    if month in (3, 4, 5):
+        return 1
+    if month in (6, 7, 8, 9):
+        return 2
     return 3
+
+
+def load_and_combine(files: list[Path]) -> pd.DataFrame:
+    frames = [load_hourly_json(path) for path in files]
+    frames = [frame for frame in frames if not frame.empty]
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True)
+    if "time" not in combined.columns:
+        return pd.DataFrame()
+    combined["timestamp"] = pd.to_datetime(combined["time"], utc=True, errors="coerce")
+    combined = combined.drop(columns=["time"], errors="ignore").dropna(subset=["timestamp"])
+    # Multiple downloads may overlap. Keep one observation per timestamp rather
+    # than silently double-counting overlapping archive windows.
+    return combined.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
 
 
 def prepare_location(location: dict) -> pd.DataFrame:
@@ -32,15 +50,11 @@ def prepare_location(location: dict) -> pd.DataFrame:
     if not weather_files or not marine_files:
         raise FileNotFoundError(f"Missing raw Open-Meteo files for {location['id']}. Run download_historical_marine.py first.")
 
-    weather = load_hourly_json(weather_files[-1])
-    marine = load_hourly_json(marine_files[-1])
+    weather = load_and_combine(weather_files)
+    marine = load_and_combine(marine_files)
     if weather.empty or marine.empty:
         return pd.DataFrame()
 
-    weather["timestamp"] = pd.to_datetime(weather["time"], utc=True, errors="coerce")
-    marine["timestamp"] = pd.to_datetime(marine["time"], utc=True, errors="coerce")
-    weather = weather.drop(columns=["time"], errors="ignore")
-    marine = marine.drop(columns=["time"], errors="ignore")
     frame = pd.merge(weather, marine, on="timestamp", how="inner", suffixes=("", "_marine"))
     frame["location_id"] = location["id"]
     frame["location_name"] = location["name"]
@@ -84,10 +98,12 @@ def main() -> None:
         try:
             frame = prepare_location(location)
             print(f"  rows: {len(frame):,}")
-            if not frame.empty: records.append(frame)
+            if not frame.empty:
+                records.append(frame)
         except Exception as exc:
             print(f"  WARN: {exc}")
-    if not records: raise SystemExit("No historical records found. Download the raw dataset first.")
+    if not records:
+        raise SystemExit("No historical records found. Download the raw dataset first.")
 
     dataset = pd.concat(records, ignore_index=True).dropna(subset=["timestamp"])
     dataset = dataset.sort_values(["location_id", "timestamp"]).drop_duplicates(["location_id", "timestamp"], keep="last")
@@ -133,4 +149,6 @@ def main() -> None:
     print(f"Parquet: {parquet_path}")
     print(f"Manifest: {manifest_path}")
 
-if __name__ == "__main__": main()
+
+if __name__ == "__main__":
+    main()
