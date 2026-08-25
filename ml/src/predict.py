@@ -49,10 +49,10 @@ def _observed_hour(features: dict[str, Any]) -> int:
 def build_inference_features(features: dict[str, Any], feature_columns: list[str]) -> dict[str, float]:
     """Build exactly the features required by the committed model.
 
-    Refinement 4 introduced engineered point-in-time features. Earlier v1 model
-    artifacts use the 14-column contract. This adapter keeps both contracts
-    runnable and deliberately rejects future-looking lag/trend features because
-    a single live observation cannot legitimately manufacture them.
+    Refinement 4 uses point-in-time engineered features only. Earlier v1 model
+    artifacts use the 14-column contract. Lag/trend features are intentionally
+    not supported because a single live observation cannot legitimately derive
+    historical deltas without a separate time-series buffer.
     """
     values = dict(features)
     if values.get("mean_wave_period_s") is None:
@@ -62,13 +62,12 @@ def build_inference_features(features: dict[str, Any], feature_columns: list[str
     if values.get("hour") is None:
         values["hour"] = _observed_hour(values)
 
-    # Point-in-time Refinement 4 feature engineering.
     for column in FEATURE_COLUMNS:
         if values.get(column) is None:
             values[column] = np.nan
 
     for column in FEATURE_COLUMNS:
-        values[f"{column}_missing"] = 1.0 if values.get(column) is None or pd.isna(values.get(column)) else 0.0
+        values[f"{column}_missing"] = 1.0 if pd.isna(values.get(column)) else 0.0
 
     for column, prefix in (("wind_direction_deg", "wind"), ("wave_direction_deg", "wave"), ("swell_direction_deg", "swell")):
         direction = _as_float(values.get(column))
@@ -108,18 +107,18 @@ class OrcaXRiskPredictor:
         self.model.load_model(str(model_path))
         self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         self.feature_columns = list(self.metadata.get("features", FEATURE_COLUMNS))
-        supported_contracts = (FEATURE_COLUMNS, LEGACY_FEATURE_COLUMNS)
-        if self.feature_columns not in supported_contracts:
-            # A trained Refinement 4 model may contain additional point-in-time
-            # engineered features. Lag/trend contracts are intentionally rejected.
-            unsupported = [
-                name for name in self.feature_columns
-                if name not in set(FEATURE_COLUMNS)
-                and not name.endswith("_missing")
-                and not name.endswith("_direction_sin")
-                and not name.endswith("_direction_cos")
-                and name not in {"gust_excess_kts", "gust_to_wind_ratio", "gust_above_gale_kts", "gust_above_extreme_kts"}
-            ]
+        supported_engineered = {
+            name for name in FEATURE_COLUMNS
+        } | {
+            f"{name}_missing" for name in FEATURE_COLUMNS
+        } | {
+            "wind_direction_sin", "wind_direction_cos", "wave_direction_sin",
+            "wave_direction_cos", "swell_direction_sin", "swell_direction_cos",
+            "gust_excess_kts", "gust_to_wind_ratio", "gust_above_gale_kts",
+            "gust_above_extreme_kts",
+        }
+        if self.feature_columns not in (FEATURE_COLUMNS, LEGACY_FEATURE_COLUMNS):
+            unsupported = [name for name in self.feature_columns if name not in supported_engineered]
             if unsupported:
                 raise RuntimeError(
                     "Model feature contract requires unsupported live features: " + ", ".join(unsupported)
@@ -133,18 +132,23 @@ class OrcaXRiskPredictor:
             "model_version",
             "orca-xgb-risk-v1" if self.feature_columns == LEGACY_FEATURE_COLUMNS else MODEL_VERSION,
         )
+        self.allows_native_missing = any(name.endswith("_missing") for name in self.feature_columns)
 
     def predict_one(self, features: dict[str, Any]) -> dict:
         model_features = build_inference_features(features, self.feature_columns)
         domain = check_input_domain(model_features, self.feature_columns)
         if domain.invalid_features:
-            raise ValueError(f"Invalid or missing model inputs: {', '.join(domain.invalid_features)}")
+            raise ValueError(f"Invalid model inputs: {', '.join(domain.invalid_features)}")
 
         row = pd.DataFrame([model_features], columns=self.feature_columns).apply(pd.to_numeric, errors="coerce")
-        if row.isna().any().any():
+        if row.isna().any().any() and not self.allows_native_missing:
             missing = row.columns[row.isna().any()].tolist()
             raise ValueError(f"Model inputs became non-numeric: {', '.join(missing)}")
-        if not np.isfinite(row.to_numpy(dtype=float)).all():
+        if self.allows_native_missing:
+            finite_values = row.to_numpy(dtype=float)
+            if not np.isfinite(finite_values[~np.isnan(finite_values)]).all():
+                raise ValueError("Model inputs contain non-finite values.")
+        elif not np.isfinite(row.to_numpy(dtype=float)).all():
             raise ValueError("Model inputs contain non-finite values.")
 
         probabilities = np.asarray(self.model.predict_proba(row)[0], dtype=float)
