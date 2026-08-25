@@ -12,12 +12,9 @@ DEFAULT_YEARS = [2024, 2025]
 NDBC_BASE = "https://www.ndbc.noaa.gov/data/historical/stdmet"
 
 DATASET_NAME = "ORCA-X Historical Marine Risk Dataset"
-DATASET_VERSION = "2.1-forward-risk-target"
+DATASET_VERSION = "2.3-operational-risk-policy-v3-forward-6h"
 TARGET_COLUMN = "risk_class"
 
-# Features available at decision time. Visibility is intentionally excluded from v2
-# because the historical Open-Meteo archive used for this build returned it missing
-# for every observation. We never turn an entirely missing feature into fake data.
 FEATURE_COLUMNS = [
     "wind_speed_kts", "wind_gust_kts", "wave_height_m", "wave_period_s",
     "swell_height_m", "swell_period_s", "wind_direction_deg", "wave_direction_deg",
@@ -39,7 +36,5 @@ HISTORICAL_START_DATE = "2020-01-01"
 HISTORICAL_END_DATE = "2025-12-31"
 
 RISK_CLASS_NAMES = {0: "LOW", 1: "MODERATE", 2: "HIGH", 3: "EXTREME"}
-
-# Predict the environmental severity six hours ahead instead of labeling the same
-# observation used as input. This removes the direct contemporaneous target leakage.
 RISK_HORIZON_HOURS = 6
+RISK_POLICY_VERSION = "orca-operational-risk-v3-sustained-wind-sea-state"
