@@ -1,11 +1,11 @@
-"""Build the ORCA-X v2 training table from real historical Open-Meteo data."""
+"""Build the ORCA-X training table from real historical Open-Meteo data."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 import pandas as pd
-from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, HISTORICAL_LOCATIONS, PROCESSED_DIR, RAW_HISTORICAL_DIR, TARGET_COLUMN
-from label_policy import RISK_CLASS_NAMES, assign_operational_risk
+from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, HISTORICAL_LOCATIONS, PROCESSED_DIR, RAW_HISTORICAL_DIR, TARGET_COLUMN, RISK_POLICY_VERSION
+from label_policy import POLICY_VERSION, RISK_CLASS_NAMES, assign_operational_risk
 
 KTS_PER_MS = 1.943844492
 
@@ -61,13 +61,10 @@ def prepare_location(location: dict) -> pd.DataFrame:
     frame["air_temperature_c"] = pd.to_numeric(frame["temperature_2m"], errors="coerce")
     frame["sea_surface_temperature_c"] = pd.to_numeric(frame["sea_surface_temperature"], errors="coerce")
     frame["precipitation_mm"] = pd.to_numeric(frame["precipitation"], errors="coerce")
-    # Open-Meteo visibility is metres; ORCA-X stores kilometres.
     frame["visibility_km"] = pd.to_numeric(frame["visibility"], errors="coerce") / 1000.0
     frame["month"] = frame["timestamp"].dt.month.astype("Int64")
     frame["season"] = frame["month"].map(season_number).astype("Int64")
 
-    # Convert every model feature explicitly. This prevents JSON null/string values
-    # from leaking into Parquet as object dtype and breaking XGBoost.
     for column in FEATURE_COLUMNS:
         frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
@@ -106,15 +103,22 @@ def main() -> None:
 
     distribution = dataset[TARGET_COLUMN].value_counts().sort_index()
     manifest = {
-        "dataset_name": DATASET_NAME, "dataset_version": DATASET_VERSION,
+        "dataset_name": DATASET_NAME,
+        "dataset_version": DATASET_VERSION,
         "source": "Open-Meteo Historical Weather API + Historical Marine API",
         "source_urls": ["https://open-meteo.com/en/docs/historical-weather-api", "https://open-meteo.com/en/docs/marine-weather-api"],
         "historical_period": [str(dataset["timestamp"].min()), str(dataset["timestamp"].max())],
-        "rows": int(len(dataset)), "locations": sorted(dataset["location_id"].unique().tolist()),
-        "features": FEATURE_COLUMNS, "target": TARGET_COLUMN, "risk_classes": RISK_CLASS_NAMES,
+        "rows": int(len(dataset)),
+        "locations": sorted(dataset["location_id"].unique().tolist()),
+        "features": FEATURE_COLUMNS,
+        "target": TARGET_COLUMN,
+        "risk_classes": RISK_CLASS_NAMES,
         "class_distribution": {str(k): int(v) for k, v in distribution.items()},
         "feature_dtypes": {column: str(dataset[column].dtype) for column in FEATURE_COLUMNS},
-        "label_policy": "ORCA-X operational proxy using IMD/RSMC 25/34 kt wind warning bands and WMO Douglas sea-state terminology; not an official warning class or incident outcome.",
+        "wind_unit_conversion": "Open-Meteo m/s to knots using 1.943844492",
+        "risk_policy_version": POLICY_VERSION,
+        "risk_policy": "Sustained wind is primary; gust is secondary and cannot independently create EXTREME; EXTREME requires sustained wind >=48 kt, significant wave >=6 m, or sustained gale + rough sea.",
+        "label_policy": "ORCA-X operational proxy anchored to documented marine safety criteria; not an official warning class or incident outcome.",
         "artifacts": [parquet_path.name, csv_path.name],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -129,5 +133,4 @@ def main() -> None:
     print(f"Parquet: {parquet_path}")
     print(f"Manifest: {manifest_path}")
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
