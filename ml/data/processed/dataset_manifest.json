@@ -1,56 +1,19 @@
 {
-  "dataset_name": "NOAA NDBC Standard Meteorological Observations",
-  "dataset_version": "historical standard meteorological station/year files",
-  "source": "NOAA National Data Buoy Center (NDBC) historical standard meteorological observations",
-  "raw_files": 6,
-  "raw_rows": 217905,
-  "transformed_rows": 217905,
-  "rows": 217884,
-  "stations": [
-    "41001",
-    "41002",
-    "42002"
-  ],
+  "dataset_name": "ORCA-X Historical Marine Risk Dataset",
+  "dataset_version": "2.0-open-meteo-historical",
+  "status": "PIPELINE_DEFINED_AWAITING_LOCAL_DOWNLOAD_AND_BUILD",
+  "source": "Open-Meteo Historical Weather API + Historical Marine API",
+  "historical_period": ["2020-01-01", "2025-12-31"],
+  "locations": ["digha_wb", "paradip_od", "vizag_ap", "chennai_tn", "goa", "kochi_kl"],
   "features": [
-    "wind_speed_kts",
-    "wind_gust_kts",
-    "wave_height_m",
-    "wave_period_s",
-    "mean_wave_period_s",
-    "wind_direction_deg",
-    "wave_direction_deg",
-    "air_pressure_hpa",
-    "air_temperature_c",
-    "water_temperature_c",
-    "latitude",
-    "longitude",
-    "month",
-    "hour"
+    "wind_speed_kts", "wind_gust_kts", "wave_height_m", "wave_period_s",
+    "swell_height_m", "swell_period_s", "wind_direction_deg", "wave_direction_deg",
+    "swell_direction_deg", "air_pressure_hpa", "air_temperature_c",
+    "sea_surface_temperature_c", "precipitation_mm", "visibility_km",
+    "latitude", "longitude", "month", "season"
   ],
   "target": "risk_class",
-  "target_type": "proxy operational severity label",
-  "risk_classes": {
-    "0": "LOW",
-    "1": "MODERATE",
-    "2": "HIGH",
-    "3": "EXTREME"
-  },
-  "class_distribution": {
-    "0": 167812,
-    "1": 42594,
-    "2": 5760,
-    "3": 1718
-  },
-  "artifacts": [
-    "ndbc_marine_risk.parquet",
-    "ndbc_marine_risk.csv"
-  ],
-  "unit_conversions": {
-    "wind_speed": "m/s \u2192 knots",
-    "wind_gust": "m/s \u2192 knots",
-    "wave_height": "metres",
-    "wave_period": "seconds",
-    "visibility": "nautical miles"
-  },
-  "warning": "Labels are threshold-derived operational proxies, not historical vessel-incident outcomes."
+  "risk_classes": {"0": "LOW", "1": "MODERATE", "2": "HIGH", "3": "EXTREME"},
+  "label_policy": "ORCA-X operational proxy anchored to IMD/RSMC 25/34 kt marine wind bands and WMO Douglas sea-state terminology; not an official warning class or incident outcome.",
+  "artifacts_generated_by": "ml/src/prepare_dataset.py"
 }

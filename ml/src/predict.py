@@ -1,134 +1,170 @@
-"""ORCA-X production XGBoost inference."""
-
+"""ORCA-X production XGBoost inference with explicit feature-contract compatibility."""
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 
-from config import FEATURE_COLUMNS, MODELS_DIR
+from config import FEATURE_COLUMNS, MODELS_DIR, RISK_CLASS_NAMES
 from ood import check_input_domain
 
 MODEL_PATH = MODELS_DIR / "orca_xgb_risk.json"
 METADATA_PATH = MODELS_DIR / "orca_xgb_risk_metadata.json"
-MODEL_VERSION = "orca-xgb-risk-v1"
+MODEL_VERSION = "orca-xgb-risk-v2"
 
-RISK_CLASS_NAMES = {
-    0: "LOW",
-    1: "MODERATE",
-    2: "HIGH",
-    3: "EXTREME",
-}
+LEGACY_FEATURE_COLUMNS = [
+    "wind_speed_kts", "wind_gust_kts", "wave_height_m", "wave_period_s",
+    "mean_wave_period_s", "wind_direction_deg", "wave_direction_deg",
+    "air_pressure_hpa", "air_temperature_c", "water_temperature_c",
+    "latitude", "longitude", "month", "hour",
+]
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if np.isfinite(number) else None
+
+
+def _observed_hour(features: dict[str, Any]) -> int:
+    observed_at = features.get("observed_at") or features.get("observedAt")
+    if observed_at:
+        try:
+            text = str(observed_at).replace("Z", "+00:00")
+            return datetime.fromisoformat(text).astimezone(timezone.utc).hour
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).hour
+
+
+def build_inference_features(features: dict[str, Any], feature_columns: list[str]) -> dict[str, float]:
+    """Build exactly the features required by the committed model.
+
+    Refinement 4 uses point-in-time engineered features only. Earlier v1 model
+    artifacts use the 14-column contract. Lag/trend features are intentionally
+    not supported because a single live observation cannot legitimately derive
+    historical deltas without a separate time-series buffer.
+    """
+    values = dict(features)
+    if values.get("mean_wave_period_s") is None:
+        values["mean_wave_period_s"] = values.get("wave_period_s")
+    if values.get("water_temperature_c") is None:
+        values["water_temperature_c"] = values.get("sea_surface_temperature_c")
+    if values.get("hour") is None:
+        values["hour"] = _observed_hour(values)
+
+    for column in FEATURE_COLUMNS:
+        if values.get(column) is None:
+            values[column] = np.nan
+
+    for column in FEATURE_COLUMNS:
+        values[f"{column}_missing"] = 1.0 if pd.isna(values.get(column)) else 0.0
+
+    for column, prefix in (("wind_direction_deg", "wind"), ("wave_direction_deg", "wave"), ("swell_direction_deg", "swell")):
+        direction = _as_float(values.get(column))
+        radians = np.deg2rad(direction) if direction is not None else np.nan
+        values[f"{prefix}_direction_sin"] = float(np.sin(radians)) if np.isfinite(radians) else np.nan
+        values[f"{prefix}_direction_cos"] = float(np.cos(radians)) if np.isfinite(radians) else np.nan
+
+    wind = _as_float(values.get("wind_speed_kts"))
+    gust = _as_float(values.get("wind_gust_kts"))
+    if wind is not None and gust is not None:
+        values["gust_excess_kts"] = gust - wind
+        values["gust_to_wind_ratio"] = gust / max(wind, 0.1)
+    else:
+        values["gust_excess_kts"] = np.nan
+        values["gust_to_wind_ratio"] = np.nan
+    values["gust_above_gale_kts"] = max((gust or 0.0) - 34.0, 0.0) if gust is not None else np.nan
+    values["gust_above_extreme_kts"] = max((gust or 0.0) - 48.0, 0.0) if gust is not None else np.nan
+
+    unsupported = [name for name in feature_columns if name not in values]
+    if unsupported:
+        raise ValueError(
+            "The committed model requires features that cannot be derived from one live observation: "
+            + ", ".join(unsupported)
+        )
+
+    result: dict[str, float] = {}
+    for name in feature_columns:
+        value = values[name]
+        numeric = _as_float(value)
+        result[name] = numeric if numeric is not None else np.nan
+    return result
 
 
 class OrcaXRiskPredictor:
-    def __init__(
-        self,
-        model_path: Path = MODEL_PATH,
-        metadata_path: Path = METADATA_PATH,
-    ) -> None:
+    def __init__(self, model_path: Path = MODEL_PATH, metadata_path: Path = METADATA_PATH) -> None:
         self.model = xgb.XGBClassifier()
         self.model.load_model(str(model_path))
-
         self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        self.feature_columns = self.metadata.get("features", FEATURE_COLUMNS)
-
-        if self.feature_columns != FEATURE_COLUMNS:
-            raise RuntimeError(
-                "Model feature contract mismatch: metadata features do not match config FEATURE_COLUMNS."
-            )
-
+        self.feature_columns = list(self.metadata.get("features", FEATURE_COLUMNS))
+        supported_engineered = {
+            name for name in FEATURE_COLUMNS
+        } | {
+            f"{name}_missing" for name in FEATURE_COLUMNS
+        } | {
+            "wind_direction_sin", "wind_direction_cos", "wave_direction_sin",
+            "wave_direction_cos", "swell_direction_sin", "swell_direction_cos",
+            "gust_excess_kts", "gust_to_wind_ratio", "gust_above_gale_kts",
+            "gust_above_extreme_kts",
+        }
+        if self.feature_columns not in (FEATURE_COLUMNS, LEGACY_FEATURE_COLUMNS):
+            unsupported = [name for name in self.feature_columns if name not in supported_engineered]
+            if unsupported:
+                raise RuntimeError(
+                    "Model feature contract requires unsupported live features: " + ", ".join(unsupported)
+                )
         if self.metadata.get("feature_count") != len(self.feature_columns):
             raise RuntimeError("Model metadata feature_count does not match the feature list.")
-
         expected_classes = {str(key): value for key, value in RISK_CLASS_NAMES.items()}
         if self.metadata.get("classes") != expected_classes:
             raise RuntimeError("Model class contract mismatch between metadata and inference service.")
-
-    def predict_one(self, features: dict) -> dict:
-        domain = check_input_domain(features)
-        if domain.invalid_features:
-            raise ValueError(
-                f"Invalid or missing model inputs: {', '.join(domain.invalid_features)}"
-            )
-
-        row = pd.DataFrame(
-            [[features[feature] for feature in self.feature_columns]],
-            columns=self.feature_columns,
+        self.model_version = self.metadata.get(
+            "model_version",
+            "orca-xgb-risk-v1" if self.feature_columns == LEGACY_FEATURE_COLUMNS else MODEL_VERSION,
         )
-        row = row.apply(pd.to_numeric, errors="coerce")
+        self.allows_native_missing = any(name.endswith("_missing") for name in self.feature_columns)
 
-        if row.isna().any().any():
+    def predict_one(self, features: dict[str, Any]) -> dict:
+        model_features = build_inference_features(features, self.feature_columns)
+        domain = check_input_domain(model_features, self.feature_columns)
+        if domain.invalid_features:
+            raise ValueError(f"Invalid model inputs: {', '.join(domain.invalid_features)}")
+
+        row = pd.DataFrame([model_features], columns=self.feature_columns).apply(pd.to_numeric, errors="coerce")
+        if row.isna().any().any() and not self.allows_native_missing:
             missing = row.columns[row.isna().any()].tolist()
             raise ValueError(f"Model inputs became non-numeric: {', '.join(missing)}")
-
-        if not np.isfinite(row.to_numpy(dtype=float)).all():
+        if self.allows_native_missing:
+            finite_values = row.to_numpy(dtype=float)
+            if not np.isfinite(finite_values[~np.isnan(finite_values)]).all():
+                raise ValueError("Model inputs contain non-finite values.")
+        elif not np.isfinite(row.to_numpy(dtype=float)).all():
             raise ValueError("Model inputs contain non-finite values.")
 
         probabilities = np.asarray(self.model.predict_proba(row)[0], dtype=float)
-        if len(probabilities) != len(RISK_CLASS_NAMES):
-            raise RuntimeError("Model returned an unexpected number of class probabilities.")
-        if not np.isfinite(probabilities).all() or (probabilities < 0).any():
+        if len(probabilities) != 4 or not np.isfinite(probabilities).all() or (probabilities < 0).any():
             raise RuntimeError("Model returned invalid class probabilities.")
-
-        probability_total = float(probabilities.sum())
-        if not np.isclose(probability_total, 1.0, atol=1e-6):
+        if not np.isclose(float(probabilities.sum()), 1.0, atol=1e-6):
             raise RuntimeError("Model returned probabilities that do not sum to 1.")
 
         predicted_class = int(np.argmax(probabilities))
-        probability_map = {
-            RISK_CLASS_NAMES[i]: round(float(probabilities[i]), 6)
-            for i in range(len(probabilities))
-        }
-        # Keep confidence derived from the same rounded vector exposed by the
-        # API so clients never display conflicting confidence values.
-        confidence = max(probability_map.values())
-
+        probability_map = {RISK_CLASS_NAMES[i]: round(float(probabilities[i]), 6) for i in range(4)}
         return {
             "risk_class": predicted_class,
             "risk_label": RISK_CLASS_NAMES[predicted_class],
-            "confidence": confidence,
+            "confidence": max(probability_map.values()),
             "probabilities": probability_map,
             "domain_validation": domain.as_dict(),
-            "model_version": MODEL_VERSION,
+            "model_version": self.model_version,
+            "feature_contract": self.feature_columns,
         }
-
-
-def main() -> None:
-    predictor = OrcaXRiskPredictor()
-    sample = {
-        "wind_speed_kts": 12.0,
-        "wind_gust_kts": 16.0,
-        "wave_height_m": 1.2,
-        "wave_period_s": 7.0,
-        "mean_wave_period_s": 6.0,
-        "wind_direction_deg": 220.0,
-        "wave_direction_deg": 130.0,
-        "air_pressure_hpa": 1015.0,
-        "air_temperature_c": 25.0,
-        "water_temperature_c": 26.0,
-        "latitude": 30.0,
-        "longitude": -80.0,
-        "month": 8,
-        "hour": 12,
-    }
-
-    result = predictor.predict_one(sample)
-    print("=" * 60)
-    print("ORCA-X RISK PREDICTION")
-    print("=" * 60)
-    print(f"Risk class : {result['risk_class']}")
-    print(f"Risk label : {result['risk_label']}")
-    print(f"Confidence : {result['confidence']:.4f}")
-    print(f"Domain     : {result['domain_validation']['status']}")
-    print()
-    print("Probabilities:")
-    for label, probability in result["probabilities"].items():
-        print(f"  {label:<10}: {probability:.4f}")
-
-
-if __name__ == "__main__":
-    main()

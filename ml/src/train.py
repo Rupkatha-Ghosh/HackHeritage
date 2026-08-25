@@ -1,547 +1,184 @@
-"""Train the ORCA-X XGBoost marine-risk classifier."""
-
+"""Train ORCA-X with a leakage-audited forward marine-risk target and point-in-time features."""
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
-import numpy as np 
-import pandas as pd  
-import xgboost as xgb 
-from sklearn.metrics import ( 
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-)
-from sklearn.model_selection import train_test_split 
-
-from config import (
-    FEATURE_COLUMNS,
-    PROCESSED_DIR,
-    TARGET_COLUMN,
-    MODELS_DIR,
-    DATASET_NAME,
-    DATASET_VERSION,
-)
-from label_policy import RISK_CLASS_NAMES
-
+import numpy as np
+import pandas as pd
+import xgboost as xgb
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix, f1_score
+from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, MODELS_DIR, PROCESSED_DIR, RISK_CLASS_NAMES, TARGET_COLUMN, RISK_HORIZON_HOURS
+from label_policy import POLICY_VERSION, assign_operational_risk
 
 RANDOM_STATE = 42
-
-TEST_SIZE = 0.15
-VALIDATION_SIZE = 0.15
+HOLDOUT_LOCATION = "digha_wb"
+RISK_ORDER = [RISK_CLASS_NAMES[i] for i in range(4)]
 
 
 def load_dataset() -> pd.DataFrame:
-    path = PROCESSED_DIR / "ndbc_marine_risk.parquet"
-
+    path = PROCESSED_DIR / "orca_historical_marine_risk.parquet"
     if not path.exists():
-        raise FileNotFoundError(
-            f"Dataset not found: {path}\n"
-            "Run prepare_dataset.py first."
-        )
-
+        raise FileNotFoundError("Run download_historical_marine.py and prepare_dataset.py first.")
     df = pd.read_parquet(path)
-
-    required_columns = [
-        *FEATURE_COLUMNS,
-        TARGET_COLUMN,
-    ]
-
-    missing = [
-        column
-        for column in required_columns
-        if column not in df.columns
-    ]
-
+    required = ["location_id", "timestamp", *FEATURE_COLUMNS, TARGET_COLUMN]
+    missing = [c for c in required if c not in df.columns]
     if missing:
-        raise ValueError(
-            f"Dataset is missing required columns: {missing}"
-        )
+        raise ValueError(f"Dataset is missing required columns: {missing}")
+    for c in FEATURE_COLUMNS:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    df = df.dropna(subset=["location_id", "timestamp"]).sort_values(["location_id", "timestamp"]).copy()
+    duplicates = int(df.duplicated(["location_id", "timestamp"]).sum())
+    if duplicates:
+        raise ValueError(f"Duplicate location/timestamp rows detected: {duplicates}")
 
-    df = df.dropna(
-        subset=[TARGET_COLUMN]
-    ).copy()
-
+    # Construct a genuinely forward target. The stored contemporaneous label is ignored.
+    future = df[["location_id", "timestamp", "wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m"]].copy()
+    future_observable = future[["wind_speed_kts", "wave_height_m", "swell_height_m"]].notna().any(axis=1)
+    future["future_risk"] = np.nan
+    future.loc[future_observable, "future_risk"] = future.loc[future_observable].apply(assign_operational_risk, axis=1)
+    horizon = pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
+    future["prediction_timestamp"] = future["timestamp"] - horizon
+    target = future[["location_id", "prediction_timestamp", "future_risk"]].rename(columns={"prediction_timestamp": "timestamp"})
+    df = df.merge(target, on=["location_id", "timestamp"], how="left")
+    df[TARGET_COLUMN] = pd.to_numeric(df["future_risk"], errors="coerce")
+    df = df.drop(columns=["future_risk"], errors="ignore").dropna(subset=[TARGET_COLUMN]).copy()
+    df[TARGET_COLUMN] = df[TARGET_COLUMN].astype(int)
+    if df.empty:
+        raise ValueError("No rows remain after constructing the forward risk target. Check historical timestamp spacing and the prediction horizon.")
     return df
 
 
-def calculate_class_weights(
-    y: pd.Series,
-) -> dict[int, float]:
-    """Calculate balanced class weights."""
+def add_dynamic_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Add only features that can be reproduced from one live observation."""
+    out = df.copy()
+    base = list(FEATURE_COLUMNS)
+    engineered: list[str] = []
 
-    counts = y.value_counts().sort_index()
+    for col in base:
+        name = f"{col}_missing"
+        out[name] = out[col].isna().astype(np.int8)
+        engineered.append(name)
 
-    total = len(y)
-    n_classes = len(counts)
+    # Direction is circular; sine/cosine avoids a false 0/360 discontinuity.
+    for col, prefix in [("wind_direction_deg", "wind"), ("wave_direction_deg", "wave"), ("swell_direction_deg", "swell")]:
+        radians = np.deg2rad(out[col])
+        sin_name, cos_name = f"{prefix}_direction_sin", f"{prefix}_direction_cos"
+        out[sin_name] = np.sin(radians)
+        out[cos_name] = np.cos(radians)
+        engineered.extend([sin_name, cos_name])
 
-    weights = {
-        int(cls): total / (n_classes * count)
-        for cls, count in counts.items()
-    }
+    # Gust structure is point-in-time and therefore reproducible by the live API.
+    epsilon = 0.1
+    out["gust_excess_kts"] = out["wind_gust_kts"] - out["wind_speed_kts"]
+    out["gust_to_wind_ratio"] = out["wind_gust_kts"] / out["wind_speed_kts"].clip(lower=epsilon)
+    out["gust_above_gale_kts"] = (out["wind_gust_kts"] - 34.0).clip(lower=0)
+    out["gust_above_extreme_kts"] = (out["wind_gust_kts"] - 48.0).clip(lower=0)
+    engineered.extend(["gust_excess_kts", "gust_to_wind_ratio", "gust_above_gale_kts", "gust_above_extreme_kts"])
 
-    return weights
-
-
-def make_sample_weights(
-    y: pd.Series,
-    class_weights: dict[int, float],
-) -> np.ndarray:
-    return np.array(
-        [
-            class_weights[int(label)]
-            for label in y
-        ],
-        dtype=np.float32,
-    )
-
-
-def print_split_distribution(
-    name: str,
-    y: pd.Series,
-) -> None:
-
-    distribution = (
-        y.value_counts(normalize=True)
-        .sort_index()
-        * 100
-    )
-
-    counts = (
-        y.value_counts()
-        .sort_index()
-    )
-
-    print()
-    print(f"{name} distribution:")
-
-    for cls in sorted(counts.index):
-
-        label = RISK_CLASS_NAMES.get(
-            int(cls),
-            str(cls),
-        )
-
-        print(
-            f"  {cls} {label:<10} "
-            f"{counts[cls]:>8,} "
-            f"({distribution[cls]:>6.2f}%)"
-        )
+    return out, base + engineered
 
 
-def evaluate_model(
-    model: xgb.XGBClassifier,
-    X: pd.DataFrame,
-    y: pd.Series,
-    name: str,
-) -> dict:
-
-    predictions = model.predict(X)
-
-    accuracy = accuracy_score(
-        y,
-        predictions,
-    )
-
-    macro_f1 = f1_score(
-        y,
-        predictions,
-        average="macro",
-        zero_division=0,
-    )
-
-    weighted_f1 = f1_score(
-        y,
-        predictions,
-        average="weighted",
-        zero_division=0,
-    )
-
-    print()
-    print("=" * 70)
-    print(f"{name.upper()} EVALUATION")
-    print("=" * 70)
-
-    print(
-        f"Accuracy:    {accuracy:.4f}"
-    )
-
-    print(
-        f"Macro F1:    {macro_f1:.4f}"
-    )
-
-    print(
-        f"Weighted F1: {weighted_f1:.4f}"
-    )
-
-    print()
-    print("Classification report:")
-
-    report = classification_report(
-        y,
-        predictions,
-        labels=[0, 1, 2, 3],
-        target_names=[
-            RISK_CLASS_NAMES[0],
-            RISK_CLASS_NAMES[1],
-            RISK_CLASS_NAMES[2],
-            RISK_CLASS_NAMES[3],
-        ],
-        output_dict=True,
-        zero_division=0,
-    )
-
-    print(
-        classification_report(
-            y,
-            predictions,
-            labels=[0, 1, 2, 3],
-            target_names=[
-                RISK_CLASS_NAMES[0],
-                RISK_CLASS_NAMES[1],
-                RISK_CLASS_NAMES[2],
-                RISK_CLASS_NAMES[3],
-            ],
-            zero_division=0,
-        )
-    )
-
-    print("Confusion matrix:")
-
-    cm = confusion_matrix(
-        y,
-        predictions,
-        labels=[0, 1, 2, 3],
-    )
-
-    print(cm)
-
+def metrics(y_true, pred) -> dict:
+    labels = [0, 1, 2, 3]
     return {
-        "accuracy": float(accuracy),
-        "macro_f1": float(macro_f1),
-        "weighted_f1": float(weighted_f1),
-        "classification_report": report,
-        "confusion_matrix": cm.tolist(),
+        "accuracy": float(accuracy_score(y_true, pred)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, pred)),
+        "macro_f1": float(f1_score(y_true, pred, average="macro", zero_division=0)),
+        "weighted_f1": float(f1_score(y_true, pred, average="weighted", zero_division=0)),
+        "classification_report": classification_report(y_true, pred, labels=labels, target_names=RISK_ORDER, output_dict=True, zero_division=0),
+        "confusion_matrix": confusion_matrix(y_true, pred, labels=labels).tolist(),
+        "rows": int(len(y_true)),
     }
+
+
+def majority_baseline(y: pd.Series) -> dict:
+    majority = int(y.mode().iloc[0])
+    result = metrics(y, np.full(len(y), majority, dtype=int))
+    result["majority_class"] = RISK_ORDER[majority]
+    return result
+
+
+def make_model(n_estimators: int = 900) -> xgb.XGBClassifier:
+    return xgb.XGBClassifier(
+        objective="multi:softprob", num_class=4, n_estimators=n_estimators,
+        learning_rate=0.035, max_depth=6, min_child_weight=8,
+        subsample=0.85, colsample_bytree=0.85, reg_alpha=0.15, reg_lambda=2.0,
+        gamma=0.05, tree_method="hist", eval_metric="mlogloss",
+        random_state=RANDOM_STATE, n_jobs=-1,
+    )
+
+
+def class_weights(y: pd.Series) -> dict[int, float]:
+    counts = y.value_counts().sort_index()
+    return {int(cls): float(len(y) / (4 * count)) for cls, count in counts.items()}
 
 
 def main() -> None:
-
-    print("=" * 70)
-    print("ORCA-X XGBOOST TRAINING")
-    print("=" * 70)
-
-    print()
-    print("Loading dataset...")
-
     df = load_dataset()
+    df, feature_columns = add_dynamic_features(df)
+    print(f"Dataset rows after forward-target construction: {len(df):,}; locations: {df.location_id.nunique()}")
+    print(f"Prediction horizon: +{int(RISK_HORIZON_HOURS)}h")
+    print(f"Risk policy: {POLICY_VERSION}")
+    print(f"Feature count: {len(feature_columns)} ({len(FEATURE_COLUMNS)} base + point-in-time engineered features)")
+    print("Missing percentage by feature:")
+    print((df[feature_columns].isna().mean() * 100).round(2).to_string())
+    print("Forward target distribution:")
+    print(df[TARGET_COLUMN].map(RISK_CLASS_NAMES).value_counts().reindex(RISK_ORDER, fill_value=0))
+    if df[TARGET_COLUMN].nunique() < 4:
+        raise ValueError("Forward target does not contain all four risk classes.")
 
-    print(
-        f"Rows: {len(df):,}"
-    )
+    train_pool = df[df.location_id != HOLDOUT_LOCATION].sort_values("timestamp").copy()
+    digha = df[df.location_id == HOLDOUT_LOCATION].copy()
+    if digha.empty:
+        raise ValueError(f"Spatial holdout {HOLDOUT_LOCATION!r} is missing.")
+    if train_pool[TARGET_COLUMN].nunique() < 4:
+        raise ValueError("Training pool does not contain all four risk classes after the Digha spatial holdout.")
 
-    print(
-        f"Features: {len(FEATURE_COLUMNS)}"
-    )
+    n = len(train_pool)
+    train_end, validation_end = int(n * 0.70), int(n * 0.85)
+    train_df, validation_df = train_pool.iloc[:train_end], train_pool.iloc[train_end:validation_end]
+    print("Temporal validation majority baseline:", majority_baseline(validation_df[TARGET_COLUMN]))
+    print("Digha holdout majority baseline:", majority_baseline(digha[TARGET_COLUMN]))
 
-    print()
-    print("Features:")
+    weights = class_weights(train_df[TARGET_COLUMN])
+    model = make_model()
+    model.fit(train_df[feature_columns], train_df[TARGET_COLUMN], sample_weight=train_df[TARGET_COLUMN].map(weights).to_numpy(dtype=np.float32), eval_set=[(validation_df[feature_columns], validation_df[TARGET_COLUMN])], verbose=100)
+    validation_metrics = metrics(validation_df[TARGET_COLUMN], model.predict(validation_df[feature_columns]).astype(int))
+    digha_metrics = metrics(digha[TARGET_COLUMN], model.predict(digha[feature_columns]).astype(int))
+    print(f"Temporal validation: accuracy={validation_metrics['accuracy']:.4f} balanced_accuracy={validation_metrics['balanced_accuracy']:.4f} macro_f1={validation_metrics['macro_f1']:.4f} weighted_f1={validation_metrics['weighted_f1']:.4f} rows={len(validation_df):,}")
+    print(f"Digha spatial holdout: accuracy={digha_metrics['accuracy']:.4f} balanced_accuracy={digha_metrics['balanced_accuracy']:.4f} macro_f1={digha_metrics['macro_f1']:.4f} weighted_f1={digha_metrics['weighted_f1']:.4f} rows={len(digha):,}")
 
-    for feature in FEATURE_COLUMNS:
-        print(f"  - {feature}")
+    production = train_pool.copy()
+    production_weights = class_weights(production[TARGET_COLUMN])
+    best_iteration = getattr(model, "best_iteration", None)
+    production_estimators = int(best_iteration + 1) if best_iteration is not None else 500
+    final_model = make_model(n_estimators=max(100, production_estimators))
+    final_model.fit(production[feature_columns], production[TARGET_COLUMN], sample_weight=production[TARGET_COLUMN].map(production_weights).to_numpy(dtype=np.float32), verbose=100)
 
-    X = df[FEATURE_COLUMNS]
-    y = df[TARGET_COLUMN].astype(int)
-
-    # --------------------------------------------------------------
-    # Train / validation / test split
-    # --------------------------------------------------------------
-
-    X_train_full, X_test, y_train_full, y_test = train_test_split(
-        X,
-        y,
-        test_size=TEST_SIZE,
-        random_state=RANDOM_STATE,
-        stratify=y,
-    )
-
-    validation_relative_size = (
-        VALIDATION_SIZE
-        / (1.0 - TEST_SIZE)
-    )
-
-    X_train, X_validation, y_train, y_validation = (
-        train_test_split(
-            X_train_full,
-            y_train_full,
-            test_size=validation_relative_size,
-            random_state=RANDOM_STATE,
-            stratify=y_train_full,
-        )
-    )
-
-    print()
-    print(
-        f"Train rows:      {len(X_train):,}"
-    )
-
-    print(
-        f"Validation rows: {len(X_validation):,}"
-    )
-
-    print(
-        f"Test rows:       {len(X_test):,}"
-    )
-
-    print_split_distribution(
-        "Train",
-        y_train,
-    )
-
-    print_split_distribution(
-        "Validation",
-        y_validation,
-    )
-
-    print_split_distribution(
-        "Test",
-        y_test,
-    )
-
-    # --------------------------------------------------------------
-    # Class weights
-    # --------------------------------------------------------------
-
-    class_weights = calculate_class_weights(
-        y_train
-    )
-
-    print()
-    print("Class weights:")
-
-    for cls, weight in class_weights.items():
-
-        print(
-            f"  {cls} "
-            f"{RISK_CLASS_NAMES[cls]:<10} "
-            f"{weight:.4f}"
-        )
-
-    train_weights = make_sample_weights(
-        y_train,
-        class_weights,
-    )
-
-    validation_weights = make_sample_weights(
-        y_validation,
-        class_weights,
-    )
-
-    # --------------------------------------------------------------
-    # XGBoost
-    # --------------------------------------------------------------
-
-    model = xgb.XGBClassifier(
-        objective="multi:softprob",
-        num_class=4,
-
-        n_estimators=700,
-
-        learning_rate=0.05,
-
-        max_depth=8,
-
-        min_child_weight=3,
-
-        subsample=0.85,
-
-        colsample_bytree=0.85,
-
-        reg_alpha=0.05,
-
-        reg_lambda=1.0,
-
-        gamma=0.0,
-
-        tree_method="hist",
-
-        eval_metric="mlogloss",
-
-        random_state=RANDOM_STATE,
-
-        n_jobs=-1,
-
-    )
-
-    print()
-    print("Training XGBoost...")
-
-    model.fit(
-        X_train,
-        y_train,
-        sample_weight=train_weights,
-        eval_set=[
-            (X_train, y_train),
-            (X_validation, y_validation),
-        ],
-        verbose=50,
-    )
-
-    # --------------------------------------------------------------
-    # Evaluation
-    # --------------------------------------------------------------
-
-    validation_metrics = evaluate_model(
-        model,
-        X_validation,
-        y_validation,
-        "Validation",
-    )
-
-    test_metrics = evaluate_model(
-        model,
-        X_test,
-        y_test,
-        "Test",
-    )
-
-    # --------------------------------------------------------------
-    # Save model
-    # --------------------------------------------------------------
-
-    MODELS_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    model_path = (
-        MODELS_DIR /
-        "orca_xgb_risk.json"
-    )
-
-    model.save_model(
-        model_path
-    )
-
-    print()
-    print(
-        f"Model saved: {model_path}"
-    )
-
-    # --------------------------------------------------------------
-    # Feature importance
-    # --------------------------------------------------------------
-
-    importance = model.feature_importances_
-
-    feature_importance = sorted(
-        zip(
-            FEATURE_COLUMNS,
-            importance,
-        ),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-
-    print()
-    print("Feature importance:")
-
-    for feature, score in feature_importance:
-
-        print(
-            f"  {feature:<28} "
-            f"{score:.6f}"
-        )
-
-    # --------------------------------------------------------------
-    # Metadata
-    # --------------------------------------------------------------
-
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = MODELS_DIR / "orca_xgb_risk.json"
+    metadata_path = MODELS_DIR / "orca_xgb_risk_metadata.json"
+    final_model.save_model(model_path)
+    importance = sorted(zip(feature_columns, final_model.feature_importances_), key=lambda x: x[1], reverse=True)
     metadata = {
-        "model": "XGBoost",
-        "model_file": model_path.name,
-
-        "dataset_name": DATASET_NAME,
-        "dataset_version": DATASET_VERSION,
-
-        "target": TARGET_COLUMN,
-
-        "classes": {
-            str(k): v
-            for k, v in RISK_CLASS_NAMES.items()
-        },
-
-        "features": FEATURE_COLUMNS,
-
-        "feature_count": len(
-            FEATURE_COLUMNS
-        ),
-
-        "random_state": RANDOM_STATE,
-
-        "split": {
-            "train": 0.70,
-            "validation": 0.15,
-            "test": 0.15,
-        },
-
-        "class_weights": {
-            str(k): float(v)
-            for k, v in class_weights.items()
-        },
-
-        "hyperparameters": {
-            "n_estimators": 700,
-            "learning_rate": 0.05,
-            "max_depth": 8,
-            "min_child_weight": 3,
-            "subsample": 0.85,
-            "colsample_bytree": 0.85,
-            "reg_alpha": 0.05,
-            "reg_lambda": 1.0,
-            "gamma": 0.0,
-        },
-
-        "validation_metrics": validation_metrics,
-
-        "test_metrics": test_metrics,
-
-        "feature_importance": {
-            feature: float(score)
-            for feature, score
-            in feature_importance
-        },
-
-        "label_policy": (
-            "Transparent threshold-derived "
-            "operational proxy labels; "
-            "not historical incident outcomes."
-        ),
+        "model": "XGBoost", "model_version": "orca-xgb-risk-v2.5",
+        "dataset_name": DATASET_NAME, "dataset_version": DATASET_VERSION,
+        "risk_policy_version": POLICY_VERSION, "prediction_horizon_hours": int(RISK_HORIZON_HOURS), "target": "future_risk_class",
+        "classes": {str(i): name for i, name in RISK_CLASS_NAMES.items()}, "features": feature_columns,
+        "base_features": FEATURE_COLUMNS, "feature_count": len(feature_columns),
+        "inference_contract": "point-in-time features only; no lag/trend features that require hidden historical state",
+        "missing_data_policy": "Native XGBoost missing handling plus explicit missingness indicators; no synthetic visibility imputation.",
+        "gust_policy": "Gust is represented as excess, ratio and threshold features; gust alone cannot create EXTREME in the target policy.",
+        "evaluation": {"temporal": validation_metrics, "digha_spatial_holdout": digha_metrics, "temporal_majority_baseline": majority_baseline(validation_df[TARGET_COLUMN]), "digha_majority_baseline": majority_baseline(digha[TARGET_COLUMN])},
+        "class_weights": {str(k): v for k, v in production_weights.items()},
+        "feature_importance": {name: float(value) for name, value in importance},
+        "training_locations": sorted(train_pool.location_id.unique().tolist()), "digha_excluded_from_training": True,
+        "label_policy": "Six-hour forward ORCA-X operational severity proxy: sustained wind is primary; gust is secondary; EXTREME requires sustained wind >=48 kt, significant wave >=6 m, or sustained gale + rough sea. Not official warning labels or incident outcomes.",
+        "warning": "RAG and authoritative IMD/INCOIS/Coast Guard evidence remain higher-priority safety evidence.",
     }
-
-    metadata_path = (
-        MODELS_DIR /
-        "orca_xgb_risk_metadata.json"
-    )
-
-    metadata_path.write_text(
-        json.dumps(
-            metadata,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    print(
-        f"Metadata saved: {metadata_path}"
-    )
-
-    print()
-    print("=" * 70)
-    print("ORCA-X XGBOOST TRAINING COMPLETE")
-    print("=" * 70)
+    metadata_path.write_text(json.dumps(metadata, indent=2, default=float), encoding="utf-8")
+    print(f"Saved production model: {model_path}")
+    print(f"Saved metadata: {metadata_path}")
 
 
 if __name__ == "__main__":

@@ -1,507 +1,153 @@
-"""Convert raw NDBC standard-meteorological files into a model-ready dataset."""
-
+"""Build the ORCA-X training table from real historical Open-Meteo data."""
 from __future__ import annotations
 
-import gzip
 import json
-from io import StringIO
 from pathlib import Path
-
 import pandas as pd
+from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, HISTORICAL_LOCATIONS, PROCESSED_DIR, RAW_HISTORICAL_DIR, TARGET_COLUMN
+from label_policy import POLICY_VERSION, RISK_CLASS_NAMES, assign_operational_risk
 
-from config import (
-    DATASET_NAME,
-    DATASET_VERSION,
-    FEATURE_COLUMNS,
-    PROCESSED_DIR,
-    RAW_DIR,
-    TARGET_COLUMN,
-)
-from label_policy import RISK_CLASS_NAMES, assign_proxy_risk
+KTS_PER_MS = 1.943844492
 
 
-# Exact column order from the NDBC standard meteorological files.
-#
-# Example:
-# #YY MM DD hh mm WDIR WSPD GST WVHT DPD APD MWD PRES ATMP WTMP DEWP VIS TIDE
-#
-# The second header line contains the units.
-RAW_COLUMNS = [
-    "YY",
-    "MM",
-    "DD",
-    "hh",
-    "mm",
-    "WDIR",
-    "WSPD",
-    "GST",
-    "WVHT",
-    "DPD",
-    "APD",
-    "MWD",
-    "PRES",
-    "ATMP",
-    "WTMP",
-    "DEWP",
-    "VIS",
-    "TIDE",
-]
+def load_hourly_json(path: Path) -> pd.DataFrame:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    hourly = payload.get("hourly") or {}
+    if not hourly.get("time"):
+        return pd.DataFrame()
+    return pd.DataFrame(hourly)
 
 
-# NDBC missing-value markers.
-MISSING_VALUES = [
-    "MM",
-    "MM.MM",
-    "99",
-    "99.0",
-    "99.00",
-    "999",
-    "999.0",
-    "999.00",
-    "9999",
-    "9999.0",
-    "9999.00",
-]
+def season_number(month: int) -> int:
+    if month in (12, 1, 2):
+        return 0
+    if month in (3, 4, 5):
+        return 1
+    if month in (6, 7, 8, 9):
+        return 2
+    return 3
 
 
-# NDBC standard meteorological files report wind speed/gust in m/s.
-MS_TO_KNOTS = 1.943844492
+def load_and_combine(files: list[Path]) -> pd.DataFrame:
+    frames = [load_hourly_json(path) for path in files]
+    frames = [frame for frame in frames if not frame.empty]
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True)
+    if "time" not in combined.columns:
+        return pd.DataFrame()
+    combined["timestamp"] = pd.to_datetime(combined["time"], utc=True, errors="coerce")
+    combined = combined.drop(columns=["time"], errors="ignore").dropna(subset=["timestamp"])
+    # Multiple downloads may overlap. Keep one observation per timestamp rather
+    # than silently double-counting overlapping archive windows.
+    return combined.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
 
 
-def read_ndbc_file(path: Path) -> pd.DataFrame:
-    """Read one compressed NDBC historical observation file."""
+def prepare_location(location: dict) -> pd.DataFrame:
+    directory = RAW_HISTORICAL_DIR / location["id"]
+    weather_files = sorted(directory.glob("weather_*.json"))
+    marine_files = sorted(directory.glob("marine_*.json"))
+    if not weather_files or not marine_files:
+        raise FileNotFoundError(f"Missing raw Open-Meteo files for {location['id']}. Run download_historical_marine.py first.")
 
-    with gzip.open(path, "rt", encoding="ascii", errors="replace") as stream:
-        lines = stream.readlines()
-
-    # Remove comment/header lines.
-    data_lines = [
-        line
-        for line in lines
-        if line.strip() and not line.startswith("#")
-    ]
-
-    if not data_lines:
+    weather = load_and_combine(weather_files)
+    marine = load_and_combine(marine_files)
+    if weather.empty or marine.empty:
         return pd.DataFrame()
 
-    frame = pd.read_csv(
-        StringIO("".join(data_lines)),
-        sep=r"\s+",
-        header=None,
-        names=RAW_COLUMNS,
-        engine="python",
-        na_values=MISSING_VALUES,
-        keep_default_na=True,
-    )
+    frame = pd.merge(weather, marine, on="timestamp", how="inner", suffixes=("", "_marine"))
+    frame["location_id"] = location["id"]
+    frame["location_name"] = location["name"]
+    frame["coastal_region"] = location["region"]
+    frame["latitude"] = location["latitude"]
+    frame["longitude"] = location["longitude"]
 
-    return frame
+    frame["wind_speed_kts"] = pd.to_numeric(frame["wind_speed_10m"], errors="coerce") * KTS_PER_MS
+    frame["wind_gust_kts"] = pd.to_numeric(frame["wind_gusts_10m"], errors="coerce") * KTS_PER_MS
+    frame["wave_height_m"] = pd.to_numeric(frame["wave_height"], errors="coerce")
+    frame["wave_period_s"] = pd.to_numeric(frame["wave_period"], errors="coerce")
+    frame["swell_height_m"] = pd.to_numeric(frame["swell_wave_height"], errors="coerce")
+    frame["swell_period_s"] = pd.to_numeric(frame["swell_wave_period"], errors="coerce")
+    frame["wind_direction_deg"] = pd.to_numeric(frame["wind_direction_10m"], errors="coerce")
+    frame["wave_direction_deg"] = pd.to_numeric(frame["wave_direction"], errors="coerce")
+    frame["swell_direction_deg"] = pd.to_numeric(frame["swell_wave_direction"], errors="coerce")
+    frame["air_pressure_hpa"] = pd.to_numeric(frame["pressure_msl"], errors="coerce")
+    frame["air_temperature_c"] = pd.to_numeric(frame["temperature_2m"], errors="coerce")
+    frame["sea_surface_temperature_c"] = pd.to_numeric(frame["sea_surface_temperature"], errors="coerce")
+    frame["precipitation_mm"] = pd.to_numeric(frame["precipitation"], errors="coerce")
+    frame["visibility_km"] = pd.to_numeric(frame["visibility"], errors="coerce") / 1000.0
+    frame["month"] = frame["timestamp"].dt.month.astype("Int64")
+    frame["season"] = frame["month"].map(season_number).astype("Int64")
 
+    for column in FEATURE_COLUMNS:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
 
-def station_position(station: str) -> tuple[float | None, float | None]:
-    """Return approximate station coordinates."""
+    core = ["wind_speed_kts", "wind_gust_kts", "wave_height_m"]
+    frame = frame.dropna(subset=core, how="all")
+    frame[TARGET_COLUMN] = frame.apply(assign_operational_risk, axis=1).astype("int8")
+    frame["risk_label"] = frame[TARGET_COLUMN].map(RISK_CLASS_NAMES)
 
-    positions = {
-        "41001": (34.703, -72.702),
-        "41002": (31.759, -74.936),
-        "42002": (25.790, -93.666),
-        "42003": (26.010, -85.603),
-        "42012": (30.064, -87.555),
-    }
-
-    return positions.get(station, (None, None))
-
-
-def transform(
-    frame: pd.DataFrame,
-    station: str,
-    source_file: str,
-) -> pd.DataFrame:
-    """Transform raw NDBC observations into ORCA-X ML features."""
-
-    if frame.empty:
-        return frame
-
-    frame = frame.copy()
-
-    frame["station_id"] = station
-    frame["source_file"] = source_file
-
-    # ------------------------------------------------------------------
-    # Timestamp
-    # ------------------------------------------------------------------
-
-    timestamp_parts = frame[
-        ["YY", "MM", "DD", "hh", "mm"]
-    ].copy()
-
-    timestamp_parts.columns = [
-        "year",
-        "month",
-        "day",
-        "hour",
-        "minute",
-    ]
-
-    for column in timestamp_parts.columns:
-        timestamp_parts[column] = pd.to_numeric(
-            timestamp_parts[column],
-            errors="coerce",
-        )
-
-    frame["timestamp"] = pd.to_datetime(
-        timestamp_parts,
-        errors="coerce",
-        utc=True,
-    )
-
-    # ------------------------------------------------------------------
-    # Numeric conversion
-    # ------------------------------------------------------------------
-
-    numeric_columns = [
-        "WDIR",
-        "WSPD",
-        "GST",
-        "WVHT",
-        "DPD",
-        "APD",
-        "MWD",
-        "PRES",
-        "ATMP",
-        "WTMP",
-        "DEWP",
-        "VIS",
-        "TIDE",
-    ]
-
-    for column in numeric_columns:
-        frame[column] = pd.to_numeric(
-            frame[column],
-            errors="coerce",
-        )
-
-    # ------------------------------------------------------------------
-    # Convert units
-    # ------------------------------------------------------------------
-
-    # NDBC WSPD and GST are m/s.
-    # ORCA-X uses knots for wind features.
-    frame["wind_speed_kts"] = (
-        frame["WSPD"] * MS_TO_KNOTS
-    )
-
-    frame["wind_gust_kts"] = (
-        frame["GST"] * MS_TO_KNOTS
-    )
-
-    # WVHT is already metres.
-    frame["wave_height_m"] = frame["WVHT"]
-
-    # Dominant wave period.
-    frame["wave_period_s"] = frame["DPD"]
-
-    # Average wave period.
-    frame["mean_wave_period_s"] = frame["APD"]
-
-    # Directions are degrees.
-    frame["wind_direction_deg"] = frame["WDIR"]
-    frame["wave_direction_deg"] = frame["MWD"]
-
-    # Atmospheric pressure.
-    frame["air_pressure_hpa"] = frame["PRES"]
-
-    # Temperatures.
-    frame["air_temperature_c"] = frame["ATMP"]
-    frame["water_temperature_c"] = frame["WTMP"]
-
-    # NDBC VIS is nautical miles.
-    frame["visibility_nm"] = frame["VIS"]
-
-    # ------------------------------------------------------------------
-    # Station metadata
-    # ------------------------------------------------------------------
-
-    latitude, longitude = station_position(station)
-
-    frame["latitude"] = latitude
-    frame["longitude"] = longitude
-
-    frame["month"] = frame["timestamp"].dt.month
-    frame["hour"] = frame["timestamp"].dt.hour
-
-    # ------------------------------------------------------------------
-    # Proxy risk label
-    # ------------------------------------------------------------------
-
-    frame[TARGET_COLUMN] = frame.apply(
-        assign_proxy_risk,
-        axis=1,
-    )
-
-    frame["risk_label"] = frame[TARGET_COLUMN].map(
-        RISK_CLASS_NAMES
-    )
-
-    # ------------------------------------------------------------------
-    # Select ORCA-X ML columns
-    # ------------------------------------------------------------------
-
-    keep = [
-        "station_id",
-        "timestamp",
-        *FEATURE_COLUMNS,
-        TARGET_COLUMN,
-        "risk_label",
-        "source_file",
-    ]
-
+    keep = ["location_id", "location_name", "coastal_region", "timestamp", *FEATURE_COLUMNS, TARGET_COLUMN, "risk_label"]
     return frame[keep]
 
 
 def main() -> None:
-
     records: list[pd.DataFrame] = []
-
-    files = sorted(
-        RAW_DIR.glob("*/**/*.txt.gz")
-    )
-
-    if not files:
-        raise SystemExit(
-            "No NDBC raw files found. Run:\n"
-            "python ml/src/download_ndbc.py "
-            "--stations 41001 41002 42002 "
-            "--years 2024 2025"
-        )
-
-    total_raw_rows = 0
-    total_transformed_rows = 0
-
-    for path in files:
-
-        station = path.parent.name
-
-        print(f"READ  {path}")
-
+    for location in HISTORICAL_LOCATIONS:
+        print(f"READ {location['id']} ({location['name']})")
         try:
-
-            raw = read_ndbc_file(path)
-
-            total_raw_rows += len(raw)
-
-            print(
-                f"      Raw rows: {len(raw):,}"
-            )
-
-            transformed = transform(
-                raw,
-                station,
-                path.name,
-            )
-
-            total_transformed_rows += len(transformed)
-
-            if not transformed.empty:
-                records.append(transformed)
-
+            frame = prepare_location(location)
+            print(f"  rows: {len(frame):,}")
+            if not frame.empty:
+                records.append(frame)
         except Exception as exc:
-
-            print(
-                f"WARN  skipped {path}: {exc}"
-            )
-
+            print(f"  WARN: {exc}")
     if not records:
-        raise SystemExit(
-            "No usable observations were parsed "
-            "from the raw NDBC files."
-        )
+        raise SystemExit("No historical records found. Download the raw dataset first.")
 
-    dataset = pd.concat(
-        records,
-        ignore_index=True,
-    )
+    dataset = pd.concat(records, ignore_index=True).dropna(subset=["timestamp"])
+    dataset = dataset.sort_values(["location_id", "timestamp"]).drop_duplicates(["location_id", "timestamp"], keep="last")
+    for column in FEATURE_COLUMNS:
+        dataset[column] = pd.to_numeric(dataset[column], errors="coerce")
 
-    # Remove invalid timestamps.
-    dataset = dataset.dropna(
-        subset=["timestamp"]
-    )
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    parquet_path = PROCESSED_DIR / "orca_historical_marine_risk.parquet"
+    csv_path = PROCESSED_DIR / "orca_historical_marine_risk.csv"
+    manifest_path = PROCESSED_DIR / "dataset_manifest.json"
+    dataset.to_parquet(parquet_path, index=False)
+    dataset.to_csv(csv_path, index=False)
 
-    # Sort chronologically.
-    dataset = dataset.sort_values(
-        ["station_id", "timestamp"]
-    )
-
-    # Remove duplicate station/timestamp observations.
-    dataset = dataset.drop_duplicates(
-        subset=[
-            "station_id",
-            "timestamp",
-        ],
-        keep="last",
-    )
-
-    # Keep observations where at least one major environmental
-    # measurement is available.
-    required = [
-        "wind_speed_kts",
-        "wind_gust_kts",
-        "wave_height_m",
-        "air_pressure_hpa",
-    ]
-
-    dataset = dataset.dropna(
-        subset=required,
-        how="all",
-    )
-
-    # ------------------------------------------------------------------
-    # Save processed dataset
-    # ------------------------------------------------------------------
-
-    PROCESSED_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    parquet_path = (
-        PROCESSED_DIR /
-        "ndbc_marine_risk.parquet"
-    )
-
-    csv_path = (
-        PROCESSED_DIR /
-        "ndbc_marine_risk.csv"
-    )
-
-    manifest_path = (
-        PROCESSED_DIR /
-        "dataset_manifest.json"
-    )
-
-    dataset.to_parquet(
-        parquet_path,
-        index=False,
-    )
-
-    dataset.to_csv(
-        csv_path,
-        index=False,
-    )
-
-    # ------------------------------------------------------------------
-    # Dataset manifest
-    # ------------------------------------------------------------------
-
-    class_distribution = (
-        dataset[TARGET_COLUMN]
-        .value_counts()
-        .sort_index()
-    )
-
+    distribution = dataset[TARGET_COLUMN].value_counts().sort_index()
     manifest = {
         "dataset_name": DATASET_NAME,
         "dataset_version": DATASET_VERSION,
-        "source": (
-            "NOAA National Data Buoy Center (NDBC) "
-            "historical standard meteorological observations"
-        ),
-        "raw_files": len(files),
-        "raw_rows": int(total_raw_rows),
-        "transformed_rows": int(total_transformed_rows),
+        "source": "Open-Meteo Historical Weather API + Historical Marine API",
+        "source_urls": ["https://open-meteo.com/en/docs/historical-weather-api", "https://open-meteo.com/en/docs/marine-weather-api"],
+        "historical_period": [str(dataset["timestamp"].min()), str(dataset["timestamp"].max())],
         "rows": int(len(dataset)),
-        "stations": sorted(
-            dataset["station_id"]
-            .dropna()
-            .unique()
-            .tolist()
-        ),
+        "locations": sorted(dataset["location_id"].unique().tolist()),
         "features": FEATURE_COLUMNS,
         "target": TARGET_COLUMN,
-        "target_type": (
-            "proxy operational severity label"
-        ),
         "risk_classes": RISK_CLASS_NAMES,
-        "class_distribution": {
-            str(k): int(v)
-            for k, v in class_distribution.items()
-        },
-        "artifacts": [
-            parquet_path.name,
-            csv_path.name,
-        ],
-        "unit_conversions": {
-            "wind_speed": "m/s → knots",
-            "wind_gust": "m/s → knots",
-            "wave_height": "metres",
-            "wave_period": "seconds",
-            "visibility": "nautical miles",
-        },
-        "warning": (
-            "Labels are threshold-derived operational "
-            "proxies, not historical vessel-incident outcomes."
-        ),
+        "class_distribution": {str(k): int(v) for k, v in distribution.items()},
+        "feature_dtypes": {column: str(dataset[column].dtype) for column in FEATURE_COLUMNS},
+        "wind_unit_conversion": "Open-Meteo m/s to knots using 1.943844492",
+        "risk_policy_version": POLICY_VERSION,
+        "risk_policy": "Sustained wind is primary; gust is secondary and cannot independently create EXTREME; EXTREME requires sustained wind >=48 kt, significant wave >=6 m, or sustained gale + rough sea.",
+        "label_policy": "ORCA-X operational proxy anchored to documented marine safety criteria; not an official warning class or incident outcome.",
+        "artifacts": [parquet_path.name, csv_path.name],
     }
-
-    manifest_path.write_text(
-        json.dumps(
-            manifest,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    # ------------------------------------------------------------------
-    # Console summary
-    # ------------------------------------------------------------------
-
-    print()
-    print("=" * 60)
-    print("ORCA-X DATASET PREPARATION COMPLETE")
-    print("=" * 60)
-
-    print(
-        f"Raw rows:         {total_raw_rows:,}"
-    )
-
-    print(
-        f"Transformed rows: {total_transformed_rows:,}"
-    )
-
-    print(
-        f"Prepared rows:    {len(dataset):,}"
-    )
-
-    print()
-    print("Stations:")
-
-    print(
-        dataset["station_id"]
-        .value_counts()
-        .sort_index()
-    )
-
-    print()
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    print("=" * 70)
+    print("ORCA-X HISTORICAL DATASET READY")
+    print(f"Rows: {len(dataset):,}")
+    print(f"Locations: {dataset['location_id'].nunique()}")
     print("Risk distribution:")
-
-    print(
-        dataset[TARGET_COLUMN]
-        .map(RISK_CLASS_NAMES)
-        .value_counts()
-        .sort_index()
-    )
-
-    print()
-    print(
-        f"Parquet: {parquet_path}"
-    )
-
-    print(
-        f"CSV:     {csv_path}"
-    )
-
-    print(
-        f"Manifest:{manifest_path}"
-    )
+    print(dataset["risk_label"].value_counts().sort_index())
+    print("Model feature dtypes:")
+    print(dataset[FEATURE_COLUMNS].dtypes.to_string())
+    print(f"Parquet: {parquet_path}")
+    print(f"Manifest: {manifest_path}")
 
 
 if __name__ == "__main__":

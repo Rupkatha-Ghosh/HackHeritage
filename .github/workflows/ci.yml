@@ -34,7 +34,12 @@ jobs:
         run: npm run lint
 
       - name: Python syntax validation
-        run: python -m py_compile ml/api.py ml/rag_api.py
+        run: python -m compileall -q ml
+
+      - name: ML regression tests
+        run: |
+          python -m unittest ml/tests/test_inference_contract.py
+          python ml/src/test_label_policy.py
 
       - name: Production build
         run: npm run build
