@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, classification_report, confusion_matrix, f1_score
-from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, MODELS_DIR, PROCESSED_DIR, RISK_CLASS_NAMES, TARGET_COLUMN, RISK_HORIZON_HOURS, RISK_POLICY_VERSION
+from config import DATASET_NAME, DATASET_VERSION, FEATURE_COLUMNS, MODELS_DIR, PROCESSED_DIR, RISK_CLASS_NAMES, TARGET_COLUMN, RISK_HORIZON_HOURS
 from label_policy import POLICY_VERSION, assign_operational_risk
 
 RANDOM_STATE = 42
@@ -30,13 +30,13 @@ def load_dataset() -> pd.DataFrame:
     if duplicates:
         raise ValueError(f"Duplicate location/timestamp rows detected: {duplicates}")
 
-    # Ignore the contemporaneous stored label and construct a genuinely forward target.
+    # Construct a genuinely forward target. The stored contemporaneous label is ignored.
     future = df[["location_id", "timestamp", "wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m"]].copy()
     future["future_risk"] = future.apply(assign_operational_risk, axis=1)
-    horizon = pd.Timedelta(value=int(RISK_HORIZON_HOURS), unit="h")
+    horizon = pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
     future["prediction_timestamp"] = future["timestamp"] - horizon
     target = future[["location_id", "prediction_timestamp", "future_risk"]].rename(columns={"prediction_timestamp": "timestamp"})
-    df = df.merge(target, on=["location_id", "timestamp"], how="left", suffixes=("", "_future"))
+    df = df.merge(target, on=["location_id", "timestamp"], how="left")
     df[TARGET_COLUMN] = pd.to_numeric(df["future_risk"], errors="coerce")
     df = df.drop(columns=["future_risk"], errors="ignore").dropna(subset=[TARGET_COLUMN]).copy()
     df[TARGET_COLUMN] = df[TARGET_COLUMN].astype(int)
@@ -50,14 +50,41 @@ def add_dynamic_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     base = list(FEATURE_COLUMNS)
     for col in base:
         out[f"{col}_missing"] = out[col].isna().astype(np.int8)
+
+    # Direction is circular; sine/cosine avoids a false 0/360 discontinuity.
     for col, prefix in [("wind_direction_deg", "wind"), ("wave_direction_deg", "wave"), ("swell_direction_deg", "swell")]:
         radians = np.deg2rad(out[col])
         out[f"{prefix}_direction_sin"] = np.sin(radians)
         out[f"{prefix}_direction_cos"] = np.cos(radians)
+
+    # Gust structure is explicitly represented so the model can distinguish a
+    # moderate sustained wind with a large gust from genuinely strong sustained wind.
+    epsilon = 0.1
+    out["gust_excess_kts"] = out["wind_gust_kts"] - out["wind_speed_kts"]
+    out["gust_to_wind_ratio"] = out["wind_gust_kts"] / out["wind_speed_kts"].clip(lower=epsilon)
+    out["gust_above_gale_kts"] = (out["wind_gust_kts"] - 34.0).clip(lower=0)
+    out["gust_above_extreme_kts"] = (out["wind_gust_kts"] - 48.0).clip(lower=0)
+
+    dynamic_delta_columns = []
     for col in ["wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m", "air_pressure_hpa"]:
         for hours in (3, 6):
-            out[f"{col}_delta_{hours}h"] = out.groupby("location_id")[col].diff(periods=hours)
-    dynamic = [c for c in out.columns if c.endswith("_missing") or "_delta_" in c or c.endswith("_direction_sin") or c.endswith("_direction_cos")]
+            name = f"{col}_delta_{hours}h"
+            out[name] = out.groupby("location_id")[col].diff(periods=hours)
+            dynamic_delta_columns.append(name)
+
+    # Acceleration/growth describes whether conditions are deteriorating or easing.
+    for col in ["wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m", "air_pressure_hpa"]:
+        d3 = out.groupby("location_id")[col].diff(periods=3)
+        d6 = out.groupby("location_id")[col].diff(periods=6)
+        out[f"{col}_acceleration_3h"] = d3 - out.groupby("location_id")[col].diff(periods=6) / 2.0
+        out[f"{col}_trend_6h"] = d6 / 2.0
+
+    dynamic = [
+        c for c in out.columns
+        if c.endswith("_missing") or "_delta_" in c or "_acceleration_" in c or c.endswith("_trend_6h")
+        or c.endswith("_direction_sin") or c.endswith("_direction_cos")
+    ]
+    dynamic += ["gust_excess_kts", "gust_to_wind_ratio", "gust_above_gale_kts", "gust_above_extreme_kts"]
     return out, base + dynamic
 
 
@@ -76,8 +103,7 @@ def metrics(y_true, pred) -> dict:
 
 def majority_baseline(y: pd.Series) -> dict:
     majority = int(y.mode().iloc[0])
-    pred = np.full(len(y), majority, dtype=int)
-    result = metrics(y, pred)
+    result = metrics(y, np.full(len(y), majority, dtype=int))
     result["majority_class"] = RISK_ORDER[majority]
     return result
 
@@ -103,7 +129,7 @@ def main() -> None:
     print(f"Dataset rows after forward-target construction: {len(df):,}; locations: {df.location_id.nunique()}")
     print(f"Prediction horizon: +{int(RISK_HORIZON_HOURS)}h")
     print(f"Risk policy: {POLICY_VERSION}")
-    print(f"Feature count: {len(feature_columns)} ({len(FEATURE_COLUMNS)} base + engineered dynamics/missingness)")
+    print(f"Feature count: {len(feature_columns)} ({len(FEATURE_COLUMNS)} base + engineered dynamics/missingness/gust structure)")
     print("Feature dtypes validated: all numeric")
     print("Missing percentage by feature:")
     print((df[feature_columns].isna().mean() * 100).round(2).to_string())
@@ -124,12 +150,9 @@ def main() -> None:
 
     weights = class_weights(train_df[TARGET_COLUMN])
     model = make_model()
-    sample_weight = train_df[TARGET_COLUMN].map(weights).to_numpy(dtype=np.float32)
-    model.fit(train_df[feature_columns], train_df[TARGET_COLUMN], sample_weight=sample_weight, eval_set=[(validation_df[feature_columns], validation_df[TARGET_COLUMN])], verbose=100)
-    validation_pred = model.predict(validation_df[feature_columns]).astype(int)
-    digha_pred = model.predict(digha[feature_columns]).astype(int)
-    validation_metrics = metrics(validation_df[TARGET_COLUMN], validation_pred)
-    digha_metrics = metrics(digha[TARGET_COLUMN], digha_pred)
+    model.fit(train_df[feature_columns], train_df[TARGET_COLUMN], sample_weight=train_df[TARGET_COLUMN].map(weights).to_numpy(dtype=np.float32), eval_set=[(validation_df[feature_columns], validation_df[TARGET_COLUMN])], verbose=100)
+    validation_metrics = metrics(validation_df[TARGET_COLUMN], model.predict(validation_df[feature_columns]).astype(int))
+    digha_metrics = metrics(digha[TARGET_COLUMN], model.predict(digha[feature_columns]).astype(int))
     print(f"Temporal validation: accuracy={validation_metrics['accuracy']:.4f} balanced_accuracy={validation_metrics['balanced_accuracy']:.4f} macro_f1={validation_metrics['macro_f1']:.4f} weighted_f1={validation_metrics['weighted_f1']:.4f} rows={len(validation_df):,}")
     print(f"Digha spatial holdout: accuracy={digha_metrics['accuracy']:.4f} balanced_accuracy={digha_metrics['balanced_accuracy']:.4f} macro_f1={digha_metrics['macro_f1']:.4f} weighted_f1={digha_metrics['weighted_f1']:.4f} rows={len(digha):,}")
 
@@ -145,12 +168,13 @@ def main() -> None:
     final_model.save_model(model_path)
     importance = sorted(zip(feature_columns, final_model.feature_importances_), key=lambda x: x[1], reverse=True)
     metadata = {
-        "model": "XGBoost", "model_version": "orca-xgb-risk-v2.3",
+        "model": "XGBoost", "model_version": "orca-xgb-risk-v2.4",
         "dataset_name": DATASET_NAME, "dataset_version": DATASET_VERSION,
         "risk_policy_version": POLICY_VERSION, "prediction_horizon_hours": int(RISK_HORIZON_HOURS), "target": "future_risk_class",
-        "classes": {str(i): name for i, name in RISK_CLASS_NAMES.items()},
-        "features": feature_columns, "base_features": FEATURE_COLUMNS, "feature_count": len(feature_columns),
+        "classes": {str(i): name for i, name in RISK_CLASS_NAMES.items()}, "features": feature_columns,
+        "base_features": FEATURE_COLUMNS, "feature_count": len(feature_columns),
         "missing_data_policy": "Native XGBoost missing handling plus explicit missingness indicators; no synthetic visibility imputation.",
+        "gust_policy": "Gust is represented as excess, ratio and threshold features; gust alone cannot create EXTREME in the target policy.",
         "evaluation": {"temporal": validation_metrics, "digha_spatial_holdout": digha_metrics, "temporal_majority_baseline": majority_baseline(validation_df[TARGET_COLUMN]), "digha_majority_baseline": majority_baseline(digha[TARGET_COLUMN])},
         "class_weights": {str(k): v for k, v in production_weights.items()},
         "feature_importance": {name: float(value) for name, value in importance},
@@ -163,4 +187,5 @@ def main() -> None:
     print(f"Saved metadata: {metadata_path}")
 
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()
