@@ -1,8 +1,14 @@
-"""ORCA-X Refinement 5C: safety-aware optimization of physics-robust features.
+"""ORCA-X Refinement 5C: leakage-safe optimization of physics-robust features.
 
-Selection is performed only on the temporal validation slice inside each
-training-location pool. The held-out coastline is never used for selection.
-No production model, policy, calibration, or thresholds are modified.
+CRITICAL CONTRACT
+-----------------
+The previous version of this optimizer trained against the contemporaneous
+``risk_label``. That is target leakage because the production model predicts a
+forward risk target. This version imports the exact forward-target construction
+and point-in-time feature contract from train.py, then adds physics features.
+
+Selection is performed with leave-one-location-out temporal validation. The
+held-out coastline is never used for hyperparameter selection.
 """
 from __future__ import annotations
 
@@ -14,15 +20,17 @@ import pandas as pd
 import xgboost as xgb
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, recall_score
 
+from config import TARGET_COLUMN
+from train import add_dynamic_features, load_dataset
+
 ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "ml" / "data" / "processed" / "orca_historical_marine_risk.parquet"
 OUT = ROOT / "ml" / "models" / "spatial_generalization"
 RANDOM_STATE = 42
 LOCATIONS = ["digha_wb", "paradip_od", "vizag_ap", "chennai_tn", "goa", "kochi_kl"]
-LABEL_MAP = {"LOW": 0, "MODERATE": 1, "HIGH": 2, "EXTREME": 3}
 
 
 def add_physics_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Add only deterministic features computable from one live observation."""
     x = df.copy()
     eps = 1e-6
     x["gust_excess_kts"] = (x["wind_gust_kts"] - x["wind_speed_kts"]).clip(lower=0)
@@ -55,19 +63,9 @@ def add_physics_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     return x, physics
 
 
-def encode_labels(series: pd.Series) -> np.ndarray:
-    """Normalize the repository's string risk labels to XGBoost class IDs."""
-    if pd.api.types.is_numeric_dtype(series):
-        y = series.astype(int).to_numpy()
-    else:
-        y = series.astype(str).str.upper().map(LABEL_MAP).to_numpy()
-    if np.isnan(y).any() if np.issubdtype(y.dtype, np.floating) else False:
-        raise ValueError("Unknown risk_label value encountered")
-    return y.astype(int)
-
-
-def metrics(y, p):
-    y = np.asarray(y, dtype=int); p = np.asarray(p, dtype=int)
+def metrics(y: np.ndarray, p: np.ndarray) -> dict:
+    y = np.asarray(y, dtype=int)
+    p = np.asarray(p, dtype=int)
     return {
         "accuracy": float(accuracy_score(y, p)),
         "balanced_accuracy": float(balanced_accuracy_score(y, p)),
@@ -79,7 +77,7 @@ def metrics(y, p):
     }
 
 
-def model(params):
+def model(params: dict) -> xgb.XGBClassifier:
     return xgb.XGBClassifier(
         objective="multi:softprob", num_class=4, tree_method="hist", eval_metric="mlogloss",
         random_state=RANDOM_STATE, n_jobs=-1, **params,
@@ -87,32 +85,48 @@ def model(params):
 
 
 def weights(y: np.ndarray) -> dict[int, float]:
-    """Return inverse-frequency class weights using encoded 0..3 labels."""
-    counts = np.bincount(y, minlength=4)
+    """Inverse-frequency class weights for encoded forward-risk classes."""
+    counts = np.bincount(np.asarray(y, dtype=int), minlength=4)
     if np.any(counts == 0):
-        raise ValueError(f"Training split is missing a risk class: counts={counts.tolist()}")
+        raise ValueError(f"Training split is missing a forward-risk class: counts={counts.tolist()}")
     n = len(y)
     return {cls: float(n / (4 * counts[cls])) for cls in range(4)}
 
 
-def objective(m):
-    severe = m["high_extreme_recall"]
-    return float(0.45 * m["macro_f1"] + 0.30 * m["balanced_accuracy"] + 0.25 * severe)
+def objective(m: dict) -> float:
+    return float(0.45 * m["macro_f1"] + 0.30 * m["balanced_accuracy"] + 0.25 * m["high_extreme_recall"])
 
 
-def main():
+def main() -> None:
     print("=" * 78)
     print("ORCA-X PHYSICS-ROBUST SAFETY-AWARE XGBOOST SEARCH — REFINEMENT 5C")
     print("=" * 78)
     print("Digha and every held-out coastline remain untouched for selection.")
-    df = pd.read_parquet(DATA)
-    if "location_id" not in df.columns or "risk_label" not in df.columns:
-        raise ValueError("Dataset must contain location_id and risk_label")
-    df, physics = add_physics_features(df)
-    df["risk_id"] = encode_labels(df["risk_label"])
-    base = [c for c in df.columns if c not in {"risk_label", "risk_id", "location_id", "timestamp"} and pd.api.types.is_numeric_dtype(df[c])]
-    features = [c for c in base if c not in {"latitude", "longitude"}]
-    print(f"Rows: {len(df):,} | Physics features: {len(physics)} | Model features: {len(features)}")
+    print("Using the exact forward-target + point-in-time feature contract from train.py.")
+
+    # load_dataset() deliberately ignores contemporaneous risk_label and creates
+    # TARGET_COLUMN from observations at t + RISK_HORIZON_HOURS.
+    df = load_dataset()
+    if TARGET_COLUMN not in df.columns:
+        raise ValueError(f"Forward target {TARGET_COLUMN!r} was not constructed by train.py")
+    if "risk_label" in df.columns:
+        # It may exist in the source frame, but it must never enter X.
+        pass
+
+    df, dynamic_features = add_dynamic_features(df)
+    df, physics_features = add_physics_features(df)
+    forbidden = {"risk_label", TARGET_COLUMN, "location_id", "timestamp", "latitude", "longitude"}
+    numeric = [c for c in dynamic_features + physics_features if c not in forbidden and c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
+    features = list(dict.fromkeys(numeric))
+
+    # Fail closed against the exact leakage that previously produced 1.00000 metrics.
+    if TARGET_COLUMN in features or "risk_label" in features:
+        raise AssertionError("LEAKAGE GUARD FAILED: a target/source label entered model features")
+    if len(features) < len(physics_features):
+        raise AssertionError("Unexpected feature construction failure")
+
+    print(f"Rows: {len(df):,} | Physics features: {len(physics_features)} | Model features: {len(features)}")
+    print(f"Forward target: {TARGET_COLUMN} | unique classes: {sorted(df[TARGET_COLUMN].unique().tolist())}")
 
     trials = [
         {"n_estimators": 800, "learning_rate": .05, "max_depth": 5, "min_child_weight": 8, "subsample": .80, "colsample_bytree": .80, "reg_alpha": .15, "reg_lambda": 1.5, "gamma": 0.0},
@@ -127,20 +141,24 @@ def main():
         {"n_estimators": 1000, "learning_rate": .03, "max_depth": 7, "min_child_weight": 16, "subsample": .80, "colsample_bytree": .80, "reg_alpha": .25, "reg_lambda": 3.0, "gamma": .10},
     ]
 
-    all_results = []
+    all_results: list[dict] = []
     for trial_no, params in enumerate(trials, 1):
         fold_metrics = []
+        # Every fold holds out one coastline. Selection uses only the remaining
+        # five locations and their internal chronological train/validation split.
         for held in LOCATIONS:
-            pool = df[df.location_id != held].sort_values("timestamp")
-            n = len(pool); tr_end, va_end = int(.70*n), int(.85*n)
+            pool = df[df["location_id"] != held].sort_values(["timestamp", "location_id"]).copy()
+            n = len(pool)
+            tr_end, va_end = int(.70 * n), int(.85 * n)
             tr, va = pool.iloc[:tr_end], pool.iloc[tr_end:va_end]
-            ytr = tr["risk_id"].to_numpy(dtype=int)
-            yva = va["risk_id"].to_numpy(dtype=int)
+            ytr = tr[TARGET_COLUMN].to_numpy(dtype=int)
+            yva = va[TARGET_COLUMN].to_numpy(dtype=int)
             w = weights(ytr)
             mdl = model(params)
-            mdl.fit(tr[features], ytr, sample_weight=np.array([w[v] for v in ytr]), verbose=False)
+            mdl.fit(tr[features], ytr, sample_weight=np.array([w[v] for v in ytr], dtype=np.float32), verbose=False)
             pred = mdl.predict(va[features]).astype(int)
             fold_metrics.append(metrics(yva, pred))
+
         avg = {k: float(np.mean([m[k] for m in fold_metrics])) for k in fold_metrics[0]}
         obj = objective(avg)
         safety_ok = avg["high_extreme_recall"] >= .60
@@ -150,17 +168,28 @@ def main():
 
     safe = [r for r in all_results if r["safety_ok"]]
     best = max(safe or all_results, key=lambda r: r["objective"])
+
     print("\n" + "=" * 78)
     print("BEST PHYSICS-ROBUST CANDIDATE")
     print("=" * 78)
     print(json.dumps(best, indent=2))
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "physics_robust_xgboost_results.json").write_text(json.dumps({"features": features, "physics_features": physics, "trials": all_results, "best": best, "selection": "mean temporal validation across five-location training pools; held-out location never used"}, indent=2), encoding="utf-8")
+    payload = {
+        "selection": "mean temporal validation across five-location training pools; each held-out coastline excluded from its fold",
+        "target": TARGET_COLUMN,
+        "leakage_guard": "risk_label and future target excluded from X; features are point-in-time only",
+        "features": features,
+        "physics_features": physics_features,
+        "trials": all_results,
+        "best": best,
+    }
+    (OUT / "physics_robust_xgboost_results.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
     (OUT / "best_physics_robust_params.json").write_text(json.dumps(best, indent=2), encoding="utf-8")
     print(f"Saved: {OUT / 'physics_robust_xgboost_results.json'}")
     print(f"Saved: {OUT / 'best_physics_robust_params.json'}")
     print("Production model was NOT modified.")
+
 
 if __name__ == "__main__":
     main()
