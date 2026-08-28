@@ -1,7 +1,7 @@
 """ORCA-X Refinement 11: rebuild and audit the six-hour forward risk target.
 
 This script creates a clean, leakage-safe benchmark dataset from the processed
-historical observations.  The contemporaneous stored risk label is never used
+historical observations. The contemporaneous stored risk label is never used
 to construct the new target.
 
 Contract
@@ -34,8 +34,6 @@ CLEAN_PATH = OUT_DIR / "clean_forward_target.parquet"
 REPORT_PATH = OUT_DIR / "refinement11_target_rebuild.json"
 MISMATCH_PATH = OUT_DIR / "target_mismatches.csv"
 
-# Inputs that define the operational policy and are therefore sufficient to
-# reconstruct the target independently of the stored label.
 TARGET_INPUTS = [
     "wind_speed_kts",
     "wind_gust_kts",
@@ -66,8 +64,6 @@ def _distribution(series: pd.Series) -> dict[str, dict[str, float | int]]:
 
 
 def _policy_label(row: pd.Series) -> float:
-    # assign_operational_risk is the single source of truth for the current
-    # operational policy.  It consumes only observations at the target time.
     try:
         return float(assign_operational_risk(row))
     except Exception:
@@ -109,8 +105,6 @@ def load_source() -> pd.DataFrame:
 def reconstruct(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     horizon = pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
 
-    # Future table contains only target-defining observations. It is joined by
-    # exact timestamp after shifting the target observation back by +6h.
     future = df[["location_id", "timestamp", *TARGET_INPUTS]].copy()
     observable = future[TARGET_INPUTS].notna().any(axis=1)
     future["future_risk_class"] = np.nan
@@ -132,16 +126,23 @@ def reconstruct(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         indicator="_target_match",
     )
 
-    # Store the original label separately for audit only.
-    merged["stored_risk_label"] = merged[TARGET_COLUMN]
+    merged["stored_risk_label"] = pd.to_numeric(merged[TARGET_COLUMN], errors="coerce")
     merged["reconstructed_forward_risk"] = pd.to_numeric(
         merged["future_risk_class"], errors="coerce"
     )
     merged["target_match"] = merged["reconstructed_forward_risk"].notna()
+
+    # IMPORTANT: never cast nullable columns containing unmatched future rows to
+    # int. Compare only rows where both labels are finite numeric values.
+    stored_valid = merged["stored_risk_label"].notna()
+    reconstructed_valid = merged["reconstructed_forward_risk"].notna()
     merged["label_mismatch"] = (
-        merged["target_match"]
-        & merged["stored_risk_label"].notna()
-        & (merged["stored_risk_label"].astype(int) != merged["reconstructed_forward_risk"].astype(int))
+        stored_valid
+        & reconstructed_valid
+        & (
+            merged["stored_risk_label"].astype(float)
+            != merged["reconstructed_forward_risk"].astype(float)
+        )
     )
 
     clean = merged[merged["target_match"]].copy()
@@ -150,9 +151,6 @@ def reconstruct(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         columns=["future_risk_class", "reconstructed_forward_risk", "_target_match"],
         errors="ignore",
     )
-
-    # Explicitly remove the contemporaneous stored label from the clean model
-    # benchmark. Keeping it would make accidental target leakage too easy.
     clean = clean.drop(columns=["stored_risk_label", "label_mismatch"], errors="ignore")
 
     mismatch_rows = merged[merged["label_mismatch"]].copy()
@@ -160,13 +158,11 @@ def reconstruct(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         mismatch_rows["stored_label_name"] = mismatch_rows["stored_risk_label"].map(_label_name)
         mismatch_rows["reconstructed_label_name"] = mismatch_rows["reconstructed_forward_risk"].map(_label_name)
         mismatch_rows["delta_class"] = (
-            mismatch_rows["reconstructed_forward_risk"].astype(int)
-            - mismatch_rows["stored_risk_label"].astype(int)
-        )
-        mismatch_rows["wind_speed_kts"] = mismatch_rows["wind_speed_kts"].astype(float)
-        mismatch_rows["wind_gust_kts"] = mismatch_rows["wind_gust_kts"].astype(float)
-        mismatch_rows["wave_height_m"] = mismatch_rows["wave_height_m"].astype(float)
-        mismatch_rows["swell_height_m"] = mismatch_rows["swell_height_m"].astype(float)
+            mismatch_rows["reconstructed_forward_risk"].astype(float)
+            - mismatch_rows["stored_risk_label"].astype(float)
+        ).astype(int)
+        for column in TARGET_INPUTS:
+            mismatch_rows[column] = mismatch_rows[column].astype(float)
 
     return clean, mismatch_rows
 
@@ -181,14 +177,10 @@ def build_mismatch_summary(mismatch_rows: pd.DataFrame) -> dict:
         .sort_values(ascending=False)
     )
     location_counts = mismatch_rows["location_id"].value_counts().sort_index()
-
-    # Direction of mismatch is useful for diagnosing whether the stored labels
-    # systematically lag/lead the forward target rather than being random noise.
     delta_counts = mismatch_rows["delta_class"].value_counts().sort_index()
 
     return {
         "rows": int(len(mismatch_rows)),
-        "fraction_of_forward_target_rows": float(len(mismatch_rows) / max(1, len(mismatch_rows.index))),
         "by_stored_to_reconstructed": {
             f"{a}->{b}": int(v) for (a, b), v in pair_counts.items()
         },
@@ -232,22 +224,20 @@ def main() -> None:
     mismatch_count = int(len(mismatches))
     mismatch_fraction = float(mismatch_count / matched) if matched else 0.0
 
-    # Per-coast mismatch rates are more informative than the global number,
-    # because a single regime should not dominate the diagnosis.
     per_location = {}
     for location, group in df.groupby("location_id", sort=True):
-        # Reconstructing on the full table gives the same exact-match contract.
         source_rows = len(group)
         clean_rows = int((clean["location_id"] == location).sum())
-        mismatch_rows = int((mismatches["location_id"] == location).sum()) if not mismatches.empty else 0
+        location_mismatch_rows = int((mismatches["location_id"] == location).sum()) if not mismatches.empty else 0
         per_location[str(location)] = {
             "source_rows": int(source_rows),
             "forward_target_rows": clean_rows,
             "missing_future_rows": int(source_rows - clean_rows),
-            "stored_vs_reconstructed_mismatches": mismatch_rows,
-            "mismatch_rate_among_forward_rows": float(mismatch_rows / clean_rows) if clean_rows else 0.0,
+            "stored_vs_reconstructed_mismatches": location_mismatch_rows,
+            "mismatch_rate_among_forward_rows": float(location_mismatch_rows / clean_rows) if clean_rows else 0.0,
         }
 
+    mismatch_summary = build_mismatch_summary(mismatches)
     report = {
         "refinement": "11",
         "policy_version": POLICY_VERSION,
@@ -264,11 +254,7 @@ def main() -> None:
         "target_distribution": _distribution(clean[TARGET_COLUMN]),
         "stored_distribution": _distribution(df[TARGET_COLUMN]),
         "per_location": per_location,
-        "mismatch_summary": {
-            "by_stored_to_reconstructed": build_mismatch_summary(mismatches).get("by_stored_to_reconstructed", {}),
-            "by_location": build_mismatch_summary(mismatches).get("by_location", {}),
-            "delta_class_counts": build_mismatch_summary(mismatches).get("delta_class_counts", {}),
-        },
+        "mismatch_summary": mismatch_summary,
         "contract": {
             "join": "exact (location_id, timestamp) after shifting future observation by +6h",
             "future_features_used_for_prediction": False,
