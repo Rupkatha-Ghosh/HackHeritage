@@ -22,10 +22,9 @@ Decision principle
 ------------------
 A conformal prediction set contains every class whose calibrated probability is
 at least the calibration-derived nonconformity threshold. A singleton set uses
-that class. For an ambiguous set, ORCA-X uses the highest-risk class in the set
-when the set contains HIGH/EXTREME; otherwise it uses the highest-probability
-class. The result is explicitly allowed to be ``UNCERTAIN`` when the set is too
-large to support a defensible automatic decision.
+that class. For an ambiguous set containing HIGH/EXTREME, the highest-risk
+member is selected conservatively. Sets larger than two classes are marked
+UNCERTAIN rather than being forced into false precision.
 """
 from __future__ import annotations
 
@@ -53,13 +52,9 @@ from refinement14_calibrated_risk_model import (
     fit_temperature,
     load_clean,
     make_model,
-    normalize_probs if False else None,
     probabilities,
 )
 
-# Keep this import block compatible with the existing Refinement 14 module,
-# whose probability normalization is reproduced locally below.
-RANDOM_STATE = 42
 OUT_DIR = Path(__file__).resolve().parents[1] / "models" / "refinement16"
 COVERAGE_GRID = (0.80, 0.85, 0.90, 0.95)
 MAX_SET_SIZE = 2
@@ -96,13 +91,7 @@ def conformal_coverage(y: np.ndarray, sets: np.ndarray) -> float:
 
 
 def selective_decision(probs: np.ndarray, sets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Convert conformal sets into conservative automatic decisions.
-
-    Returns integer predictions plus an uncertainty mask. Large sets are not
-    forced into a false precision: the model abstains when more than two risk
-    classes remain plausible. If HIGH/EXTREME is present in a small ambiguous
-    set, the highest critical class is chosen conservatively.
-    """
+    """Return conservative predictions and an explicit uncertainty mask."""
     p = normalize_probs(probs)
     pred = p.argmax(axis=1).astype(int)
     uncertain = set_sizes(sets) > MAX_SET_SIZE
@@ -114,7 +103,6 @@ def selective_decision(probs: np.ndarray, sets: np.ndarray) -> tuple[np.ndarray,
         if len(members) == 1:
             pred[i] = int(members[0])
         elif np.any(np.isin(members, [2, 3])):
-            # Highest-risk member wins for safety-sensitive ambiguity.
             pred[i] = int(members.max())
         else:
             pred[i] = int(members[np.argmax(p[i, members])])
@@ -134,8 +122,6 @@ def critical_recall(y: np.ndarray, pred: np.ndarray) -> float:
 def metrics(y: np.ndarray, probs: np.ndarray, pred: np.ndarray, uncertain: np.ndarray) -> dict:
     p = normalize_probs(probs)
     auto = ~uncertain
-    selective_accuracy = float(accuracy_score(y[auto], pred[auto])) if auto.any() else 0.0
-    selective_macro_f1 = float(f1_score(y[auto], pred[auto], average="macro", zero_division=0)) if auto.any() else 0.0
     return {
         "accuracy": float(accuracy_score(y, pred)),
         "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
@@ -145,22 +131,17 @@ def metrics(y: np.ndarray, probs: np.ndarray, pred: np.ndarray, uncertain: np.nd
         "extreme_recall": recall(y, pred, 3),
         "high_extreme_recall": critical_recall(y, pred),
         "log_loss": float(log_loss(y, p, labels=[0, 1, 2, 3])),
-        "conformal_coverage": float(np.mean(uncertain == uncertain)),
         "uncertain_rate": float(uncertain.mean()),
         "selective_coverage": float(auto.mean()),
-        "selective_accuracy": selective_accuracy,
-        "selective_macro_f1": selective_macro_f1,
+        "selective_accuracy": float(accuracy_score(y[auto], pred[auto])) if auto.any() else 0.0,
+        "selective_macro_f1": float(f1_score(y[auto], pred[auto], average="macro", zero_division=0)) if auto.any() else 0.0,
         "confusion_matrix": confusion_matrix(y, pred, labels=[0, 1, 2, 3]).tolist(),
         "rows": int(len(y)),
     }
 
 
 def choose_coverage(y: np.ndarray, cal_probs: np.ndarray) -> tuple[float, dict]:
-    """Select coverage on calibration only.
-
-    Primary objective rewards critical recall and macro-F1 while penalizing
-    excessive abstention. This is a method-selection step, never test tuning.
-    """
+    """Select conformal coverage using calibration labels only."""
     best = None
     best_score = -np.inf
     p = normalize_probs(cal_probs)
@@ -191,12 +172,7 @@ def choose_coverage(y: np.ndarray, cal_probs: np.ndarray) -> tuple[float, dict]:
 
 def fit_fold(train: pd.DataFrame, cal: pd.DataFrame, test: pd.DataFrame, features: list[str]) -> dict:
     model = make_model()
-    model.fit(
-        train[features],
-        train[TARGET_COLUMN],
-        sample_weight=class_weights(train[TARGET_COLUMN]),
-        verbose=False,
-    )
+    model.fit(train[features], train[TARGET_COLUMN], sample_weight=class_weights(train[TARGET_COLUMN]), verbose=False)
     cal_raw = normalize_probs(probabilities(model, cal[features]))
     test_raw = normalize_probs(probabilities(model, test[features]))
     y_cal = cal[TARGET_COLUMN].to_numpy(dtype=int)
@@ -205,14 +181,14 @@ def fit_fold(train: pd.DataFrame, cal: pd.DataFrame, test: pd.DataFrame, feature
     temperature = fit_temperature(y_cal, cal_raw)
     cal_probs = normalize_probs(apply_temperature(cal_raw, temperature))
     test_probs = normalize_probs(apply_temperature(test_raw, temperature))
-
     coverage, selection = choose_coverage(y_cal, cal_probs)
     threshold = float(selection["threshold"])
+
     test_sets = prediction_sets(test_probs, threshold)
     test_pred, test_uncertain = selective_decision(test_probs, test_sets)
-
     argmax_pred = test_probs.argmax(axis=1)
-    argmax_uncertain = np.zeros(len(test), dtype=bool)
+    no_uncertainty = np.zeros(len(test), dtype=bool)
+
     return {
         "coverage_target": coverage,
         "conformal_threshold": threshold,
@@ -220,7 +196,7 @@ def fit_fold(train: pd.DataFrame, cal: pd.DataFrame, test: pd.DataFrame, feature
         "selection": selection,
         "test_conformal_coverage": conformal_coverage(y_test, test_sets),
         "test_mean_set_size": float(set_sizes(test_sets).mean()),
-        "argmax_test": metrics(y_test, test_probs, argmax_pred, argmax_uncertain),
+        "argmax_test": metrics(y_test, test_probs, argmax_pred, no_uncertainty),
         "conformal_safety_test": metrics(y_test, test_probs, test_pred, test_uncertain),
     }
 
@@ -284,7 +260,7 @@ def main() -> None:
                 "balanced_accuracy": mean("conformal_safety_test", "balanced_accuracy"),
                 "macro_f1": mean("conformal_safety_test", "macro_f1"),
                 "high_extreme_recall": mean("conformal_safety_test", "high_extreme_recall"),
-                "conformal_coverage": mean("conformal_safety_test", "conformal_coverage"),
+                "conformal_coverage": float(np.mean([f["test_conformal_coverage"] for f in folds])),
                 "uncertain_rate": mean("conformal_safety_test", "uncertain_rate"),
                 "selective_coverage": mean("conformal_safety_test", "selective_coverage"),
                 "selective_accuracy": mean("conformal_safety_test", "selective_accuracy"),
@@ -293,8 +269,6 @@ def main() -> None:
         "folds": folds,
     }
 
-    # Final Digha audit: freeze the median coverage target and threshold from
-    # non-Digha folds; no Digha labels participate in selection.
     coverages = np.array([f["coverage_target"] for f in folds], dtype=float)
     thresholds = np.array([f["conformal_threshold"] for f in folds], dtype=float)
     frozen_coverage = float(np.median(coverages))
@@ -303,10 +277,7 @@ def main() -> None:
     non_digha = df[df.location_id != HOLDOUT_LOCATION]
     train, cal, _ = chronological_split(non_digha)
     model = make_model()
-    model.fit(
-        train[features], train[TARGET_COLUMN],
-        sample_weight=class_weights(train[TARGET_COLUMN]), verbose=False,
-    )
+    model.fit(train[features], train[TARGET_COLUMN], sample_weight=class_weights(train[TARGET_COLUMN]), verbose=False)
     cal_raw = normalize_probs(probabilities(model, cal[features]))
     temp = fit_temperature(cal[TARGET_COLUMN].to_numpy(dtype=int), cal_raw)
     digha = df[df.location_id == HOLDOUT_LOCATION]
