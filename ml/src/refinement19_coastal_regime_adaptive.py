@@ -18,9 +18,6 @@ from xgboost import XGBRegressor
 from config import PROCESSED_DIR, RISK_HORIZON_HOURS
 
 ROOT = Path(__file__).resolve().parents[2]
-# Refinements 11/18 use the canonical processed dataset name from config.py.
-# The old ndbc_marine_risk.parquet path no longer exists in the current
-# pipeline, which caused Refinement 19 to fail before doing any work.
 DATA = PROCESSED_DIR / "orca_historical_marine_risk.parquet"
 OUT = ROOT / "ml" / "models" / "refinement19"
 HORIZON = int(RISK_HORIZON_HOURS)
@@ -54,18 +51,9 @@ def make_features(df, loc):
     excluded = set(
         TARGETS
         + [
-            "risk_class",
-            "risk_label",
-            "stored_risk_label",
-            "location_id",
-            "timestamp",
-            "latitude",
-            "longitude",
-            "lat",
-            "lon",
-            "station_id",
-            "location_id",
-            loc,
+            "risk_class", "risk_label", "stored_risk_label", "location_id",
+            "timestamp", "latitude", "longitude", "lat", "lon",
+            "station_id", loc,
         ]
     )
     cols = [c for c in df.columns if c not in excluded and pd.api.types.is_numeric_dtype(df[c])]
@@ -80,7 +68,7 @@ def make_pairs(df, loc):
     x["timestamp"] = pd.to_datetime(x["timestamp"], utc=True, errors="coerce")
     x = x.dropna(subset=[loc, "timestamp"]).sort_values([loc, "timestamp"]).reset_index(drop=True)
     future = x[[loc, "timestamp"] + TARGETS].copy()
-    future["timestamp"] -= pd.Timedelta(hours=HORIZON)
+    future["timestamp"] -= pd.to_timedelta(HORIZON, unit="h")
     future = future.rename(columns={c: "future_" + c for c in TARGETS})
     return (
         x.merge(future, on=[loc, "timestamp"], how="inner", validate="one_to_one")
@@ -93,19 +81,12 @@ def fit_predict(xtr, ytr, xte, p):
     out = np.zeros((len(xte), 5))
     for j in range(5):
         m = XGBRegressor(
-            objective="reg:squarederror",
-            tree_method="hist",
-            n_estimators=p["n_estimators"],
-            learning_rate=p["learning_rate"],
-            max_depth=p["max_depth"],
-            min_child_weight=p["min_child_weight"],
-            subsample=p["subsample"],
-            colsample_bytree=p["colsample_bytree"],
-            reg_alpha=p["reg_alpha"],
-            reg_lambda=p["reg_lambda"],
-            gamma=p["gamma"],
-            random_state=SEED,
-            n_jobs=max(1, min(8, os.cpu_count() or 2)),
+            objective="reg:squarederror", tree_method="hist",
+            n_estimators=p["n_estimators"], learning_rate=p["learning_rate"],
+            max_depth=p["max_depth"], min_child_weight=p["min_child_weight"],
+            subsample=p["subsample"], colsample_bytree=p["colsample_bytree"],
+            reg_alpha=p["reg_alpha"], reg_lambda=p["reg_lambda"], gamma=p["gamma"],
+            random_state=SEED, n_jobs=max(1, min(8, os.cpu_count() or 2)),
         )
         m.fit(xtr, ytr[:, j])
         out[:, j] = m.predict(xte)
@@ -117,8 +98,7 @@ def continuous(y, p):
     rmse = [mean_squared_error(y[:, j], p[:, j]) ** 0.5 for j in range(5)]
     r2 = [r2_score(y[:, j], p[:, j]) for j in range(5)]
     return {
-        "mean_mae": float(np.mean(mae)),
-        "mean_rmse": float(np.mean(rmse)),
+        "mean_mae": float(np.mean(mae)), "mean_rmse": float(np.mean(rmse)),
         "mean_r2": float(np.mean(r2)),
         "target_mae": dict(zip(TARGETS, map(float, mae))),
         "target_r2": dict(zip(TARGETS, map(float, r2))),
@@ -139,6 +119,25 @@ def evaluate(y, p):
     return m
 
 
+def replace_regime_predictions(pred, q, base_mask, regime_series, X, Y, p):
+    """Replace only the rows of the supplied test mask with regime models.
+
+    The previous implementation used global q positions with a prediction
+    array whose length was only base_mask.sum(), causing IndexError whenever
+    the held-out rows did not start at index 0. This helper converts regime
+    positions into positions inside the prediction array explicitly.
+    """
+    base_positions = np.flatnonzero(base_mask.to_numpy())
+    for rg in q.loc[base_mask, "regime"].unique():
+        trr = (~base_mask) & (regime_series == rg)
+        ter = base_mask & (regime_series == rg)
+        if trr.sum() >= 1500 and ter.sum() > 0:
+            test_positions = np.flatnonzero(ter.to_numpy())
+            local_positions = np.searchsorted(base_positions, test_positions)
+            pred[local_positions] = fit_predict(X.loc[trr], Y[trr.to_numpy()], X.loc[ter], p)
+    return pred
+
+
 def main():
     print("=" * 78)
     print("ORCA-X COASTAL REGIME-ADAPTIVE FORECASTING — REFINEMENT 19")
@@ -147,9 +146,7 @@ def main():
     print(f"Source dataset: {DATA}")
     if not DATA.exists():
         raise FileNotFoundError(
-            f"Processed dataset not found: {DATA}. "
-            "This is the canonical dataset path used by Refinements 11 and 18. "
-            "Run the historical download + preparation pipeline if it is absent."
+            f"Processed dataset not found: {DATA}. This is the canonical dataset path used by Refinements 11 and 18."
         )
 
     df = pd.read_parquet(DATA)
@@ -175,11 +172,7 @@ def main():
             tr = q[loc].astype(str) != hold
             te = ~tr
             pred = fit_predict(X.loc[tr], Y[tr.to_numpy()], X.loc[te], p)
-            for rg in q.loc[te, "regime"].unique():
-                trr = tr & (q["regime"] == rg)
-                ter = te & (q["regime"] == rg)
-                if trr.sum() >= 1500 and ter.sum() > 0:
-                    pred[np.flatnonzero(ter.to_numpy())] = fit_predict(X.loc[trr], Y[trr.to_numpy()], X.loc[ter], p)
+            pred = replace_regime_predictions(pred, q, te, q["regime"], X, Y, p)
             m = evaluate(Y[te.to_numpy()], pred)
             m["location"] = hold
             folds.append(m)
@@ -205,26 +198,13 @@ def main():
     tr = q[loc].astype(str) != DIGHA
     te = q[loc].astype(str) == DIGHA
     dp = fit_predict(X.loc[tr], Y[tr.to_numpy()], X.loc[te], p)
-    for rg in q.loc[te, "regime"].unique():
-        trr = tr & (q["regime"] == rg)
-        ter = te & (q["regime"] == rg)
-        if trr.sum() >= 1500 and ter.sum() > 0:
-            dp[np.flatnonzero(ter.to_numpy())] = fit_predict(X.loc[trr], Y[trr.to_numpy()], X.loc[ter], p)
+    dp = replace_regime_predictions(dp, q, te, q["regime"], X, Y, p)
     digha = evaluate(Y[te.to_numpy()], dp)
 
     result = {
-        "best": best,
-        "temporal": temporal,
-        "digha_final_audit": digha,
+        "best": best, "temporal": temporal, "digha_final_audit": digha,
         "regime_counts": q["regime"].value_counts().to_dict(),
-        "contract": {
-            "horizon_hours": HORIZON,
-            "location_excluded": True,
-            "coordinates_excluded": True,
-            "future_features_excluded": True,
-            "stored_risk_label_excluded": True,
-            "proxy_risk_metrics": True,
-        },
+        "contract": {"horizon_hours": HORIZON, "location_excluded": True, "coordinates_excluded": True, "future_features_excluded": True, "stored_risk_label_excluded": True, "proxy_risk_metrics": True},
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "refinement19_results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
