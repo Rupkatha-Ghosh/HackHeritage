@@ -1,42 +1,21 @@
 """ORCA-X Refinement 23: point-in-time observation robustness benchmark.
 
-Purpose
--------
-Refinement 22 established the point-in-time contract: observations available at
-prediction time t are used to forecast physical state at t+6h. Refinement 23
-stress-tests that contract under realistic observation degradation without
-changing any production artifact.
+This is a read-only benchmark. It uses the Refinement-22 point-in-time
+contract: observations available at time t predict physical state at t+6h.
+It deliberately does not use future-derived fields, stored risk labels,
+coordinates, or production artifacts.
 
-Scenarios
----------
-* clean: no artificial degradation
-* random_missing_10: 10% independent feature missingness
-* random_missing_25: 25% independent feature missingness
-* random_missing_40: 40% independent feature missingness
-* wind_outage: wind speed/gust/direction unavailable
-* sea_state_outage: wave + swell observations unavailable
-* atmospheric_outage: pressure/temperature/precipitation unavailable
-* stale_sea_state: sea-state observations replaced by observations from t-3h
-* stale_wind: wind observations replaced by observations from t-3h
-* mixed_degradation: 25% random missingness plus a stale sea-state feed
+Stress scenarios:
+  clean, random_missing_10/25/40, wind_outage, sea_state_outage,
+  atmospheric_outage, stale_wind, stale_sea_state, mixed_degradation.
 
-Missing values are imputed using medians fitted on the training partition only.
-Stale values are created only from earlier observations at the same coast, so
-no future information is introduced. Model selection uses leave-one-coast-out
-with Digha excluded; temporal and Digha evaluations are reported separately.
-
-Outputs
--------
-ml/models/refinement23/
-  refinement23_results.json
-  observation_robustness_config.json
-  robustness_by_feature.csv
-
-The source dataset, production model, risk policy, and thresholds are never
-modified.
+Missing values are imputed with medians fitted on the training partition only.
+Stale feeds use an earlier observation from the same location. Digha is excluded
+from leave-one-coast-out model selection and is evaluated only as a final audit.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -73,20 +52,16 @@ SEA = [
     "swell_height_m", "swell_period_s", "swell_direction_deg",
 ]
 ATMOS = ["air_pressure_hpa", "air_temperature_c", "precipitation_mm"]
-
-TRIALS = [
-    dict(n_estimators=700, learning_rate=0.04, max_depth=5,
-         min_child_weight=10, subsample=0.80, colsample_bytree=0.80,
-         reg_alpha=0.15, reg_lambda=2.0, gamma=0.0),
-    dict(n_estimators=900, learning_rate=0.035, max_depth=6,
-         min_child_weight=10, subsample=0.80, colsample_bytree=0.80,
-         reg_alpha=0.15, reg_lambda=3.0, gamma=0.03),
-]
-
 SCENARIOS = [
     "clean", "random_missing_10", "random_missing_25", "random_missing_40",
     "wind_outage", "sea_state_outage", "atmospheric_outage",
     "stale_wind", "stale_sea_state", "mixed_degradation",
+]
+TRIALS = [
+    dict(n_estimators=700, learning_rate=0.04, max_depth=5, min_child_weight=10,
+         subsample=0.80, colsample_bytree=0.80, reg_alpha=0.15, reg_lambda=2.0, gamma=0.0),
+    dict(n_estimators=900, learning_rate=0.035, max_depth=6, min_child_weight=10,
+         subsample=0.80, colsample_bytree=0.80, reg_alpha=0.15, reg_lambda=3.0, gamma=0.03),
 ]
 
 
@@ -97,10 +72,16 @@ def find_location_col(df: pd.DataFrame) -> str:
     raise ValueError("No location column found")
 
 
-def load_pairs() -> tuple[pd.DataFrame, str]:
+def stable_seed(name: str, extra: int = 0) -> int:
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()
+    return SEED + extra + int(digest[:8], 16) % 100000
+
+
+def load_pairs() -> tuple[pd.DataFrame, str, int]:
     if not DATA.exists():
         raise FileNotFoundError(f"Canonical processed dataset not found: {DATA}")
     df = pd.read_parquet(DATA).copy()
+    source_rows = len(df)
     loc = find_location_col(df)
     required = ["timestamp", *FEATURES, *TARGETS]
     missing = [c for c in required if c not in df.columns]
@@ -119,7 +100,7 @@ def load_pairs() -> tuple[pd.DataFrame, str]:
     q = q.dropna(subset=[f"future_{c}" for c in TARGETS]).reset_index(drop=True)
     if q.duplicated([loc, "timestamp"]).any():
         raise ValueError("Duplicate location/timestamp prediction rows detected")
-    return q, loc
+    return q, loc, source_rows
 
 
 def proxy_risk(a: np.ndarray) -> np.ndarray:
@@ -130,13 +111,10 @@ def proxy_risk(a: np.ndarray) -> np.ndarray:
 
 
 def evaluate(y: np.ndarray, p: np.ndarray) -> dict:
-    yr = proxy_risk(y)
-    pr = proxy_risk(p)
+    yr, pr = proxy_risk(y), proxy_risk(p)
     mae = np.mean(np.abs(y - p), axis=0)
-    r2 = []
-    for j in range(len(TARGETS)):
-        # Constant targets are possible in a small stress subset.
-        r2.append(float(r2_score(y[:, j], p[:, j])) if np.std(y[:, j]) > 1e-12 else 0.0)
+    r2 = [float(r2_score(y[:, j], p[:, j])) if np.std(y[:, j]) > 1e-12 else 0.0
+          for j in range(len(TARGETS))]
     return {
         "policy_proxy_accuracy": float(accuracy_score(yr, pr)),
         "critical_proxy_recall": float(recall_score(yr >= 2, pr >= 2, zero_division=0)),
@@ -149,18 +127,12 @@ def evaluate(y: np.ndarray, p: np.ndarray) -> dict:
 
 def make_scenario(q: pd.DataFrame, loc: str, scenario: str, seed: int) -> pd.DataFrame:
     out = q[FEATURES].copy()
-    out.index = q.index
-    rng = np.random.default_rng(seed)
-
     if scenario == "clean":
         return out
-
     if scenario.startswith("random_missing_"):
         rate = int(scenario.rsplit("_", 1)[1]) / 100.0
-        mask = rng.random(out.shape) < rate
-        out = out.mask(mask)
-        return out
-
+        rng = np.random.default_rng(seed)
+        return out.mask(rng.random(out.shape) < rate)
     if scenario == "wind_outage":
         out[WIND] = np.nan
         return out
@@ -171,12 +143,10 @@ def make_scenario(q: pd.DataFrame, loc: str, scenario: str, seed: int) -> pd.Dat
         out[ATMOS] = np.nan
         return out
 
-    # Stale feeds are generated from an earlier timestamp at the same coast.
-    # The source row at t is never used to construct a value for an earlier row.
     if scenario in {"stale_wind", "stale_sea_state", "mixed_degradation"}:
         stale_cols = WIND if scenario == "stale_wind" else SEA
-        if scenario == "mixed_degradation":
-            stale_cols = SEA
+        # Shift earlier observations forward onto the later prediction time.
+        # Thus the value assigned at t is from t-STALE_HOURS, never from t+.
         lag = q[[loc, "timestamp", *stale_cols]].copy()
         lag["timestamp"] = lag["timestamp"] + pd.to_timedelta(STALE_HOURS, unit="h")
         lag = lag.rename(columns={c: f"stale_{c}" for c in stale_cols})
@@ -186,32 +156,49 @@ def make_scenario(q: pd.DataFrame, loc: str, scenario: str, seed: int) -> pd.Dat
         for c in stale_cols:
             out[c] = joined[f"stale_{c}"].to_numpy()
         if scenario == "mixed_degradation":
-            # Missingness is applied to the remaining point-in-time features.
             remaining = [c for c in FEATURES if c not in stale_cols]
-            mask = rng.random((len(out), len(remaining))) < 0.25
-            out.loc[:, remaining] = out[remaining].mask(mask)
+            rng = np.random.default_rng(seed)
+            out.loc[:, remaining] = out[remaining].mask(
+                rng.random((len(out), len(remaining))) < 0.25
+            )
         return out
+    raise ValueError(f"Unknown scenario: {scenario}")
 
-    raise ValueError(f"Unknown robustness scenario: {scenario}")
 
-
-def fit_predict(Xtr: pd.DataFrame, Ytr: np.ndarray, Xte: pd.DataFrame,
-                params: dict, train_medians: pd.Series) -> np.ndarray:
-    Xtr = Xtr.copy().replace([np.inf, -np.inf], np.nan)
-    Xte = Xte.copy().replace([np.inf, -np.inf], np.nan)
-    Xtr = Xtr.fillna(train_medians).fillna(0.0)
-    Xte = Xte.fillna(train_medians).fillna(0.0)
-    pred = np.zeros((len(Xte), len(TARGETS)), dtype=float)
-    for j in range(len(TARGETS)):
+def fit_models(Xtr: pd.DataFrame, Ytr: np.ndarray, params: dict) -> tuple[list, pd.Series]:
+    Xtr = Xtr.replace([np.inf, -np.inf], np.nan).copy()
+    medians = Xtr.median(numeric_only=True)
+    Xfit = Xtr.fillna(medians).fillna(0.0)
+    models = []
+    for j, target in enumerate(TARGETS):
         y = Ytr[:, j]
         keep = np.isfinite(y)
         m = xgb.XGBRegressor(
             objective="reg:squarederror", tree_method="hist", random_state=SEED,
             n_jobs=-1, **params,
         )
-        m.fit(Xtr.loc[keep], y[keep], verbose=False)
-        pred[:, j] = m.predict(Xte)
-    return pred
+        m.fit(Xfit.loc[keep], y[keep], verbose=False)
+        models.append(m)
+    return models, medians
+
+
+def predict_models(models: list, X: pd.DataFrame, medians: pd.Series) -> np.ndarray:
+    Xp = X.replace([np.inf, -np.inf], np.nan).copy()
+    Xp = Xp.fillna(medians).fillna(0.0)
+    return np.column_stack([m.predict(Xp) for m in models])
+
+
+def evaluate_split(q: pd.DataFrame, Y: np.ndarray, loc: str, tr: np.ndarray,
+                   te: np.ndarray, params: dict) -> tuple[dict, list[dict]]:
+    models, medians = fit_models(q.loc[tr, FEATURES], Y[tr], params)
+    clean_pred = predict_models(models, q.loc[te, FEATURES], medians)
+    clean = evaluate(Y[te], clean_pred)
+    stress = []
+    for scenario in SCENARIOS[1:]:
+        test_X = make_scenario(q.loc[te], loc, scenario, stable_seed(scenario))
+        pred = predict_models(models, test_X, medians)
+        stress.append({"scenario": scenario, **evaluate(Y[te], pred)})
+    return clean, stress
 
 
 def temporal_split(q: pd.DataFrame, loc: str) -> tuple[np.ndarray, np.ndarray]:
@@ -219,21 +206,22 @@ def temporal_split(q: pd.DataFrame, loc: str) -> tuple[np.ndarray, np.ndarray]:
     times = np.sort(base["timestamp"].unique())
     cut = times[int(0.82 * len(times))]
     return (
-        (q[loc] != DIGHA) & (q["timestamp"] < cut),
-        (q[loc] != DIGHA) & (q["timestamp"] >= cut),
+        ((q[loc] != DIGHA) & (q["timestamp"] < cut)).to_numpy(),
+        ((q[loc] != DIGHA) & (q["timestamp"] >= cut)).to_numpy(),
     )
 
 
-def scenario_metrics(q: pd.DataFrame, X: pd.DataFrame, Y: np.ndarray,
-                     loc: str, scenario: str, params: dict,
-                     tr: np.ndarray, te: np.ndarray) -> dict:
-    train_q = q.loc[tr]
-    test_q = q.loc[te]
-    train_clean = train_q[FEATURES]
-    train_medians = train_clean.replace([np.inf, -np.inf], np.nan).median()
-    test_X = make_scenario(test_q, loc, scenario, SEED + abs(hash(scenario)) % 100000)
-    pred = fit_predict(train_clean, Y[tr], test_X, params, train_medians)
-    return evaluate(Y[te], pred)
+def run_scenarios(q: pd.DataFrame, Y: np.ndarray, loc: str,
+                  tr: np.ndarray, te: np.ndarray, params: dict,
+                  seed_offset: int) -> list[dict]:
+    models, medians = fit_models(q.loc[tr, FEATURES], Y[tr], params)
+    rows = []
+    for scenario in SCENARIOS:
+        test_X = make_scenario(q.loc[te], loc, scenario,
+                               stable_seed(scenario, seed_offset))
+        pred = predict_models(models, test_X, medians)
+        rows.append({"scenario": scenario, **evaluate(Y[te], pred)})
+    return rows
 
 
 def main() -> None:
@@ -246,36 +234,29 @@ def main() -> None:
     print("Contract: observed state at t -> physical state at t+6h")
     print("Stress testing missing, outage, and stale observations without future leakage.")
 
-    q, loc = load_pairs()
+    q, loc, source_rows = load_pairs()
     Y = q[[f"future_{c}" for c in TARGETS]].to_numpy(float)
     locations = sorted(q[loc].unique())
     selectable = [z for z in locations if z != DIGHA]
-    print(f"Rows source: {len(q) + 36:,} | exact +{HORIZON}h pairs: {len(q):,}")
+    print(f"Rows source: {source_rows:,} | exact +{HORIZON}h pairs: {len(q):,}")
     print(f"Locations: {len(locations)} | Features: {len(FEATURES)}")
     print(f"Scenarios: {SCENARIOS}")
 
-    all_trial_results = []
+    trials = []
     for ti, params in enumerate(TRIALS, 1):
-        clean_folds = []
-        stress_folds = []
+        clean_folds, stress_folds = [], []
         for hold in selectable:
             tr = (q[loc] != hold).to_numpy()
             te = (q[loc] == hold).to_numpy()
-            train_clean = q.loc[tr, FEATURES]
-            medians = train_clean.replace([np.inf, -np.inf], np.nan).median()
-            clean_X = q.loc[te, FEATURES]
-            clean_pred = fit_predict(train_clean, Y[tr], clean_X, params, medians)
-            clean_folds.append({"location": hold, **evaluate(Y[te], clean_pred)})
-            for scenario in SCENARIOS[1:]:
-                metrics = scenario_metrics(q, q[FEATURES], Y, loc, scenario, params, tr, te)
-                stress_folds.append({"location": hold, "scenario": scenario, **metrics})
-
+            clean, stress = evaluate_split(q, Y, loc, tr, te, params)
+            clean_folds.append({"location": hold, **clean})
+            stress_folds.extend({"location": hold, **s} for s in stress)
         clean_acc = float(np.mean([x["policy_proxy_accuracy"] for x in clean_folds]))
         clean_critical = float(np.mean([x["critical_proxy_recall"] for x in clean_folds]))
-        stress_critical = float(np.mean([x["critical_proxy_recall"] for x in stress_folds]))
         stress_acc = float(np.mean([x["policy_proxy_accuracy"] for x in stress_folds]))
-        objective = 0.35 * clean_acc + 0.25 * clean_critical + 0.25 * stress_critical + 0.15 * stress_acc
-        result = {
+        stress_critical = float(np.mean([x["critical_proxy_recall"] for x in stress_folds]))
+        objective = 0.35 * clean_acc + 0.25 * clean_critical + 0.15 * stress_acc + 0.25 * stress_critical
+        row = {
             "trial": ti, "params": params, "objective": objective,
             "clean_mean_policy_proxy_accuracy": clean_acc,
             "clean_mean_critical_proxy_recall": clean_critical,
@@ -283,53 +264,40 @@ def main() -> None:
             "stress_mean_critical_proxy_recall": stress_critical,
             "clean_folds": clean_folds, "stress_folds": stress_folds,
         }
-        all_trial_results.append(result)
+        trials.append(row)
         print(f"[{ti:02d}/{len(TRIALS)}] objective={objective:.5f} clean_acc={clean_acc:.5f} stress_acc={stress_acc:.5f} stress_critical={stress_critical:.5f}")
 
-    best = max(all_trial_results, key=lambda x: x["objective"])
+    best = max(trials, key=lambda x: x["objective"])
     params = best["params"]
-
     tr_t, te_t = temporal_split(q, loc)
-    temporal_rows = []
-    train_clean = q.loc[tr_t, FEATURES]
-    medians = train_clean.replace([np.inf, -np.inf], np.nan).median()
-    for scenario in SCENARIOS:
-        test_X = make_scenario(q.loc[te_t], loc, scenario, SEED + 1000 + abs(hash(scenario)) % 100000)
-        pred = fit_predict(train_clean, Y[tr_t], test_X, params, medians)
-        temporal_rows.append({"scenario": scenario, **evaluate(Y[te_t], pred)})
+    temporal = run_scenarios(q, Y, loc, tr_t, te_t, params, 1000)
 
     digha_tr = (q[loc] != DIGHA).to_numpy()
     digha_te = (q[loc] == DIGHA).to_numpy()
-    train_clean = q.loc[digha_tr, FEATURES]
-    medians = train_clean.replace([np.inf, -np.inf], np.nan).median()
-    digha_rows = []
-    for scenario in SCENARIOS:
-        test_X = make_scenario(q.loc[digha_te], loc, scenario, SEED + 2000 + abs(hash(scenario)) % 100000)
-        pred = fit_predict(train_clean, Y[digha_tr], test_X, params, medians)
-        digha_rows.append({"scenario": scenario, **evaluate(Y[digha_te], pred)})
+    digha = run_scenarios(q, Y, loc, digha_tr, digha_te, params, 2000)
 
-    stress_table = []
-    for scenario in SCENARIOS:
-        vals = [f for f in best["stress_folds"] if f["scenario"] == scenario]
-        row = {"scenario": scenario}
-        for key in ("policy_proxy_accuracy", "critical_proxy_recall", "mean_mae", "mean_r2"):
-            row[f"mean_{key}"] = float(np.mean([v[key] for v in vals]))
-        row["accuracy_drop_vs_clean"] = best["clean_mean_policy_proxy_accuracy"] - row["mean_policy_proxy_accuracy"]
-        row["critical_recall_drop_vs_clean"] = best["clean_mean_critical_proxy_recall"] - row["mean_critical_proxy_recall"]
-        stress_table.append(row)
-    clean_table = {"scenario": "clean", "mean_policy_proxy_accuracy": best["clean_mean_policy_proxy_accuracy"],
-                   "mean_critical_proxy_recall": best["clean_mean_critical_proxy_recall"]}
-    stress_df = pd.DataFrame(stress_table)
-
-    feature_rows = []
-    for c in FEATURES:
-        feature_rows.append({
-            "feature": c,
-            "group": "wind" if c in WIND else "sea_state" if c in SEA else "atmospheric" if c in ATMOS else "calendar",
-            "approved_point_in_time": True,
-            "used_in_clean": True,
-            "stress_behavior": "stale_or_missing_only" if c in (WIND + SEA + ATMOS) else "random_missing_only",
+    rows = []
+    clean_ref = best["clean_mean_policy_proxy_accuracy"]
+    critical_ref = best["clean_mean_critical_proxy_recall"]
+    for scenario in SCENARIOS[1:]:
+        vals = [x for x in best["stress_folds"] if x["scenario"] == scenario]
+        rows.append({
+            "scenario": scenario,
+            "mean_policy_proxy_accuracy": float(np.mean([x["policy_proxy_accuracy"] for x in vals])),
+            "mean_critical_proxy_recall": float(np.mean([x["critical_proxy_recall"] for x in vals])),
+            "mean_mae": float(np.mean([x["mean_mae"] for x in vals])),
+            "mean_r2": float(np.mean([x["mean_r2"] for x in vals])),
+            "accuracy_drop_vs_clean": clean_ref - float(np.mean([x["policy_proxy_accuracy"] for x in vals])),
+            "critical_recall_drop_vs_clean": critical_ref - float(np.mean([x["critical_proxy_recall"] for x in vals])),
         })
+    scenario_df = pd.DataFrame(rows)
+    feature_df = pd.DataFrame([
+        {"feature": c,
+         "group": "wind" if c in WIND else "sea_state" if c in SEA else "atmospheric" if c in ATMOS else "calendar",
+         "approved_point_in_time": True,
+         "stress_tested": c in (WIND + SEA + ATMOS)}
+        for c in FEATURES
+    ])
 
     contract = {
         "strict_point_in_time": True,
@@ -337,39 +305,35 @@ def main() -> None:
         "future_target_columns_used_as_features": False,
         "stored_risk_label_used": False,
         "coordinates_used": False,
-        "stale_hours": STALE_HOURS,
-        "stale_values_are_from_prior_same_location_observations": True,
         "median_imputation_fit_on_training_partition_only": True,
-        "scenario_random_seed": SEED,
+        "stale_hours": STALE_HOURS,
+        "stale_values_from_prior_same_location_observations": True,
+        "stable_random_seed": SEED,
         "production_artifacts_modified": False,
     }
-
     OUT.mkdir(parents=True, exist_ok=True)
-    stress_df.to_csv(OUT / "robustness_by_feature.csv", index=False)
+    scenario_df.to_csv(OUT / "robustness_by_scenario.csv", index=False)
+    feature_df.to_csv(OUT / "robustness_by_feature.csv", index=False)
     (OUT / "observation_robustness_config.json").write_text(json.dumps({
-        "refinement": 23, "contract": contract, "scenarios": SCENARIOS,
-        "trials": TRIALS, "locations": locations,
+        "refinement": 23, "horizon_hours": HORIZON, "policy": POLICY_VERSION,
+        "features": FEATURES, "targets": TARGETS, "scenarios": SCENARIOS,
+        "stale_hours": STALE_HOURS, "trials": TRIALS, "contract": contract,
     }, indent=2), encoding="utf-8")
 
+    worst = min(rows, key=lambda x: x["mean_policy_proxy_accuracy"])
     report = {
-        "refinement": 23,
-        "rows_source": int(len(q)),
-        "exact_forward_pairs": int(len(q)),
-        "locations": locations,
-        "features": FEATURES,
-        "target_policy": POLICY_VERSION,
-        "best_trial": best,
-        "stress_summary": stress_table,
-        "temporal": temporal_rows,
-        "digha_final_audit": digha_rows,
+        "refinement": 23, "source_rows": source_rows, "exact_forward_pairs": len(q),
+        "locations": locations, "features": FEATURES, "best_trial": best,
+        "stress_summary": rows, "temporal": temporal, "digha_final_audit": digha,
         "contract": contract,
+        "worst_stress_scenario": worst,
         "interpretation": {
-            "clean": "Reference point-in-time performance with all observations as recorded.",
-            "random_missing": "Independent observation loss; imputation statistics are training-only.",
-            "outage": "Entire operational sensor groups unavailable at prediction time.",
-            "stale": "Selected feeds are replaced with earlier same-location observations only.",
-            "mixed": "Combined missingness and stale sea-state feed stress.",
-            "selection": "Digha is excluded from model selection and used only as final audit.",
+            "clean": "Point-in-time reference with recorded observations.",
+            "random_missing": "Independent observation loss with training-only imputation statistics.",
+            "outage": "Entire sensor groups unavailable at prediction time.",
+            "stale": "Selected feeds are replaced by earlier same-location observations.",
+            "mixed": "25% random missingness combined with stale sea-state observations.",
+            "selection": "Digha is excluded from selection and retained as final audit only.",
         },
     }
     (OUT / "refinement23_results.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -383,13 +347,14 @@ def main() -> None:
         "clean_critical_recall": best["clean_mean_critical_proxy_recall"],
         "stress_policy_accuracy": best["stress_mean_policy_proxy_accuracy"],
         "stress_critical_recall": best["stress_mean_critical_proxy_recall"],
-        "worst_scenario": min(stress_table, key=lambda x: x["mean_policy_proxy_accuracy"]),
-        "temporal_clean": temporal_rows[0],
-        "digha_clean": digha_rows[0],
+        "worst_scenario": worst,
+        "temporal_clean": temporal[0],
+        "digha_clean": digha[0],
         "strict_point_in_time": True,
     }, indent=2))
     print(f"Saved: {OUT / 'refinement23_results.json'}")
     print(f"Saved: {OUT / 'observation_robustness_config.json'}")
+    print(f"Saved: {OUT / 'robustness_by_scenario.csv'}")
     print(f"Saved: {OUT / 'robustness_by_feature.csv'}")
     print("Production model, risk policy, thresholds, and source dataset were NOT modified.")
 
