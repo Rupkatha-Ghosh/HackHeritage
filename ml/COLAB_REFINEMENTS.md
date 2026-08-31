@@ -1,50 +1,100 @@
-# ORCA-X Colab GPU refinements
+# ORCA-X Colab GPU ML workflow
 
-Heavy XGBoost refinements should run inside Google Colab rather than the local PowerShell/VS Code terminal when the laptop does not have a suitable GPU.
+The ML directory has been audited for Colab execution. The goal is to move **heavy XGBoost computation** from the developer laptop to a Colab T4/L4 GPU without changing the completed ORCA-X refinement methodology.
 
-## Refinement 26
+## Single recommended workflow
 
-After selecting a T4/L4 GPU runtime:
+Open `ml/colab/ORCA_X_Refinements_GPU.ipynb` in Google Colab.
+
+1. Select `Runtime > Change runtime type > GPU` and use T4/L4 when available.
+2. Run the installation cell.
+3. Run `python ml/src/colab_preflight.py`.
+4. Run **one** expensive training/refinement at a time.
+
+The preflight checks Python package availability, GPU visibility, and compilation of every `ml/src/*.py` file. It also enumerates scripts that import/use XGBoost.
+
+## Canonical production model
 
 ```bash
-python -m pip install -r ml/requirements-colab.txt
-python ml/src/colab_gpu_runner.py ml/src/refinement26_uncertainty_aware_forecast.py
+python ml/src/train.py
 ```
 
-The runner sets `ORCA_X_DEVICE=cuda`, verifies the NVIDIA runtime with `nvidia-smi`, and injects `device="cuda"` into XGBoost estimators used by the existing refinement scripts.
+In the Colab notebook this executes with:
 
-## Methodology preserved
+```text
+ORCA_X_DEVICE=cuda
+ORCA_X_N_JOBS=2
+```
 
-The Colab change is a **compute migration, not a model redesign**. It does not change:
+`train.py` already has first-class CUDA configuration and remains CPU-compatible by default on a developer machine.
 
-- target construction;
-- feature definitions;
-- temporal validation;
+## Existing XGBoost refinements/training scripts
+
+The repository contains multiple historical training, tuning, benchmark and refinement scripts using XGBoost, including the later Refinements 14, 18, 19, 22, 23, 24, 25 and 26 and supporting tuning/evaluation scripts. They should be launched through the adapter when GPU acceleration is desired:
+
+```bash
+python ml/src/colab_gpu_runner.py ml/src/<script>.py
+```
+
+For example:
+
+```bash
+python ml/src/colab_gpu_runner.py ml/src/refinement25_temporal_reliability_forecast.py
+python ml/src/colab_gpu_runner.py ml/src/refinement26_uncertainty_aware_forecast.py
+python ml/src/colab_gpu_runner.py ml/src/tune_xgboost.py
+```
+
+The adapter covers `XGBClassifier`, `XGBRegressor` and `XGBRanker`, sets `device="cuda"`, keeps `tree_method="hist"`, limits estimator-level CPU parallelism to a sensible Colab default, and fails early when no NVIDIA GPU is visible.
+
+## What is and is not GPU-accelerated
+
+GPU:
+
+- XGBoost tree construction;
+- XGBoost model prediction performed by the estimator.
+
+Colab CPU:
+
+- pandas data loading/transforms;
+- NumPy feature calculations;
+- scikit-learn metrics and calibration utilities;
+- CSV/JSON/parquet I/O;
+- ordinary Python orchestration.
+
+This is expected. The purpose is to remove the expensive XGBoost training workload from the user's laptop.
+
+## Methodology preservation
+
+This change is a **runtime/compute migration only**. It does not change:
+
+- the six-hour forward forecasting horizon;
+- point-in-time feature constraints;
+- temporal validation rules;
 - Digha spatial holdout;
 - observation-degradation scenarios;
+- uncertainty calibration;
 - risk-policy thresholds;
-- uncertainty calibration.
+- production inference contract;
+- completed refinement conclusions.
 
-Pandas/NumPy/scikit-learn evaluation remains CPU-side in Colab. XGBoost tree computation uses the attached NVIDIA GPU.
+The Colab runner is intentionally separate from the refinement implementations so a GPU run cannot silently become a new scientific variant.
 
-## Local terminal warning
+## Important local-terminal rule
 
-Running this on the developer machine:
+This command on the developer's laptop:
 
 ```bash
 python ml/src/refinement26_uncertainty_aware_forecast.py
 ```
 
-uses the local CPU. The Colab GPU is available only to processes running inside the Colab runtime.
+still uses the laptop CPU. A Colab GPU is not remotely attached to a local PowerShell process.
 
-## Recommended notebook
-
-Open `ml/colab/ORCA_X_Refinements_GPU.ipynb` in Colab, select a T4/L4 GPU runtime, and run the notebook. It installs the lightweight ML dependencies, checks `nvidia-smi`, and launches Refinement 26 through the repository GPU runner.
-
-For Refinement 25, use:
+Use this **inside Colab** instead:
 
 ```bash
-python ml/src/colab_gpu_runner.py ml/src/refinement25_temporal_reliability_forecast.py
+!python ml/src/colab_gpu_runner.py ml/src/refinement26_uncertainty_aware_forecast.py
 ```
 
-Do not run multiple heavy refinements simultaneously on one GPU.
+## Data and artifacts
+
+The Colab environment is ephemeral. Rebuild/download the required processed dataset in Colab and export generated model/evaluation artifacts before the runtime is deleted. Do not commit large raw datasets merely to make Colab work.
