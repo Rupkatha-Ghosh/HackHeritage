@@ -1,0 +1,8 @@
+# ORCA-X Google Colab GPU training environment
+# Keep this separate from the full inference/RAG environment.
+pandas>=2.2,<3
+numpy>=1.26,<3
+scikit-learn>=1.6,<2
+xgboost>=2.1,<4
+pyarrow>=22,<26
+requests>=2.32,<3
