@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -12,6 +13,28 @@ from label_policy import POLICY_VERSION, assign_operational_risk
 RANDOM_STATE = 42
 HOLDOUT_LOCATION = "digha_wb"
 RISK_ORDER = [RISK_CLASS_NAMES[i] for i in range(4)]
+
+
+def _training_device() -> str:
+    """Return the XGBoost device requested by the environment.
+
+    Use ``ORCA_X_DEVICE=cuda`` in Google Colab after enabling a GPU.
+    Default remains CPU so existing local execution is unchanged.
+    """
+    value = os.getenv("ORCA_X_DEVICE", "cpu").strip().lower()
+    aliases = {"gpu": "cuda", "cuda:0": "cuda", "cpu": "cpu", "cuda": "cuda"}
+    if value not in aliases:
+        raise ValueError("ORCA_X_DEVICE must be one of: cpu, cuda, gpu, cuda:0")
+    return aliases[value]
+
+
+def _training_n_jobs() -> int:
+    value = os.getenv("ORCA_X_N_JOBS", "-1").strip()
+    try:
+        jobs = int(value)
+    except ValueError as exc:
+        raise ValueError("ORCA_X_N_JOBS must be an integer") from exc
+    return jobs
 
 
 def load_dataset() -> pd.DataFrame:
@@ -99,13 +122,18 @@ def majority_baseline(y: pd.Series) -> dict:
 
 
 def make_model(n_estimators: int = 900) -> xgb.XGBClassifier:
-    return xgb.XGBClassifier(
+    device = _training_device()
+    n_jobs = _training_n_jobs()
+    params = dict(
         objective="multi:softprob", num_class=4, n_estimators=n_estimators,
         learning_rate=0.035, max_depth=6, min_child_weight=8,
         subsample=0.85, colsample_bytree=0.85, reg_alpha=0.15, reg_lambda=2.0,
         gamma=0.05, tree_method="hist", eval_metric="mlogloss",
-        random_state=RANDOM_STATE, n_jobs=-1,
+        random_state=RANDOM_STATE, n_jobs=n_jobs,
     )
+    if device == "cuda":
+        params["device"] = "cuda"
+    return xgb.XGBClassifier(**params)
 
 
 def class_weights(y: pd.Series) -> dict[int, float]:
@@ -114,6 +142,12 @@ def class_weights(y: pd.Series) -> dict[int, float]:
 
 
 def main() -> None:
+    device = _training_device()
+    print(f"XGBoost execution device: {device}")
+    print(f"XGBoost n_jobs: {_training_n_jobs()}")
+    if device == "cuda":
+        print("GPU mode enabled. In Google Colab verify Runtime > Change runtime type > T4/L4 GPU before running.")
+
     df = load_dataset()
     df, feature_columns = add_dynamic_features(df)
     print(f"Dataset rows after forward-target construction: {len(df):,}; locations: {df.location_id.nunique()}")
@@ -175,6 +209,8 @@ def main() -> None:
         "training_locations": sorted(train_pool.location_id.unique().tolist()), "digha_excluded_from_training": True,
         "label_policy": "Six-hour forward ORCA-X operational severity proxy: sustained wind is primary; gust is secondary; EXTREME requires sustained wind >=48 kt, significant wave >=6 m, or sustained gale + rough sea. Not official warning labels or incident outcomes.",
         "warning": "RAG and authoritative IMD/INCOIS/Coast Guard evidence remain higher-priority safety evidence.",
+        "training_device": device,
+        "training_n_jobs": _training_n_jobs(),
     }
     metadata_path.write_text(json.dumps(metadata, indent=2, default=float), encoding="utf-8")
     print(f"Saved production model: {model_path}")
