@@ -30,18 +30,16 @@ ORCA_X_N_JOBS=2
 
 ## Existing XGBoost refinements/training scripts
 
-The repository contains multiple historical training, tuning, benchmark and refinement scripts using XGBoost, including the later Refinements 14, 18, 19, 22, 23, 24, 25 and 26 and supporting tuning/evaluation scripts. They should be launched through the adapter when GPU acceleration is desired:
+The repository contains multiple historical training, tuning, benchmark and refinement scripts using XGBoost, including the later Refinements 14, 18, 19, 22, 23, 24, 25, 26, 27, 28 and supporting tuning/evaluation scripts. They should be launched through the adapter when GPU acceleration is desired:
 
 ```bash
 python ml/src/colab_gpu_runner.py ml/src/<script>.py
 ```
 
-For example:
+For Refinement 29:
 
 ```bash
-python ml/src/colab_gpu_runner.py ml/src/refinement25_temporal_reliability_forecast.py
-python ml/src/colab_gpu_runner.py ml/src/refinement26_uncertainty_aware_forecast.py
-python ml/src/colab_gpu_runner.py ml/src/tune_xgboost.py
+python ml/src/colab_gpu_runner.py ml/src/refinement29_safety_gate_calibration.py
 ```
 
 The adapter covers `XGBClassifier`, `XGBRegressor` and `XGBRanker`, sets `device="cuda"`, keeps `tree_method="hist"`, limits estimator-level CPU parallelism to a sensible Colab default, and fails early when no NVIDIA GPU is visible.
@@ -65,7 +63,7 @@ This is expected. The purpose is to remove the expensive XGBoost training worklo
 
 ## Methodology preservation
 
-This change is a **runtime/compute migration only**. It does not change:
+The Colab workflow does not change:
 
 - the six-hour forward forecasting horizon;
 - point-in-time feature constraints;
@@ -77,22 +75,16 @@ This change is a **runtime/compute migration only**. It does not change:
 - production inference contract;
 - completed refinement conclusions.
 
-The Colab runner is intentionally separate from the refinement implementations so a GPU run cannot silently become a new scientific variant.
+Refinement 29 is a **read-only benchmark**. It evaluates calibration level, uncertainty threshold, and boundary escalation factor while explicitly penalizing unnecessary risk escalation. It must not replace production artifacts automatically.
 
 ## Important local-terminal rule
 
-This command on the developer's laptop:
+A command run on the developer's laptop still uses the laptop CPU unless that machine has a supported GPU. A Colab GPU is not remotely attached to a local PowerShell process.
+
+Use this **inside Colab** for Refinement 29:
 
 ```bash
-python ml/src/refinement26_uncertainty_aware_forecast.py
-```
-
-still uses the laptop CPU. A Colab GPU is not remotely attached to a local PowerShell process.
-
-Use this **inside Colab** instead:
-
-```bash
-!python ml/src/colab_gpu_runner.py ml/src/refinement26_uncertainty_aware_forecast.py
+!python ml/src/colab_gpu_runner.py ml/src/refinement29_safety_gate_calibration.py
 ```
 
 ## Data and artifacts
