@@ -1,0 +1,11 @@
+{
+  "id": "REPLACED_BY_PUSH_SCRIPT",
+  "slug": "orca-x-gpu",
+  "title": "ORCA-X GPU",
+  "code_file": "orca_x_kaggle_gpu.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true
+}
