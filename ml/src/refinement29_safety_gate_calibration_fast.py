@@ -36,9 +36,11 @@ FEATURES = [
     "air_pressure_hpa", "air_temperature_c", "sea_surface_temperature_c",
     "precipitation_mm", "month", "season",
 ]
-SCENARIOS = ["clean", "random_missing_10", "random_missing_25", "random_missing_40",
-             "wind_outage", "sea_state_outage", "atmospheric_outage",
-             "stale_wind", "stale_sea_state", "mixed_degradation"]
+SCENARIOS = [
+    "clean", "random_missing_10", "random_missing_25", "random_missing_40",
+    "wind_outage", "sea_state_outage", "atmospheric_outage",
+    "stale_wind", "stale_sea_state", "mixed_degradation",
+]
 TRIALS = [(l, t, b) for l in [.90, .95] for t in [.60, .80, 1.00, 1.20] for b in [.50, .70]]
 
 
@@ -125,35 +127,43 @@ def fit_ensemble(Xtr, Ytr, seed):
 
 
 def predict_ensemble(members, X, med):
+    """Predict with CUDA when available, then normalize outputs to NumPy.
+
+    XGBoost's CUDA inplace_predict returns CuPy arrays. NumPy functions such as
+    column_stack/stack deliberately reject implicit CuPy -> NumPy conversion,
+    so every GPU prediction is explicitly copied to host memory before the
+    ensemble aggregation. This keeps all downstream calibration/evaluation
+    CPU-side and fixes the Colab T4 CuPy conversion failure.
+    """
     A = X.fillna(med).fillna(0.0).astype(np.float32)
     preds = []
     cupy_X = None
+    cp = None
     if os.getenv("ORCA_X_DEVICE", "cuda") == "cuda":
         try:
-            import cupy as cp
+            import cupy as _cp
+            cp = _cp
             cupy_X = cp.asarray(A.to_numpy(dtype=np.float32))
         except Exception:
             cupy_X = None
+            cp = None
+
     for models in members:
         cols = []
         for m in models:
             if cupy_X is not None:
-                cols.append(m.get_booster().inplace_predict(cupy_X))
+                col = m.get_booster().inplace_predict(cupy_X)
+                col = cp.asnumpy(col)
             else:
-                cols.append(m.predict(A))
-        preds.append(np.column_stack([np.asarray(c) for c in cols]))
-    arr = np.stack(preds)
-    return np.asarray(arr.mean(axis=0)), np.asarray(arr.std(axis=0))
+                col = m.predict(A)
+            cols.append(np.asarray(col, dtype=np.float64))
+        preds.append(np.column_stack(cols))
+
+    arr = np.stack(preds, axis=0)
+    return arr.mean(axis=0), arr.std(axis=0)
 
 
 def calibrate(Y, pred, level):
-    """Return CPU/NumPy calibration residual quantiles.
-
-    XGBoost CUDA prediction can return CuPy arrays. Calibration is a small
-    CPU-side statistical operation, so explicitly normalize both operands to
-    NumPy before subtraction/quantile computation. This prevents NumPy/CuPy
-    dispatch from raising ``TypeError: Unsupported type numpy.ndarray``.
-    """
     y_np = np.asarray(Y, dtype=np.float64)
     pred_np = np.asarray(pred, dtype=np.float64)
     if y_np.shape != pred_np.shape:
@@ -263,6 +273,7 @@ def main():
               "optimization": {"configurations": len(TRIALS), "model_reuse": True,
                                "models_per_location_fold": 15, "redundant_scenario_refits_removed": True,
                                "elapsed_seconds": elapsed}}
+    OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "refinement29_results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     pd.DataFrame(all_rows).to_csv(OUT / "safety_gate_calibration_by_scenario.csv", index=False)
     (OUT / "safety_gate_calibration_config.json").write_text(json.dumps({
