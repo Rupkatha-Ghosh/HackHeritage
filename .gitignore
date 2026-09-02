@@ -31,6 +31,10 @@ ml/data/raw/
 ml/data/processed/*.csv
 ml/data/processed/*.parquet
 
+# Kaggle-generated user-specific metadata / local credentials
+ml/kaggle/kernel-metadata.json
+**/kaggle.json
+
 # Keep the checked-in manifest and trained model artifacts
 !ml/data/processed/dataset_manifest.json
 !ml/models/orca_xgb_risk.json
