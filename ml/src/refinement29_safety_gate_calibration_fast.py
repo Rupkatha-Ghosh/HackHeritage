@@ -127,8 +127,6 @@ def fit_ensemble(Xtr, Ytr, seed):
 def predict_ensemble(members, X, med):
     A = X.fillna(med).fillna(0.0).astype(np.float32)
     preds = []
-    # Use CuPy for prediction when available so a CUDA booster does not fall
-    # back to a CPU DMatrix because the input is a pandas/NumPy array.
     cupy_X = None
     if os.getenv("ORCA_X_DEVICE", "cuda") == "cuda":
         try:
@@ -140,16 +138,27 @@ def predict_ensemble(members, X, med):
         cols = []
         for m in models:
             if cupy_X is not None:
-                cols.append(m.get_booster().inplace_predict(cupy_X, iteration_range=(0, 0)) if False else m.get_booster().inplace_predict(cupy_X))
+                cols.append(m.get_booster().inplace_predict(cupy_X))
             else:
                 cols.append(m.predict(A))
-        preds.append(np.column_stack(cols))
+        preds.append(np.column_stack([np.asarray(c) for c in cols]))
     arr = np.stack(preds)
-    return arr.mean(axis=0), arr.std(axis=0)
+    return np.asarray(arr.mean(axis=0)), np.asarray(arr.std(axis=0))
 
 
 def calibrate(Y, pred, level):
-    return np.quantile(np.abs(Y - pred), level, axis=0)
+    """Return CPU/NumPy calibration residual quantiles.
+
+    XGBoost CUDA prediction can return CuPy arrays. Calibration is a small
+    CPU-side statistical operation, so explicitly normalize both operands to
+    NumPy before subtraction/quantile computation. This prevents NumPy/CuPy
+    dispatch from raising ``TypeError: Unsupported type numpy.ndarray``.
+    """
+    y_np = np.asarray(Y, dtype=np.float64)
+    pred_np = np.asarray(pred, dtype=np.float64)
+    if y_np.shape != pred_np.shape:
+        raise ValueError(f"Calibration shape mismatch: Y={y_np.shape}, pred={pred_np.shape}")
+    return np.quantile(np.abs(y_np - pred_np), level, axis=0)
 
 
 def evaluate(pred, sigma, truth, calibration, threshold, boundary_factor):
@@ -205,7 +214,6 @@ def main():
         print(f"[{li + 1}/{len(locations)}] training location holdout={hold} ...", flush=True)
         members, med = fit_ensemble(X.loc[tr], Y[tr], 9000 + li * 100)
         pred_tr, _ = predict_ensemble(members, X.loc[tr], med)
-        pred_clean, sigma_clean = predict_ensemble(members, X.loc[te], med)
         scenario_cache = {}
         for si, scenario in enumerate(SCENARIOS):
             Xin = X.loc[te] if scenario == "clean" else degrade(X.loc[te], scenario, 20000 + li * 100 + si)
