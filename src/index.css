@@ -1,61 +1,468 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   ORCA-X — Bathymetric Survey design tokens
+   ----------------------------------------------------------------------------
+   The palette is a water column: abyssal ink at the page ground, shelf navy for
+   surfaces, shoal aqua for contour lines and live data, buoy amber for the one
+   thing you are meant to act on, chart paper for reading.
+
+   Tailwind's built-in `slate` and `cyan` ramps are deliberately REMAPPED here
+   rather than replaced at the call site. Every existing dashboard component
+   keeps its class names and inherits the new palette for free.
+   ========================================================================= */
+
+@theme {
+  /* -- Typefaces -------------------------------------------------------- */
+  --font-display: "Bricolage Grotesque", "Archivo", system-ui, sans-serif;
+  --font-body: "Inter Tight", system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter Tight", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* -- Named palette (use these for new work) --------------------------- */
+  --color-abyssal: #060d14;
+  --color-shelf: #0e2432;
+  --color-shoal: #7fd4c1;
+  --color-buoy: #f2b33d;
+  --color-chartpaper: #e8ede9;
+  --color-fathom: #7e9aa8;
+
+  /* Nothing on a printed chart is pure #fff or #000. Remapping these keeps the
+     dashboard's seventeen `text-white` / `bg-black/80` uses in family. */
+  --color-white: #f4f7f4;
+  --color-black: #060d14;
+
+  /* -- Water column ramp (remaps `slate-*`) ----------------------------- */
+  --color-slate-50: #f4f7f4;
+  --color-slate-100: #e8ede9;
+  --color-slate-200: #cbdae0;
+  --color-slate-300: #a8bfc8;
+  --color-slate-400: #7e9aa8;
+  --color-slate-500: #4a7189;
+  --color-slate-600: #2a5068;
+  --color-slate-700: #1d3a4e;
+  --color-slate-800: #14293a;
+  --color-slate-900: #0a1620;
+  --color-slate-950: #060d14;
+
+  /* -- Shoal aqua ramp (remaps `cyan-*`) -------------------------------- */
+  --color-cyan-50: #eefaf6;
+  --color-cyan-100: #d3f3ea;
+  --color-cyan-200: #a6e8da;
+  --color-cyan-300: #a6e8da;
+  --color-cyan-400: #7fd4c1;
+  --color-cyan-500: #4fb9a2;
+  --color-cyan-600: #2e9483;
+  --color-cyan-700: #1f6e63;
+  --color-cyan-800: #164e47;
+  --color-cyan-900: #0d322e;
+  --color-cyan-950: #071a18;
+
+  /* Sky reads as a paler shoal so existing gradients stay in family */
+  --color-sky-200: #c7ece3;
+  --color-sky-300: #a6e8da;
+  --color-sky-400: #7fd4c1;
+  --color-sky-500: #4fb9a2;
+
+  /* -- Chart ink (remaps `blue-*` / `indigo-*` used in old gradients) ---- */
+  --color-blue-200: #c2dee4;
+  --color-blue-300: #9ccbd6;
+  --color-blue-400: #5da3b8;
+  --color-blue-500: #2c7a97;
+  --color-blue-600: #1e5f7a;
+  --color-blue-700: #163f5c;
+  --color-blue-900: #0b2233;
+  --color-blue-950: #071620;
+  --color-indigo-400: #4a7fa0;
+  --color-indigo-600: #1d4a6b;
+  --color-indigo-700: #163f5c;
+  --color-indigo-900: #0b2233;
+
+  /* -- Buoy amber ramp (remaps `amber-*`) ------------------------------- */
+  --color-amber-100: #fdf1d8;
+  --color-amber-200: #fbe3ae;
+  --color-amber-300: #f7ce7a;
+  --color-amber-400: #f2b33d;
+  --color-amber-500: #de9a1f;
+  --color-amber-600: #b87c14;
+  --color-amber-700: #8a5c10;
+  --color-amber-800: #4a3208;
+  --color-amber-900: #2d1e05;
+  --color-amber-950: #1a1103;
+
+  /* -- Risk scale: LOW / MODERATE / HIGH / EXTREME ---------------------- */
+  --color-emerald-200: #bcf0d9;
+  --color-emerald-300: #9ce6c8;
+  --color-emerald-400: #6fd6ae;
+  --color-emerald-500: #45bb90;
+  --color-emerald-600: #2d9873;
+  --color-emerald-700: #1f7259;
+  --color-emerald-800: #14483a;
+  --color-emerald-900: #0b2b23;
+  --color-emerald-950: #06231b;
+
+  --color-orange-300: #f2a583;
+  --color-orange-400: #e8734a;
+  --color-orange-500: #d55a30;
+
+  /* HIGH sits between buoy amber and EXTREME red, so `rose-*` becomes the
+     same coral as `orange-*` rather than Tailwind's default pink. */
+  --color-rose-300: #f2a583;
+  --color-rose-400: #e8734a;
+  --color-rose-500: #d55a30;
+  --color-rose-600: #b8461f;
+  --color-rose-800: #5c2113;
+  --color-rose-900: #3d160c;
+  --color-rose-950: #260d07;
+
+  --color-red-300: #e88b84;
+  --color-red-400: #d6453d;
+  --color-red-500: #c4372f;
+  --color-red-600: #a52a24;
+  --color-red-800: #6b1a16;
+  --color-red-900: #3d1210;
+  --color-red-950: #260b0a;
+
+  /* Charts letter aids-to-navigation and restricted areas in magenta. The
+     satellite module's `purple-*` inherits that convention, muted to plum so
+     it reads as a distinct overlay class without going neon. */
+  --color-purple-300: #d4a8c8;
+  --color-purple-400: #b87fa8;
+  --color-purple-500: #9c5f8e;
+  --color-purple-800: #3f2136;
+  --color-purple-950: #1d0f19;
+
+  /* Teal folds into shoal aqua so nothing drifts out of family. */
+  --color-teal-400: #7fd4c1;
+  --color-teal-500: #4fb9a2;
+
+  --color-yellow-400: #f2b33d;
+
+  /* -- Motion ----------------------------------------------------------- */
+  --ease-chart: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-swell: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Registered here rather than as bare `.animate-*` classes so they compile
+     into the `utilities` layer and accept variants. Keyframes are defined
+     further down the file. */
+  --animate-drift: orca-drift 24s ease-in-out infinite;
+  --animate-breathe: orca-breathe 4.5s ease-in-out infinite;
+  --animate-rise: orca-rise 0.7s var(--ease-chart) both;
+
+  /* -- Weights ----------------------------------------------------------
+     Bricolage tops out at 800, JetBrains Mono at 800, Inter Tight at 900.
+     The existing dashboard reaches for `font-black` (900) in eleven places —
+     five of them on mono — which the browser would fake by smearing the
+     outlines. Capping the scale here keeps every weight a real one. */
+  --font-weight-extrabold: 700;
+  --font-weight-black: 800;
+
+  /* -- Corners ----------------------------------------------------------
+     A survey plate is cut square. The radius scale is flattened near zero so
+     the existing dashboard's `rounded-xl` panels read as chart plates without
+     touching their markup. `rounded-full` is unaffected, so status lamps and
+     pills stay circular.
+
+     The bare `--radius` key is what the un-suffixed `rounded` utility reads
+     from; without it those elements keep Tailwind's stock 4px and end up the
+     roundest things on the page. */
+  --radius: 2px;
+  --radius-xs: 1px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --radius-xl: 3px;
+  --radius-2xl: 4px;
+  --radius-3xl: 5px;
+  --radius-4xl: 6px;
+}
+
+/* ============================================================================
+   Base
+   ========================================================================= */
+
 @layer base {
-  body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  html {
+    scroll-behavior: smooth;
   }
 
-  code, pre, .font-mono {
-    font-family: 'JetBrains Mono', monospace;
+  body {
+    font-family: var(--font-body);
+    font-feature-settings: "cv05" 1, "ss03" 1;
+    background-color: var(--color-abyssal);
+    color: var(--color-chartpaper);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    /* Width is pinned, but optical size is left to the browser so the face
+       adjusts between 11px eyebrows and 72px headlines on its own. */
+    font-variation-settings: "wdth" 100;
+    font-optical-sizing: auto;
+    letter-spacing: -0.02em;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* Numerals in a survey read as soundings: aligned, never proportional. */
+  .font-mono,
+  [class*="tabular"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Quality floor: every interactive element shows keyboard focus. */
+  :focus-visible {
+    outline: 2px solid var(--color-buoy);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background: var(--color-shoal);
+    color: var(--color-abyssal);
   }
 }
 
-/* Custom modern scrollbars */
+/* ============================================================================
+   Chart-plate utilities
+   ========================================================================= */
+
+/* Cartographic convention: water features are labelled in italic. Used for
+   sea areas, station names and anything measured in the water column. */
+@utility hydrographic {
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
+
+/* Wide-tracked mono eyebrow, as lettered on a survey plate. */
+@utility plate-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--color-fathom);
+}
+
+/* Fine graticule, as printed under a chart's soundings. */
+@utility graticule {
+  background-image: linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-shoal) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-shoal) 6%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 48px 48px;
+}
+
+/* Surface treatment for panels: shelf navy lifted off the abyssal ground.
+   Written as longhands, never `background:` or `border:` — custom utilities
+   sort after the `bg-*` and `border-*` families, so a resetting shorthand here
+   would silently swallow any override a caller passes in via className. */
+@utility plate {
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--color-shelf) 72%, transparent),
+    color-mix(in oklab, var(--color-abyssal) 88%, transparent)
+  );
+  border-width: 1px;
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--color-shoal) 14%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+/* ============================================================================
+   Keyframes
+   ========================================================================= */
+
+@keyframes orca-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-1.5%, 1%, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes orca-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes orca-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes orca-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Station rail. Declared here rather than in a nested `<style>` element so it
+   is defined once, not once per component instance. */
+@keyframes orca-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Specular pass over the headline. */
+@keyframes orca-shimmer {
+  0% {
+    background-position: 120% 50%;
+  }
+  100% {
+    background-position: -120% 50%;
+  }
+}
+
+/* The three `animate-*` classes are declared in `@theme` via the `--animate-*`
+   namespace (see above) rather than as bare classes, so they land inside the
+   `utilities` cascade layer and accept variants like `motion-safe:` — a bare
+   class would sit outside every layer and beat even `animate-none`. */
+
+/* Light sweep used on the primary call to action. */
+@utility sweep-sheen {
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(
+      100deg,
+      transparent 30%,
+      color-mix(in oklab, var(--color-chartpaper) 38%, transparent) 50%,
+      transparent 70%
+    );
+    transform: translateX(-120%);
+    pointer-events: none;
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    animation: orca-sweep 1.1s var(--ease-swell);
+  }
+}
+
+/* ============================================================================
+   Scrollbars
+   ========================================================================= */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--color-abyssal);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
+  background: color-mix(in oklab, var(--color-shoal) 26%, transparent);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.9);
+  background: color-mix(in oklab, var(--color-shoal) 46%, transparent);
 }
 
-/* Custom leaflet map stylings */
+/* ============================================================================
+   Leaflet — the map is a chart, so it is styled like one
+   ========================================================================= */
+
 .leaflet-container {
   width: 100%;
   height: 100%;
-  background: #090d16 !important;
+  background: var(--color-abyssal) !important;
+  font-family: var(--font-mono) !important;
   z-index: 10;
 }
 
+/* Desaturate raster tiles toward chart ink so GIS overlays read clearly. */
+.leaflet-tile-pane {
+  filter: saturate(0.45) brightness(0.72) hue-rotate(150deg) contrast(1.08);
+}
+
 .leaflet-popup-content-wrapper {
-  background: #0f172a !important;
-  color: #f8fafc !important;
-  border: 1px solid #334155 !important;
-  border-radius: 8px !important;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7) !important;
+  background: var(--color-shelf) !important;
+  color: var(--color-chartpaper) !important;
+  border: 1px solid color-mix(in oklab, var(--color-shoal) 30%, transparent) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.8) !important;
 }
 
 .leaflet-popup-tip {
-  background: #0f172a !important;
+  background: var(--color-shelf) !important;
 }
 
 .leaflet-control-zoom a {
-  background: #1e293b !important;
-  color: #94a3b8 !important;
-  border: 1px solid #334155 !important;
+  background: var(--color-shelf) !important;
+  color: var(--color-shoal) !important;
+  border: 1px solid color-mix(in oklab, var(--color-shoal) 22%, transparent) !important;
 }
 
 .leaflet-control-zoom a:hover {
-  background: #334155 !important;
-  color: #ffffff !important;
+  background: var(--color-shoal) !important;
+  color: var(--color-abyssal) !important;
+}
+
+.leaflet-control-attribution {
+  background: color-mix(in oklab, var(--color-abyssal) 82%, transparent) !important;
+  color: var(--color-fathom) !important;
+  font-size: 9px !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--color-shoal) !important;
+}
+
+/* ============================================================================
+   Reduced motion — respected globally, and readable by JS via the hook
+   ========================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

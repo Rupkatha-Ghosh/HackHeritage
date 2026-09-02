@@ -235,7 +235,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
               id="select-coastal-station"
               value={selectedLocation}
               onChange={(e) => setSelectedLocation(e.target.value)}
-              className="bg-transparent text-slate-200 text-xs w-full focus:outline-none cursor-pointer"
+              className="bg-transparent text-slate-200 text-xs w-full cursor-pointer"
             >
               <option value="" className="bg-slate-900 text-slate-400">Auto-detect Coastal Location</option>
               {Object.entries(COASTAL_LOCATIONS).map(([key, loc]) => (
@@ -252,7 +252,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
               id="select-time-window"
               value={selectedTime}
               onChange={(e) => setSelectedTime(e.target.value)}
-              className="bg-transparent text-slate-200 text-xs w-full focus:outline-none cursor-pointer"
+              className="bg-transparent text-slate-200 text-xs w-full cursor-pointer"
             >
               <option value="" className="bg-slate-900 text-slate-400">Auto-detect Forecast Time</option>
               <option value="current" className="bg-slate-900 text-slate-200">Current Next 6 Hours</option>

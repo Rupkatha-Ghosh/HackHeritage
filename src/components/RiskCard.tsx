@@ -81,7 +81,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           bg: 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300',
           badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
           icon: <ShieldCheck className="h-6 w-6 text-emerald-400" />,
-          gaugeColor: '#10b981',
+          gaugeColor: '#6fd6ae',
           shadow: 'shadow-emerald-500/10'
         };
       case 'MODERATE':
@@ -89,7 +89,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           bg: 'bg-amber-950/40 border-amber-500/40 text-amber-300',
           badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/50',
           icon: <AlertTriangle className="h-6 w-6 text-amber-400" />,
-          gaugeColor: '#f59e0b',
+          gaugeColor: '#f2b33d',
           shadow: 'shadow-amber-500/10'
         };
       case 'HIGH':
@@ -97,7 +97,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           bg: 'bg-rose-950/40 border-rose-500/40 text-rose-300',
           badgeBg: 'bg-rose-500/20 text-rose-300 border-rose-500/50',
           icon: <AlertTriangle className="h-6 w-6 text-rose-400" />,
-          gaugeColor: '#f43f5e',
+          gaugeColor: '#e8734a',
           shadow: 'shadow-rose-500/10'
         };
       case 'EXTREME':
@@ -106,7 +106,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           bg: 'bg-red-950/50 border-red-500/60 text-red-300',
           badgeBg: 'bg-red-500/20 text-red-300 border-red-500/60',
           icon: <AlertOctagon className="h-6 w-6 text-red-400 animate-pulse" />,
-          gaugeColor: '#ef4444',
+          gaugeColor: '#d6453d',
           shadow: 'shadow-red-500/20'
         };
     }

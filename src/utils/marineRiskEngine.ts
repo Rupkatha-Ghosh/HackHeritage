@@ -258,7 +258,7 @@ export function generateGisLayers(
       category: 'hazard_zone',
       riskLevel: isHigh ? 'HIGH' : isMod ? 'MODERATE' : 'LOW',
       description: `Significant wave height ${ocean.waveHeightMeters.toFixed(1)}m with ${ocean.currentSpeedKts.toFixed(1)} kts current shear.`,
-      color: isHigh ? '#ef4444' : isMod ? '#f59e0b' : '#10b981',
+      color: isHigh ? '#c4372f' : isMod ? '#de9a1f' : '#45bb90',
       details: {
         waveHeightM: ocean.waveHeightMeters,
         swellPeriodS: ocean.swellPeriodSec,
@@ -287,7 +287,7 @@ export function generateGisLayers(
       category: 'precaution_zone',
       riskLevel: isHigh ? 'MODERATE' : 'LOW',
       description: 'Shallow shoaling zone with tidal sandbar variations.',
-      color: '#3b82f6',
+      color: '#2c7a97',
       details: {
         depthM: location.depthMeters || 12,
         tideState: ocean.tidePhase
@@ -313,7 +313,7 @@ export function generateGisLayers(
       name: `Designated Fairway Channel to ${location.nearestPort || 'Harbour'}`,
       category: 'safe_corridor',
       description: 'Dredged navigational channel with marked buoyage and minimum draft clearance.',
-      color: '#10b981',
+      color: '#45bb90',
       details: {
         dredgedDepthM: (location.depthMeters || 14) + 2,
         channelWidthM: 150
@@ -332,7 +332,7 @@ export function generateGisLayers(
       name: location.nearestPort || `${location.name} Harbour`,
       category: 'port_shelter',
       description: `Primary emergency shelter and fish landing wharf for ${location.name}.`,
-      color: '#06b6d4',
+      color: '#4fb9a2',
       details: {
         vhfChannel: 'Marine Ch 16 / 12',
         rescueTugAvailable: true
@@ -351,7 +351,7 @@ export function generateGisLayers(
       name: `INCOIS-MoES Deep Ocean Buoy (BD-${Math.abs(Math.round(lat * 10))})`,
       category: 'buoy_station',
       description: `Real-time directional wave rider buoy reporting Hs=${ocean.waveHeightMeters.toFixed(1)}m, SST=${ocean.seaSurfaceTemperatureC.toFixed(1)}°C.`,
-      color: '#8b5cf6',
+      color: '#9c5f8e',
       details: {
         sensorId: `MOES-B${Math.abs(Math.round(lat * 10))}`,
         batteryHealth: '98%',

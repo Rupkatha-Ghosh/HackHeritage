@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { LocationInfo, GisLayerData, RiskLevel, OceanData } from '../types';
 import { COASTAL_LOCATIONS } from '../data/coastalData';
+import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion';
 
 interface InteractiveMapProps {
   location: LocationInfo;
@@ -38,6 +39,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const geojsonLayerRef = useRef<L.GeoJSON | null>(null);
   const targetMarkerRef = useRef<L.Marker | null>(null);
+  /* Leaflet drives its camera in JS, so no CSS media query can quiet it. */
+  const reducedMotion = usePrefersReducedMotion();
 
   // Layer toggles state
   const [showHazardZones, setShowHazardZones] = useState<boolean>(true);
@@ -55,13 +58,17 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         center: [location.latitude, location.longitude],
         zoom: 11,
         zoomControl: false,
-        attributionControl: false
+        attributionControl: true
       });
 
-      // Add clean dark nautical tiles
+      // Add clean dark nautical tiles. CARTO's basemaps are licensed on the
+      // condition that CARTO and OpenStreetMap are credited, so the attribution
+      // control stays on — styled down to 9px in index.css to keep it discreet.
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         subdomains: 'abcd',
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
       }).addTo(map);
 
       // Custom Zoom control in bottom right
@@ -78,18 +85,30 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     }
 
     return () => {
-      // Clean up handled if unmounted
+      // The console now unmounts whenever the operator returns to the brief, so
+      // this teardown is load-bearing: without it every visit leaks a live map,
+      // its tile layer and its DOM listeners.
+      mapInstanceRef.current?.remove();
+      mapInstanceRef.current = null;
+      geojsonLayerRef.current = null;
+      targetMarkerRef.current = null;
     };
   }, []);
 
   // Update map view when location changes
   useEffect(() => {
     if (!mapInstanceRef.current) return;
+    if (reducedMotion) {
+      mapInstanceRef.current.setView([location.latitude, location.longitude], 11, {
+        animate: false
+      });
+      return;
+    }
     mapInstanceRef.current.flyTo([location.latitude, location.longitude], 11, {
       duration: 1.2,
       easeLinearity: 0.25
     });
-  }, [location.latitude, location.longitude]);
+  }, [location.latitude, location.longitude, reducedMotion]);
 
   // Render GeoJSON layers & markers
   useEffect(() => {
@@ -150,32 +169,32 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           if (cat === 'hazard_zone') {
             const isHighRisk = feature.properties.riskLevel === 'HIGH' || feature.properties.riskLevel === 'EXTREME';
             return {
-              color: isHighRisk ? '#ef4444' : '#f59e0b',
+              color: isHighRisk ? '#d6453d' : '#f2b33d',
               weight: 2,
               opacity: 0.85,
-              fillColor: isHighRisk ? '#dc2626' : '#d97706',
+              fillColor: isHighRisk ? '#a52a24' : '#de9a1f',
               fillOpacity: 0.25,
               dashArray: '5, 5'
             };
           }
           if (cat === 'precaution_zone') {
             return {
-              color: '#3b82f6',
+              color: '#2c7a97',
               weight: 1.5,
               opacity: 0.7,
-              fillColor: '#2563eb',
+              fillColor: '#1e5f7a',
               fillOpacity: 0.15
             };
           }
           if (cat === 'safe_corridor') {
             return {
-              color: '#10b981',
+              color: '#45bb90',
               weight: 3.5,
               opacity: 0.9,
               dashArray: '2, 6'
             };
           }
-          return { color: '#64748b', weight: 1 };
+          return { color: '#4a7189', weight: 1 };
         },
         pointToLayer: (feature, latlng) => {
           const cat = feature.properties.category;
@@ -194,7 +213,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             });
             return L.marker(latlng, { icon: buoyIcon });
           }
-          return L.circleMarker(latlng, { radius: 6, color: '#06b6d4' });
+          return L.circleMarker(latlng, { radius: 6, color: '#7fd4c1' });
         },
         onEachFeature: (feature, layer) => {
           const p = feature.properties;
