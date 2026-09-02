@@ -8,30 +8,18 @@ Strategies compared:
   C. global_residual: global model plus a per-coast residual correction learned
      only from a temporally earlier calibration split.
 
-The benchmark is deliberately production-safe: it never changes the production
-model, label policy, thresholds, or inference code.
+Validation is deliberately strict: +6h forward targets, chronological 2024
+fit/calibration versus 2025 test, ten degradation scenarios, and six-coast
+spatial holdouts for the global strategy. No production artifact is modified.
 
-Validation design
------------------
-* +6h forward targets only.
-* Temporal evaluation: train/calibration use 2024; final test is 2025.
-* The 2024 data is split chronologically into 80% model-training and 20%
-  calibration. Residual corrections are therefore never fitted on 2025.
-* All six known coasts receive an expert model, matching the current operational
-  geography. A separate leave-one-coast-out benchmark is retained for the global
-  strategy to expose geographic generalization risk.
-* Ten degradation scenarios are evaluated on the same 2025 test rows.
-* Risk classes are derived from the predicted continuous future sea state using
-  the same proxy policy as the existing regression refinements.
-
-This file is intended to be run from the repository root or from ml/src.
-Google Colab T4/L4 is recommended; CPU remains supported.
+Run from the repository root (or ml/src). Colab T4/L4 is recommended.
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -41,42 +29,24 @@ from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, m
 
 HERE = Path(__file__).resolve()
 ML_ROOT = HERE.parents[1]
-PROJECT_ROOT = HERE.parents[2]
 if str(HERE.parent) not in sys.path:
     sys.path.insert(0, str(HERE.parent))
 
 from config import FEATURE_COLUMNS, PROCESSED_DIR, RISK_HORIZON_HOURS
 
 RANDOM_STATE = 42
-TARGET_COLUMNS = [
-    "wind_speed_kts",
-    "wind_gust_kts",
-    "wave_height_m",
-    "swell_height_m",
-    "wave_period_s",
-]
 LOCATION_COLUMN = "location_id"
 TIMESTAMP_COLUMN = "timestamp"
-OUTPUT_DIR = ML_ROOT / "models" / "refinement33"
-
-SCENARIOS = [
-    "clean",
-    "random_missing_10",
-    "random_missing_25",
-    "random_missing_40",
-    "wind_outage",
-    "sea_state_outage",
-    "atmospheric_outage",
-    "stale_wind",
-    "stale_sea_state",
-    "mixed_degradation",
+TARGET_COLUMNS = [
+    "wind_speed_kts", "wind_gust_kts", "wave_height_m", "swell_height_m", "wave_period_s",
 ]
-
-# These are point-in-time inputs and are also the features used by the current
-# regression refinements. Latitude/longitude are already part of FEATURE_COLUMNS
-# in the current ORCA-X dataset.
-BASE_FEATURES = [c for c in FEATURE_COLUMNS if c not in {"month", "season"}]
-FEATURES = [c for c in FEATURE_COLUMNS if c in BASE_FEATURES or c in {"month", "season"}]
+OUTPUT_DIR = ML_ROOT / "models" / "refinement33"
+SCENARIOS = [
+    "clean", "random_missing_10", "random_missing_25", "random_missing_40",
+    "wind_outage", "sea_state_outage", "atmospheric_outage",
+    "stale_wind", "stale_sea_state", "mixed_degradation",
+]
+FEATURES = list(FEATURE_COLUMNS)
 
 
 def device_name() -> str:
@@ -92,17 +62,17 @@ def n_jobs() -> int:
     return int(os.getenv("ORCA_X_N_JOBS", "2"))
 
 
-def model_params(seed: int = RANDOM_STATE) -> dict:
+def make_model(seed: int) -> xgb.XGBRegressor:
     params = dict(
         objective="reg:squarederror",
         n_estimators=int(os.getenv("ORCA_X_R33_ESTIMATORS", "450")),
         max_depth=int(os.getenv("ORCA_X_R33_MAX_DEPTH", "5")),
         learning_rate=float(os.getenv("ORCA_X_R33_LEARNING_RATE", "0.04")),
         min_child_weight=int(os.getenv("ORCA_X_R33_MIN_CHILD_WEIGHT", "6")),
-        subsample=0.9,
-        colsample_bytree=0.9,
-        reg_alpha=0.1,
-        reg_lambda=2.5,
+        subsample=0.90,
+        colsample_bytree=0.90,
+        reg_alpha=0.10,
+        reg_lambda=2.50,
         gamma=0.03,
         tree_method="hist",
         random_state=seed,
@@ -110,15 +80,10 @@ def model_params(seed: int = RANDOM_STATE) -> dict:
     )
     if device_name() == "cuda":
         params["device"] = "cuda"
-    return params
-
-
-def make_model(seed: int = RANDOM_STATE) -> xgb.XGBRegressor:
-    return xgb.XGBRegressor(**model_params(seed))
+    return xgb.XGBRegressor(**params)
 
 
 def risk_class(values: np.ndarray) -> np.ndarray:
-    """Apply the existing ORCA-X continuous-risk proxy to predictions."""
     y = np.asarray(values, dtype=float)
     w, g, wh, sh, _ = y.T
     score = np.maximum.reduce([w / 25.0, g / 35.0, wh / 3.0, sh / 2.0])
@@ -137,142 +102,123 @@ def load_pairs() -> pd.DataFrame:
     df[TIMESTAMP_COLUMN] = pd.to_datetime(df[TIMESTAMP_COLUMN], utc=True, errors="coerce")
     for c in FEATURES + TARGET_COLUMNS:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    df = df.dropna(subset=[LOCATION_COLUMN, TIMESTAMP_COLUMN, *TARGET_COLUMNS]).copy()
-    df = df.sort_values([LOCATION_COLUMN, TIMESTAMP_COLUMN]).reset_index(drop=True)
+    df = df.dropna(subset=[LOCATION_COLUMN, TIMESTAMP_COLUMN]).sort_values([LOCATION_COLUMN, TIMESTAMP_COLUMN]).reset_index(drop=True)
     if df.duplicated([LOCATION_COLUMN, TIMESTAMP_COLUMN]).any():
         raise ValueError("Duplicate location/timestamp rows detected.")
 
-    # Build the exact +6h target from future observations, not from the stored
-    # contemporaneous risk label. This mirrors the forward-target discipline used
-    # elsewhere in the refinement suite.
+    # Build the +6h target from the observation six hours in the future.
+    # The contemporaneous stored risk label is never used.
     future = df[[LOCATION_COLUMN, TIMESTAMP_COLUMN, *TARGET_COLUMNS]].copy()
-    future_ts = future[TIMESTAMP_COLUMN] - pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
-    future = future.assign(prediction_timestamp=future_ts)
-    target = future[[LOCATION_COLUMN, "prediction_timestamp", *TARGET_COLUMNS]].rename(
-        columns={"prediction_timestamp": TIMESTAMP_COLUMN,
-                 **{c: f"target_{c}" for c in TARGET_COLUMNS}}
-    )
-    out = df.merge(target, on=[LOCATION_COLUMN, TIMESTAMP_COLUMN], how="left")
-    out = out.dropna(subset=[f"target_{c}" for c in TARGET_COLUMNS]).copy()
+    future[TIMESTAMP_COLUMN] = future[TIMESTAMP_COLUMN] - pd.Timedelta(hours=int(RISK_HORIZON_HOURS))
+    future = future.rename(columns={c: f"target_{c}" for c in TARGET_COLUMNS})
+    out = df.merge(future, on=[LOCATION_COLUMN, TIMESTAMP_COLUMN], how="inner")
+    out = out.dropna(subset=[f"target_{c}" for c in TARGET_COLUMNS]).reset_index(drop=True)
     if out.empty:
-        raise ValueError("No complete +6h pairs remain.")
+        raise ValueError("No complete +6h pairs remain. Check dataset timestamp spacing.")
     return out
 
 
 def chronological_splits(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Return 2024 train, late-2024 calibration, and 2025 test."""
     work = df.sort_values(TIMESTAMP_COLUMN).copy()
-    train2024 = work[work[TIMESTAMP_COLUMN].dt.year == 2024].copy()
-    test2025 = work[work[TIMESTAMP_COLUMN].dt.year == 2025].copy()
+    train2024 = work[work[TIMESTAMP_COLUMN].dt.year == 2024].reset_index(drop=True)
+    test2025 = work[work[TIMESTAMP_COLUMN].dt.year == 2025].reset_index(drop=True)
     if train2024.empty or test2025.empty:
         raise ValueError("Temporal benchmark requires both 2024 and 2025 data.")
-    cutoff = train2024[TIMESTAMP_COLUMN].sort_values().iloc[int(len(train2024) * 0.80)]
-    fit = train2024[train2024[TIMESTAMP_COLUMN] < cutoff].copy()
-    calibration = train2024[train2024[TIMESTAMP_COLUMN] >= cutoff].copy()
+    cut = int(len(train2024) * 0.80)
+    fit = train2024.iloc[:cut].reset_index(drop=True)
+    calibration = train2024.iloc[cut:].reset_index(drop=True)
     return fit, calibration, test2025
 
 
+def feature_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame[FEATURES].copy().apply(pd.to_numeric, errors="coerce")
+
+
 def fit_multioutput(frame: pd.DataFrame, seed_offset: int = 0) -> list[xgb.XGBRegressor]:
-    models: list[xgb.XGBRegressor] = []
-    X = frame[FEATURES]
-    for idx, target in enumerate(TARGET_COLUMNS):
-        model = make_model(RANDOM_STATE + seed_offset + idx)
-        model.fit(X, frame[f"target_{target}"], verbose=False)
+    X = feature_frame(frame)
+    models = []
+    for j, target in enumerate(TARGET_COLUMNS):
+        model = make_model(RANDOM_STATE + seed_offset + j)
+        model.fit(X, frame[f"target_{target}"].to_numpy(float), verbose=False)
         models.append(model)
     return models
 
 
 def predict_multioutput(models: list[xgb.XGBRegressor], frame: pd.DataFrame) -> np.ndarray:
-    X = frame[FEATURES]
+    X = feature_frame(frame)
     return np.column_stack([m.predict(X) for m in models])
 
 
-def make_degraded(frame: pd.DataFrame, scenario: str) -> pd.DataFrame:
+def degrade(frame: pd.DataFrame, scenario: str, seed: int) -> pd.DataFrame:
     out = frame.copy()
     if scenario == "clean":
         return out
-    rng = np.random.default_rng(2026 + SCENARIOS.index(scenario))
-    groups = {
-        "wind": ["wind_speed_kts", "wind_gust_kts", "wind_direction_deg"],
-        "sea": ["wave_height_m", "wave_period_s", "wave_direction_deg", "swell_height_m", "swell_period_s", "swell_direction_deg"],
-        "atmospheric": ["air_pressure_hpa", "air_temperature_c", "precipitation_mm"],
-    }
+    rng = np.random.default_rng(seed)
+    wind = ["wind_speed_kts", "wind_gust_kts", "wind_direction_deg"]
+    sea = ["wave_height_m", "wave_period_s", "wave_direction_deg", "swell_height_m", "swell_period_s", "swell_direction_deg"]
+    atm = ["air_pressure_hpa", "air_temperature_c", "precipitation_mm"]
     if scenario.startswith("random_missing_"):
-        pct = int(scenario.rsplit("_", 1)[-1]) / 100.0
+        rate = int(scenario.rsplit("_", 1)[1]) / 100.0
         for col in FEATURES:
-            mask = rng.random(len(out)) < pct
-            out.loc[mask, col] = np.nan
+            out.loc[rng.random(len(out)) < rate, col] = np.nan
     elif scenario == "wind_outage":
-        out[groups["wind"]] = np.nan
+        out[wind] = np.nan
     elif scenario == "sea_state_outage":
-        out[groups["sea"]] = np.nan
+        out[sea] = np.nan
     elif scenario == "atmospheric_outage":
-        out[groups["atmospheric"]] = np.nan
+        out[atm] = np.nan
     elif scenario == "stale_wind":
-        # Approximate stale live data using the immediately preceding row within
-        # each coast. No future information is introduced.
-        out[groups["wind"]] = out.groupby(LOCATION_COLUMN)[groups["wind"]].shift(1).to_numpy()
+        out[wind] = out.groupby(LOCATION_COLUMN)[wind].shift(1)
     elif scenario == "stale_sea_state":
-        out[groups["sea"]] = out.groupby(LOCATION_COLUMN)[groups["sea"]].shift(1).to_numpy()
+        out[sea] = out.groupby(LOCATION_COLUMN)[sea].shift(1)
     elif scenario == "mixed_degradation":
-        for col in groups["wind"]:
+        for col in wind:
             out.loc[rng.random(len(out)) < 0.25, col] = np.nan
-        for col in groups["sea"]:
+        for col in sea:
             out.loc[rng.random(len(out)) < 0.25, col] = np.nan
-        for col in groups["atmospheric"]:
+        for col in atm:
             out.loc[rng.random(len(out)) < 0.15, col] = np.nan
     else:
         raise ValueError(f"Unknown scenario: {scenario}")
     return out
 
 
-def critical_recall(y_true: np.ndarray, pred: np.ndarray) -> float:
-    mask = y_true >= 2
-    return float(np.mean(pred[mask] >= 2)) if mask.any() else 0.0
-
-
-def false_escalation(y_true: np.ndarray, pred: np.ndarray) -> float:
-    # Safety-oriented over-escalation: predicted severity is above the true class.
-    return float(np.mean(pred > y_true))
-
-
-def risk_metrics(y_true: np.ndarray, predicted_continuous: np.ndarray) -> dict:
-    pred = risk_class(predicted_continuous)
+def regression_metrics(actual: np.ndarray, pred: np.ndarray) -> dict:
     return {
-        "accuracy": float(accuracy_score(y_true, pred)),
-        "balanced_accuracy": float(balanced_accuracy_score(y_true, pred)),
-        "macro_f1": float(f1_score(y_true, pred, average="macro", zero_division=0)),
-        "critical_recall": critical_recall(y_true, pred),
-        "miss_rate": float(np.mean((y_true >= 2) & (pred < 2))),
-        "false_escalation_rate": false_escalation(y_true, pred),
-        "mean_mae": float(mean_absolute_error(y_true, pred)),
-        "rows": int(len(y_true)),
+        "mean_mae": float(mean_absolute_error(actual, pred)),
+        "mean_r2": float(r2_score(actual, pred, multioutput="uniform_average")),
+        **{f"{t}_mae": float(mean_absolute_error(actual[:, i], pred[:, i])) for i, t in enumerate(TARGET_COLUMNS)},
+        **{f"{t}_r2": float(r2_score(actual[:, i], pred[:, i])) for i, t in enumerate(TARGET_COLUMNS)},
     }
 
 
-def regression_metrics(y_true: np.ndarray, pred: np.ndarray) -> dict:
-    result = {
-        "mean_mae": float(mean_absolute_error(y_true, pred)),
-        "mean_r2": float(np.mean([r2_score(y_true[:, i], pred[:, i]) for i in range(y_true.shape[1])])),
+def metric_row(strategy: str, scope: str, location: str, scenario: str, actual: np.ndarray, pred: np.ndarray) -> dict:
+    y = risk_class(actual)
+    p = risk_class(pred)
+    critical = y >= 2
+    over = p > y
+    row = {
+        "strategy": strategy, "scope": scope, "location": location, "scenario": scenario,
+        "accuracy": float(accuracy_score(y, p)),
+        "balanced_accuracy": float(balanced_accuracy_score(y, p)),
+        "macro_f1": float(f1_score(y, p, average="macro", zero_division=0)),
+        "critical_recall": float((p[critical] >= 2).mean()) if critical.any() else 0.0,
+        "critical_miss_rate": float((critical & (p < 2)).mean()),
+        "false_escalation_rate": float(over.mean()),
+        "rows": int(len(y)),
     }
-    for i, target in enumerate(TARGET_COLUMNS):
-        result[f"{target}_mae"] = float(mean_absolute_error(y_true[:, i], pred[:, i]))
-        result[f"{target}_r2"] = float(r2_score(y_true[:, i], pred[:, i]))
-    return result
+    row.update(regression_metrics(actual, pred))
+    return row
 
 
-def target_array(frame: pd.DataFrame) -> np.ndarray:
-    return frame[[f"target_{c}" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
-
-
-def fit_location_experts(fit: pd.DataFrame) -> dict[str, list[xgb.XGBRegressor]]:
-    experts: dict[str, list[xgb.XGBRegressor]] = {}
-    for idx, location in enumerate(sorted(fit[LOCATION_COLUMN].unique())):
-        local = fit[fit[LOCATION_COLUMN] == location]
+def fit_experts(fit: pd.DataFrame) -> dict[str, list[xgb.XGBRegressor]]:
+    experts = {}
+    for i, location in enumerate(sorted(fit[LOCATION_COLUMN].astype(str).unique())):
+        local = fit[fit[LOCATION_COLUMN].astype(str) == location].reset_index(drop=True)
         if len(local) < 500:
-            raise ValueError(f"Not enough training rows for expert {location}: {len(local)}")
+            raise ValueError(f"Not enough rows for expert {location}: {len(local)}")
         print(f"      expert {location}: rows={len(local):,}")
-        experts[location] = fit_multioutput(local, seed_offset=100 * (idx + 1))
+        experts[location] = fit_multioutput(local, 1000 * (i + 1))
     return experts
 
 
@@ -280,188 +226,180 @@ def predict_experts(experts: dict[str, list[xgb.XGBRegressor]], frame: pd.DataFr
     pred = np.full((len(frame), len(TARGET_COLUMNS)), np.nan, dtype=float)
     known = np.zeros(len(frame), dtype=bool)
     for location, group in frame.groupby(LOCATION_COLUMN, sort=True):
-        if location not in experts:
+        key = str(location)
+        if key not in experts:
             continue
-        idx = group.index.to_numpy()
-        pred[idx] = predict_multioutput(experts[location], group)
-        known[idx] = True
+        pos = group.index.to_numpy()
+        pred[pos] = predict_multioutput(experts[key], group)
+        known[pos] = True
     return pred, known
 
 
-def fit_residual_corrector(global_models: list[xgb.XGBRegressor], calibration: pd.DataFrame) -> dict[str, np.ndarray]:
+def residual_corrections(global_models: list[xgb.XGBRegressor], calibration: pd.DataFrame) -> dict[str, np.ndarray]:
     base = predict_multioutput(global_models, calibration)
-    actual = target_array(calibration)
-    residuals = actual - base
-    corrections: dict[str, np.ndarray] = {}
+    residual = target_values(calibration) - base
+    result = {}
     for location, idx in calibration.groupby(LOCATION_COLUMN).groups.items():
-        # Robust median residual is intentionally simple and stable. It is learned
-        # from earlier data only, then frozen for the entire 2025 test period.
-        corrections[location] = np.nanmedian(residuals[np.asarray(list(idx))], axis=0)
-    return corrections
+        positions = np.asarray(list(idx), dtype=int)
+        result[str(location)] = np.nanmedian(residual[positions], axis=0)
+    return result
 
 
-def apply_residual(base_pred: np.ndarray, locations: pd.Series, corrections: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    out = base_pred.copy()
-    known = np.zeros(len(locations), dtype=bool)
-    for i, location in enumerate(locations.to_numpy()):
+def target_values(frame: pd.DataFrame) -> np.ndarray:
+    return frame[[f"target_{c}" for c in TARGET_COLUMNS]].to_numpy(dtype=float)
+
+
+def apply_residual(pred: np.ndarray, locations: pd.Series, corrections: dict[str, np.ndarray]) -> np.ndarray:
+    out = pred.copy()
+    for i, location in enumerate(locations.astype(str).to_numpy()):
         if location in corrections:
             out[i] += corrections[location]
-            known[i] = True
-    return out, known
+    return out
 
 
-def evaluate_predictions(name: str, strategy: str, frame: pd.DataFrame, pred: np.ndarray, known: np.ndarray, scenario: str) -> dict:
-    valid = known & np.isfinite(pred).all(axis=1)
-    if not valid.any():
-        return {"strategy": strategy, "scope": name, "scenario": scenario, "coverage": 0.0, "rows": 0}
-    actual = target_array(frame)[valid]
-    pred_valid = pred[valid]
-    y_true_risk = risk_class(actual)
-    row = {"strategy": strategy, "scope": name, "scenario": scenario, "coverage": float(valid.mean()), "rows": int(valid.sum())}
-    row.update({f"risk_{k}": v for k, v in risk_metrics(y_true_risk, pred_valid).items() if k != "rows"})
-    row.update({f"reg_{k}": v for k, v in regression_metrics(actual, pred_valid).items()})
-    return row
+def run_temporal(fit: pd.DataFrame, calibration: pd.DataFrame, test: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    print("\n[1/3] Training global model...")
+    global_models = fit_multioutput(fit, 0)
+    print("[2/3] Training one expert per known coast...")
+    experts = fit_experts(fit)
+    print("[3/3] Learning frozen per-coast residual corrections from late 2024...")
+    corrections = residual_corrections(global_models, calibration)
 
-
-def spatial_global_holdout(df: pd.DataFrame) -> list[dict]:
-    """Evaluate global generalization by holding each coast out entirely."""
-    rows: list[dict] = []
-    locations = sorted(df[LOCATION_COLUMN].unique())
-    for idx, location in enumerate(locations):
-        train = df[df[LOCATION_COLUMN] != location]
-        test = df[df[LOCATION_COLUMN] == location]
-        print(f"  spatial holdout {location}: train={len(train):,} test={len(test):,}")
-        models = fit_multioutput(train, seed_offset=5000 + idx * 10)
-        pred = predict_multioutput(models, test)
-        known = np.ones(len(test), dtype=bool)
-        rows.append(evaluate_predictions(location, "global_spatial_holdout", test, pred, known, "clean"))
-    return rows
-
-
-def benchmark() -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    df = load_pairs()
-    fit, calibration, test = chronological_splits(df)
-    print(f"Source rows={len(df):,} | complete +6h pairs={len(df):,} | locations={df[LOCATION_COLUMN].nunique()}")
-    print(f"2024 model-fit={len(fit):,} | 2024 calibration={len(calibration):,} | 2025 test={len(test):,}")
-    print(f"Locations={sorted(df[LOCATION_COLUMN].unique().tolist())}")
-    print(f"Features={len(FEATURES)} | targets={len(TARGET_COLUMNS)} | scenarios={len(SCENARIOS)}")
-    print(f"XGBoost device={device_name()} n_jobs={n_jobs()} version={xgb.__version__}")
-
-    print("\n[1/4] Training global model...")
-    global_models = fit_multioutput(fit)
-    global_clean = predict_multioutput(global_models, test)
-
-    print("[2/4] Training one coastal expert per known location...")
-    experts = fit_location_experts(fit)
-    expert_clean, expert_known = predict_experts(experts, test)
-
-    print("[3/4] Learning frozen per-coast residual corrections from late 2024...")
-    corrections = fit_residual_corrector(global_models, calibration)
-    residual_clean, residual_known = apply_residual(global_clean, test[LOCATION_COLUMN], corrections)
-    print("      corrections:")
-    for location in sorted(corrections):
-        print(f"        {location}: " + ", ".join(f"{t}={v:.4f}" for t, v in zip(TARGET_COLUMNS, corrections[location])))
-
-    print("[4/4] Evaluating ten degradation scenarios on 2025...")
-    rows: list[dict] = []
-    for scenario in SCENARIOS:
-        scenario_frame = make_degraded(test, scenario)
-        if scenario == "clean":
-            pred_global = global_clean
-            pred_expert = expert_clean
-            pred_residual = residual_clean
-        else:
-            pred_global = predict_multioutput(global_models, scenario_frame)
-            pred_expert, _ = predict_experts(experts, scenario_frame)
-            base = pred_global
-            pred_residual, _ = apply_residual(base, scenario_frame[LOCATION_COLUMN], corrections)
-        rows.append(evaluate_predictions("temporal_2025", "global", scenario_frame, pred_global, np.ones(len(test), dtype=bool), scenario))
-        rows.append(evaluate_predictions("temporal_2025", "expert", scenario_frame, pred_expert, expert_known, scenario))
-        rows.append(evaluate_predictions("temporal_2025", "global_residual", scenario_frame, pred_residual, residual_known, scenario))
-
-    print("\nSpatial holdout benchmark for global strategy (clean only)...")
-    spatial_rows = spatial_global_holdout(df)
-
-    result_df = pd.DataFrame(rows)
-    spatial_df = pd.DataFrame(spatial_rows)
-    return result_df, spatial_df, {
-        "fit_rows_2024": len(fit),
-        "calibration_rows_2024": len(calibration),
-        "test_rows_2025": len(test),
-        "locations": sorted(df[LOCATION_COLUMN].unique().tolist()),
-        "features": FEATURES,
-        "targets": TARGET_COLUMNS,
-        "scenarios": SCENARIOS,
-        "device": device_name(),
-        "n_jobs": n_jobs(),
-    }
-
-
-def summarize(results: pd.DataFrame) -> pd.DataFrame:
-    clean = results[results.scenario == "clean"].copy()
-    stress = results[results.scenario != "clean"].copy()
     rows = []
-    for strategy in sorted(results.strategy.unique()):
-        c = clean[clean.strategy == strategy]
-        s = stress[stress.strategy == strategy]
-        if c.empty or s.empty:
+    actual = target_values(test)
+    for si, scenario in enumerate(SCENARIOS):
+        frame = degrade(test, scenario, 42000 + si)
+        global_pred = predict_multioutput(global_models, frame)
+        expert_pred, expert_known = predict_experts(experts, frame)
+        residual_pred = apply_residual(global_pred, frame[LOCATION_COLUMN], corrections)
+        rows.append(metric_row("global", "temporal_2025", "ALL", scenario, actual, global_pred))
+        if expert_known.all():
+            rows.append(metric_row("expert", "temporal_2025", "ALL", scenario, actual, expert_pred))
+        rows.append(metric_row("global_residual", "temporal_2025", "ALL", scenario, actual, residual_pred))
+
+    # Per-location clean comparison is especially important for expert routing.
+    for location in sorted(test[LOCATION_COLUMN].astype(str).unique()):
+        mask = test[LOCATION_COLUMN].astype(str).to_numpy() == location
+        frame = test.loc[mask].copy().reset_index(drop=True)
+        loc_actual = target_values(frame)
+        g = predict_multioutput(global_models, frame)
+        e, _ = predict_experts(experts, frame)
+        r = apply_residual(g, frame[LOCATION_COLUMN], corrections)
+        rows.extend([
+            metric_row("global", "temporal_2025_by_location", location, "clean", loc_actual, g),
+            metric_row("expert", "temporal_2025_by_location", location, "clean", loc_actual, e),
+            metric_row("global_residual", "temporal_2025_by_location", location, "clean", loc_actual, r),
+        ])
+    return pd.DataFrame(rows), pd.DataFrame([{"location": k, **{TARGET_COLUMNS[i]: float(v[i]) for i in range(len(TARGET_COLUMNS))}} for k, v in corrections.items()])
+
+
+def run_spatial(df: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    locations = sorted(df[LOCATION_COLUMN].astype(str).unique())
+    print("\nSpatial global holdouts (clean):")
+    for i, holdout in enumerate(locations):
+        train = df[df[LOCATION_COLUMN].astype(str) != holdout].reset_index(drop=True)
+        test = df[df[LOCATION_COLUMN].astype(str) == holdout].reset_index(drop=True)
+        print(f"  [{i + 1}/{len(locations)}] holdout={holdout} train={len(train):,} test={len(test):,}")
+        models = fit_multioutput(train, 5000 + i * 100)
+        pred = predict_multioutput(models, test)
+        rows.append(metric_row("global_spatial_holdout", "spatial_6_coast", holdout, "clean", target_values(test), pred))
+    return pd.DataFrame(rows)
+
+
+def summarize_temporal(results: pd.DataFrame) -> pd.DataFrame:
+    stress = results[(results.scope == "temporal_2025") & (results.scenario != "clean")]
+    clean = results[(results.scope == "temporal_2025") & (results.scenario == "clean")]
+    rows = []
+    for strategy in ["global", "expert", "global_residual"]:
+        s, c = stress[stress.strategy == strategy], clean[clean.strategy == strategy]
+        if s.empty or c.empty:
             continue
-        # Score is deliberately conservative: safety recall matters most, but
-        # high false escalation and poor regression error are penalized.
         score = (
-            0.40 * float(s.risk_critical_recall.mean())
-            + 0.25 * float(c.risk_accuracy.mean())
-            + 0.15 * float(c.risk_balanced_accuracy.mean())
-            + 0.10 * float(s.reg_mean_r2.mean())
-            - 0.10 * float(s.risk_false_escalation_rate.mean())
+            0.45 * s.critical_recall.mean()
+            + 0.25 * c.accuracy.mean()
+            + 0.15 * s.balanced_accuracy.mean()
+            + 0.10 * s.mean_r2.mean()
+            - 0.05 * s.false_escalation_rate.mean()
         )
         rows.append({
             "strategy": strategy,
-            "clean_accuracy": float(c.risk_accuracy.mean()),
-            "clean_critical_recall": float(c.risk_critical_recall.mean()),
-            "clean_mean_mae": float(c.reg_mean_mae.mean()),
-            "stress_accuracy": float(s.risk_accuracy.mean()),
-            "stress_balanced_accuracy": float(s.risk_balanced_accuracy.mean()),
-            "stress_macro_f1": float(s.risk_macro_f1.mean()),
-            "stress_critical_recall": float(s.risk_critical_recall.mean()),
-            "stress_miss_rate": float(s.risk_miss_rate.mean()),
-            "stress_false_escalation_rate": float(s.risk_false_escalation_rate.mean()),
-            "stress_mean_mae": float(s.reg_mean_mae.mean()),
-            "stress_mean_r2": float(s.reg_mean_r2.mean()),
-            "stress_wind_mae": float(s.reg_wind_speed_kts_mae.mean()),
-            "stress_gust_mae": float(s.reg_wind_gust_kts_mae.mean()),
-            "benchmark_score": score,
+            "clean_accuracy": float(c.accuracy.mean()),
+            "clean_critical_recall": float(c.critical_recall.mean()),
+            "clean_mean_mae": float(c.mean_mae.mean()),
+            "stress_accuracy": float(s.accuracy.mean()),
+            "stress_balanced_accuracy": float(s.balanced_accuracy.mean()),
+            "stress_macro_f1": float(s.macro_f1.mean()),
+            "stress_critical_recall": float(s.critical_recall.mean()),
+            "stress_critical_miss_rate": float(s.critical_miss_rate.mean()),
+            "stress_false_escalation_rate": float(s.false_escalation_rate.mean()),
+            "stress_mean_mae": float(s.mean_mae.mean()),
+            "stress_mean_r2": float(s.mean_r2.mean()),
+            "stress_wind_mae": float(s.wind_speed_kts_mae.mean()),
+            "stress_gust_mae": float(s.wind_gust_kts_mae.mean()),
+            "benchmark_score": float(score),
         })
     return pd.DataFrame(rows).sort_values("benchmark_score", ascending=False).reset_index(drop=True)
 
 
 def main() -> None:
-    print("=" * 94)
+    started = time.perf_counter()
+    print("=" * 92)
     print("ORCA-X REFINEMENT 33 — COASTAL REGIME / EXPERT MODEL OPTIMIZATION")
-    print("=" * 94)
+    print("=" * 92)
     print("Read-only benchmark: production artifacts, risk policy and thresholds untouched")
-    print("Strategies: global | expert-per-coast | global + frozen per-coast residual correction")
-    print("Temporal design: early-2024 fit -> late-2024 calibration -> 2025 test")
+    print(f"XGBoost device={device_name()} n_jobs={n_jobs()} version={xgb.__version__}")
 
-    results, spatial, meta = benchmark()
-    summary = summarize(results)
+    df = load_pairs()
+    fit, calibration, test = chronological_splits(df)
+    print(f"Source rows={len(df):,} | complete +6h pairs={len(df):,} | locations={df[LOCATION_COLUMN].nunique()}")
+    print(f"2024 fit={len(fit):,} | 2024 calibration={len(calibration):,} | 2025 test={len(test):,}")
+    print(f"Locations={sorted(df[LOCATION_COLUMN].astype(str).unique().tolist())}")
+    print(f"Features={len(FEATURES)} | targets={len(TARGET_COLUMNS)} | scenarios={len(SCENARIOS)}")
+
+    temporal, corrections = run_temporal(fit, calibration, test)
+    spatial = run_spatial(df)
+    summary = summarize_temporal(temporal)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    results.to_csv(OUTPUT_DIR / "temporal_scenario_results.csv", index=False)
-    spatial.to_csv(OUTPUT_DIR / "spatial_global_holdout_results.csv", index=False)
+    temporal.to_csv(OUTPUT_DIR / "temporal_2025_scenarios_and_location_results.csv", index=False)
+    spatial.to_csv(OUTPUT_DIR / "spatial_global_holdouts.csv", index=False)
+    corrections.to_csv(OUTPUT_DIR / "coastal_residual_corrections.csv", index=False)
     summary.to_csv(OUTPUT_DIR / "strategy_summary.csv", index=False)
-    (OUTPUT_DIR / "benchmark_metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    metadata = {
+        "strategies": ["global", "expert", "global_residual"],
+        "features": FEATURES,
+        "targets": TARGET_COLUMNS,
+        "scenarios": SCENARIOS,
+        "source_rows": int(len(df)),
+        "complete_pairs": int(len(df)),
+        "fit_2024_rows": int(len(fit)),
+        "calibration_2024_rows": int(len(calibration)),
+        "test_2025_rows": int(len(test)),
+        "locations": sorted(df[LOCATION_COLUMN].astype(str).unique().tolist()),
+        "prediction_horizon_hours": int(RISK_HORIZON_HOURS),
+        "device": device_name(),
+        "n_jobs": n_jobs(),
+        "production_modified": False,
+        "selection_rule": "safety recall first, with clean accuracy, balanced accuracy, regression quality and false-escalation penalty",
+        "runtime_seconds": time.perf_counter() - started,
+    }
+    (OUTPUT_DIR / "benchmark_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
-    print("\n" + "=" * 94)
+    print("\n" + "=" * 92)
     print("REFINEMENT 33 COMPLETE")
-    print("=" * 94)
-    print(summary.to_string(index=False))
-    print("\nSpatial global holdout summary:")
-    print(spatial[["scope", "strategy", "risk_accuracy", "risk_critical_recall", "reg_mean_mae", "reg_wind_speed_kts_mae", "reg_wind_gust_kts_mae"]].to_string(index=False))
+    print("=" * 92)
+    print(summary.to_string(index=False, float_format=lambda x: f"{x:.6f}"))
+    print("\nPer-location temporal clean results:")
+    loc = temporal[temporal.scope == "temporal_2025_by_location"]
+    print(loc[["strategy", "location", "accuracy", "critical_recall", "mean_mae", "wind_speed_kts_mae", "wind_gust_kts_mae"]].to_string(index=False, float_format=lambda x: f"{x:.6f}"))
+    print("\nSpatial global holdout results:")
+    print(spatial[["location", "accuracy", "critical_recall", "mean_mae", "wind_speed_kts_mae", "wind_gust_kts_mae"]].to_string(index=False, float_format=lambda x: f"{x:.6f}"))
     winner = summary.iloc[0]["strategy"] if not summary.empty else "none"
     print(f"\nBenchmark winner: {winner}")
     print("Winner is a benchmark candidate only; production model/risk policy was NOT changed.")
     print(f"Artifacts: {OUTPUT_DIR}")
+    print(f"Elapsed: {(time.perf_counter() - started) / 60:.2f} minutes")
 
 
 if __name__ == "__main__":
