@@ -32,23 +32,10 @@ interface HourlyMarineResponse {
   sea_level_height_msl?: Array<number | null>;
 }
 
-interface WeatherForecastResponse {
-  timezone?: string;
-  utc_offset_seconds?: number;
-  hourly?: HourlyWeatherResponse;
-}
+interface WeatherForecastResponse { timezone?: string; hourly?: HourlyWeatherResponse; }
+interface MarineForecastResponse { timezone?: string; hourly?: HourlyMarineResponse; }
 
-interface MarineForecastResponse {
-  timezone?: string;
-  utc_offset_seconds?: number;
-  hourly?: HourlyMarineResponse;
-}
-
-export interface OpenMeteoForecastPoint {
-  forecastAt: string;
-  weather: WeatherData;
-  ocean: OceanData;
-}
+export interface OpenMeteoForecastPoint { forecastAt: string; weather: WeatherData; ocean: OceanData; }
 
 function compass(degrees: number): string {
   const points = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
@@ -61,20 +48,18 @@ function numberAt(values: Array<number | null> | undefined, index: number, field
   return value;
 }
 
+function optionalNumberAt(values: Array<number | null> | undefined, index: number, fallback: number): number {
+  const value = values?.[index];
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-  if (!response.ok) {
-    throw new Error(`Open-Meteo ${response.status}: ${(await response.text().catch(() => '')).slice(0, 200)}`);
-  }
+  if (!response.ok) throw new Error(`Open-Meteo ${response.status}: ${(await response.text().catch(() => '')).slice(0, 200)}`);
   return response.json() as Promise<T>;
 }
 
-function buildPoint(
-  index: number,
-  weather: HourlyWeatherResponse,
-  marine: HourlyMarineResponse,
-  retrievedAt: string,
-): OpenMeteoForecastPoint {
+function buildPoint(index: number, weather: HourlyWeatherResponse, marine: HourlyMarineResponse, retrievedAt: string): OpenMeteoForecastPoint {
   const forecastAt = weather.time?.[index] || marine.time?.[index];
   if (!forecastAt) throw new Error('Open-Meteo forecast response did not contain an hourly timestamp.');
 
@@ -96,10 +81,10 @@ function buildPoint(
   else if (waveHeight >= 1.25) { seaStateIndex = 4; seaStateDescription = 'Moderate (Wave 1.25 - 2.5m)'; }
   else if (waveHeight >= 0.5) { seaStateIndex = 3; seaStateDescription = 'Slight (Wave 0.5 - 1.25m)'; }
 
-  const currentVelocityKmh = typeof marine.ocean_current_velocity?.[index] === 'number' ? marine.ocean_current_velocity[index] as number : 0;
-  const currentDirectionDeg = typeof marine.ocean_current_direction?.[index] === 'number' ? marine.ocean_current_direction[index] as number : 0;
-  const seaLevel = typeof marine.sea_level_height_msl?.[index] === 'number' ? marine.sea_level_height_msl[index] as number : 0;
-  const visibilityM = typeof weather.visibility?.[index] === 'number' ? weather.visibility[index] as number : 10000;
+  const currentVelocityKmh = optionalNumberAt(marine.ocean_current_velocity, index, 0);
+  const currentDirectionDeg = optionalNumberAt(marine.ocean_current_direction, index, 0);
+  const seaLevel = optionalNumberAt(marine.sea_level_height_msl, index, 0);
+  const visibilityM = optionalNumberAt(weather.visibility, index, 10000);
 
   const weatherData: WeatherData = {
     airTemperatureC: numberAt(weather.temperature_2m, index, 'air temperature'),
@@ -108,7 +93,7 @@ function buildPoint(
     windDirectionDeg,
     windDirectionCompass: compass(windDirectionDeg),
     precipitationMm: numberAt(weather.precipitation, index, 'precipitation'),
-    cloudCoverPct: typeof weather.cloud_cover?.[index] === 'number' ? weather.cloud_cover[index] as number : 0,
+    cloudCoverPct: optionalNumberAt(weather.cloud_cover, index, 0),
     visibilityKm: Number((visibilityM / 1000).toFixed(1)),
     pressureHpa: numberAt(weather.surface_pressure, index, 'surface pressure'),
     weatherCode: numberAt(weather.weather_code, index, 'weather code'),
@@ -142,27 +127,20 @@ function buildPoint(
     dataQuality: 'LIVE',
   };
 
-  // wave_peak_period is retained by the provider contract for future model versions.
-  // The current legacy production artifact expects mean_wave_period_s and the
-  // inference layer explicitly falls back to wave_period_s when it is absent.
+  // The legacy production artifact expects mean_wave_period_s. The ML inference
+  // layer deliberately derives it from wave_period_s when the input is absent.
   void marine.wave_peak_period;
-
   return { forecastAt, weather: weatherData, ocean: oceanData };
 }
 
 function localDateTomorrow(timezone: string | undefined): string {
   const effectiveTimezone = timezone || 'UTC';
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: effectiveTimezone,
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  });
-  const now = new Date();
-  const parts = formatter.formatToParts(now).reduce<Record<string, string>>((acc, part) => {
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: effectiveTimezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const parts = formatter.formatToParts(new Date()).reduce<Record<string, string>>((acc, part) => {
     if (part.type !== 'literal') acc[part.type] = part.value;
     return acc;
   }, {});
-  const date = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + 1));
-  return date.toISOString().slice(0, 10);
+  return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + 1)).toISOString().slice(0, 10);
 }
 
 export async function fetchOpenMeteoTomorrowForecast(lat: number, lon: number): Promise<{
@@ -172,18 +150,12 @@ export async function fetchOpenMeteoTomorrowForecast(lat: number, lon: number): 
   timezone: string;
 }> {
   const weatherParams = new URLSearchParams({
-    latitude: String(lat),
-    longitude: String(lon),
-    forecast_days: '3',
+    latitude: String(lat), longitude: String(lon), forecast_days: '3',
     hourly: 'temperature_2m,precipitation,weather_code,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility,cloud_cover',
-    wind_speed_unit: 'kn',
-    timezone: 'auto',
+    wind_speed_unit: 'kn', timezone: 'auto',
   });
-
   const marineParams = new URLSearchParams({
-    latitude: String(lat),
-    longitude: String(lon),
-    forecast_days: '3',
+    latitude: String(lat), longitude: String(lon), forecast_days: '3',
     hourly: 'wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_period,sea_surface_temperature,ocean_current_velocity,ocean_current_direction,sea_level_height_msl',
     timezone: 'auto',
   });
@@ -193,7 +165,6 @@ export async function fetchOpenMeteoTomorrowForecast(lat: number, lon: number): 
     fetchJson<WeatherForecastResponse>(`${WEATHER_API_URL}?${weatherParams.toString()}`),
     fetchJson<MarineForecastResponse>(`${MARINE_API_URL}?${marineParams.toString()}`),
   ]);
-
   const weather = weatherResponse.hourly;
   const marine = marineResponse.hourly;
   if (!weather?.time?.length || !marine?.time?.length) throw new Error('Open-Meteo forecast responses did not contain hourly data.');
@@ -201,23 +172,13 @@ export async function fetchOpenMeteoTomorrowForecast(lat: number, lon: number): 
   const forecastDate = localDateTomorrow(weatherResponse.timezone);
   const marineIndex = new Map((marine.time || []).map((time, index) => [time, index]));
   const points: OpenMeteoForecastPoint[] = [];
-
   for (let index = 0; index < weather.time.length; index += 1) {
     const time = weather.time[index];
     if (!time?.startsWith(forecastDate)) continue;
-    const matchingMarineIndex = marineIndex.get(time);
-    if (matchingMarineIndex === undefined) continue;
+    if (marineIndex.get(time) === undefined) continue;
     points.push(buildPoint(index, weather, marine, retrievedAt));
   }
 
-  if (points.length < 12) {
-    throw new Error(`Open-Meteo returned only ${points.length} hourly points for tomorrow; refusing an incomplete forecast window.`);
-  }
-
-  return {
-    points,
-    forecastDate,
-    retrievedAt,
-    timezone: weatherResponse.timezone || marineResponse.timezone || 'UTC',
-  };
+  if (points.length < 12) throw new Error(`Open-Meteo returned only ${points.length} hourly points for tomorrow; refusing an incomplete forecast window.`);
+  return { points, forecastDate, retrievedAt, timezone: weatherResponse.timezone || marineResponse.timezone || 'UTC' };
 }
