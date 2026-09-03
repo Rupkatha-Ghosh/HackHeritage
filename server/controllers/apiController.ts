@@ -5,8 +5,26 @@ import { fetchSatelliteData } from '../../src/services/satellite/satelliteServic
 import { COASTAL_LOCATIONS } from '../../src/data/coastalData.ts';
 import { LanguageCode, SatelliteData } from '../../src/types.ts';
 import { fetchMarineAndWeatherData } from '../services/marineService.ts';
+import { buildTomorrowMarineRiskForecast } from '../services/realtime/marineForecastService.ts';
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
+
+function resolveLocationFromRequest(req: Request) {
+  const locationKey = typeof req.query.locationKey === 'string' ? req.query.locationKey : undefined;
+  if (locationKey && COASTAL_LOCATIONS[locationKey]) return COASTAL_LOCATIONS[locationKey];
+
+  const lat = Number(req.query.lat ?? 21.6266);
+  const lon = Number(req.query.lon ?? 87.5074);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
+  return {
+    name: 'Custom Coastal Point',
+    country: 'India',
+    latitude: lat,
+    longitude: lon,
+    regionType: 'open_sea' as const,
+  };
+}
 
 export async function orcaQuery(req: Request, res: Response) {
   try {
@@ -30,6 +48,17 @@ export async function marineConditions(req: Request, res: Response) {
     res.json(await fetchMarineAndWeatherData(lat, lon));
   } catch (error) {
     res.status(502).json({ error: error instanceof Error ? error.message : 'Live marine/weather fetch failed.' });
+  }
+}
+
+export async function marineForecast(req: Request, res: Response) {
+  try {
+    const location = resolveLocationFromRequest(req);
+    if (!location) return res.status(400).json({ error: 'Valid latitude and longitude, or a supported locationKey, are required.' });
+    res.json(await buildTomorrowMarineRiskForecast(location));
+  } catch (error) {
+    console.error('Marine forecast error:', error);
+    res.status(502).json({ error: error instanceof Error ? error.message : 'Tomorrow marine forecast pipeline failed.' });
   }
 }
 
@@ -91,6 +120,8 @@ export function health(_req: Request, res: Response) {
     services: {
       liveWeather: 'open_meteo_current_conditions',
       liveMarine: 'open_meteo_marine_current_conditions',
+      forecastWeather: 'open_meteo_hourly_forecast',
+      forecastMarine: 'open_meteo_hourly_marine_forecast',
       satelliteCatalog: 'copernicus_dataspace_stac',
       satelliteProcessing: 'metadata_only',
       riskEngine: 'xgboost_with_rule_based_fallback',
@@ -103,6 +134,7 @@ export function health(_req: Request, res: Response) {
     capabilities: {
       realtimeWeather: true,
       realtimeMarine: true,
+      tomorrowMarineForecast: true,
       vectorRag: true,
       evidenceCorpusItems: getEvidenceCorpusSize(),
       latestSatelliteCatalogueSearch: true,
