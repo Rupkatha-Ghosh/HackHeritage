@@ -3,6 +3,7 @@ import {
   evidenceSearch,
   health,
   marineConditions,
+  marineForecast,
   marineRisk,
   orcaQuery,
   satelliteAnalysis,
@@ -12,6 +13,7 @@ const router = Router();
 
 router.post('/orca/query', orcaQuery);
 router.get('/marine/conditions', marineConditions);
+router.get('/marine/forecast', marineForecast);
 router.post('/marine/risk', marineRisk);
 router.post('/satellite/analysis', satelliteAnalysis);
 router.post('/evidence/search', evidenceSearch);
