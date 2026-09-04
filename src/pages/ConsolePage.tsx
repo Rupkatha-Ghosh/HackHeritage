@@ -1,345 +1,181 @@
-import React, { useEffect, useState } from "react";
-import { AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
-import { LeftNavbar } from "../components/LeftNavbar";
-import { InteractiveMap } from "../components/InteractiveMap";
-import { QueryPanel } from "../components/QueryPanel";
-import { RiskCard } from "../components/RiskCard";
-import { MarineTelemetry } from "../components/MarineTelemetry";
-import { FeatureContributions } from "../components/FeatureContributions";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BarChart3, BrainCircuit, Database, FileText, Globe2, Layers3, Map, MessageSquare, Radio, Satellite, Search, ShieldCheck, SlidersHorizontal, Sparkles, Waves } from "lucide-react";
 import { AgentExecutionTimeline } from "../components/AgentExecutionTimeline";
+import { FeatureContributions } from "../components/FeatureContributions";
 import { GroundedEvidenceDrawer } from "../components/GroundedEvidenceDrawer";
+import { InteractiveMap } from "../components/InteractiveMap";
+import { MarineTelemetry } from "../components/MarineTelemetry";
 import { SatelliteAnalysisView } from "../components/SatelliteAnalysisView";
 import { WhatIfSimulator } from "../components/WhatIfSimulator";
 import { OrcaAnalysisResponse, LanguageCode } from "../types";
 import { COASTAL_LOCATIONS, MULTILINGUAL_DICTIONARY } from "../data/coastalData";
 
 interface ConsolePageProps {
-  onExit: () => void;
+  analysisData: OrcaAnalysisResponse;
+  language: LanguageCode;
+  onQuery: (query: string) => void;
 }
 
-export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
-  const [currentTab, setCurrentTab] = useState<
-    "dashboard" | "analysis" | "satellite" | "evidence" | "simulator"
-  >("dashboard");
-  const [language, setLanguage] = useState<LanguageCode>("en");
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [analysisData, setAnalysisData] =
-    useState<OrcaAnalysisResponse | null>(null);
-
-  const fetchAnalysis = async (
-    queryText: string,
-    locOverride?: string,
-    timeOverride?: string,
-    responseLanguage: LanguageCode = language,
-  ) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch("/api/orca/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: queryText,
-          locationOverride: locOverride,
-          timeOverride,
-          language: responseLanguage,
-        }),
-      });
-
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          payload?.error || `Server returned status ${response.status}`,
-        );
-      }
-
-      if (!payload?.weather || !payload?.ocean || !payload?.risk) {
-        throw new Error(
-          "ORCA returned an incomplete live-data analysis. No synthetic telemetry will be displayed.",
-        );
-      }
-
-      setAnalysisData(payload as OrcaAnalysisResponse);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Unable to retrieve live ORCA data.";
-      console.error("ORCA live-data request failed:", message);
-      setAnalysisData(null);
-      setErrorMessage(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAnalysis("Is it safe for small fishing boats near Digha right now?");
-  }, []);
-
-  const handleLocationSelect = (locKey: string) => {
-    const loc = COASTAL_LOCATIONS[locKey];
-    if (loc)
-      fetchAnalysis(
-        `Is it safe for small fishing boats near ${loc.name} right now?`,
-        locKey,
-      );
-  };
-
-  const handleMapCoordinateClick = (lat: number, lon: number) => {
-    fetchAnalysis(
-      `Analyze live marine conditions at coordinates ${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E`,
-    );
-  };
-
+export const ConsolePage: React.FC<ConsolePageProps> = ({ analysisData, language, onQuery }) => {
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  const [currentTab, setCurrentTab] = useState("overview");
+  const [query, setQuery] = useState("");
+  const [showEvidence, setShowEvidence] = useState(false);
+
+  const handleSubmit = useCallback((event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    onQuery(trimmed);
+  }, [onQuery, query]);
+
+  const handleLocationSelect = useCallback((key: string) => {
+    const location = COASTAL_LOCATIONS[key];
+    if (!location) return;
+    onQuery(`Show current marine risk for ${location.name}`);
+  }, [onQuery]);
+
+  const handleMapCoordinateClick = useCallback((latitude: number, longitude: number) => {
+    onQuery(`Analyze marine conditions near ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+  }, [onQuery]);
+
+  const tabs = useMemo(() => [
+    { key: "overview", label: "Overview", icon: BarChart3 },
+    { key: "evidence", label: "Evidence", icon: FileText },
+    { key: "satellite", label: "Satellite", icon: Satellite },
+    { key: "telemetry", label: "Telemetry", icon: Radio },
+  ], []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-abyssal text-chartpaper lg:flex-row">
-      <LeftNavbar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        language={language}
-        setLanguage={(nextLanguage) => {
-          setLanguage(nextLanguage);
-          if (analysisData)
-            fetchAnalysis(analysisData.originalQuery, undefined, undefined, nextLanguage);
-        }}
-        isProcessing={isLoading}
-        onExit={onExit}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col justify-between">
-        <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-          {/* The console is a wall of live modules with no visible title, which
-              leaves a screen-reader user on an unnamed page. This names it
-              without occupying any of the layout. */}
-          <h1 className="sr-only">
-            ORCA-X live console — marine risk advisory for the Indian coast
-          </h1>
-
-          {/* Return path to the brief, kept out of the way of the live modules. */}
-          <button
-            onClick={onExit}
-            className="group hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-fathom transition-colors hover:text-shoal lg:inline-flex"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-translate-x-1" />
-            Project brief
-          </button>
-
-          {isLoading && (
-            <div className="flex items-center gap-3 rounded-sm border border-shoal/25 bg-shoal/8 p-3.5">
-              <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-shoal" />
-              <div className="text-xs">
-                <span className="font-mono font-bold tracking-wide text-shoal">
-                  PIPELINE RUNNING&nbsp;
-                </span>
-                <span className="text-slate-300">
-                  {dict.processing} — live weather and marine observations,
-                  Copernicus catalogue, BGE-M3 retrieval, risk engine.
-                </span>
-              </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 lg:px-6">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-2">
+              <Waves className="h-5 w-5 text-cyan-400" />
             </div>
-          )}
-
-          {errorMessage && !isLoading && (
-            <div className="flex items-start gap-3 rounded-sm border border-red-500/35 bg-red-950/25 p-4">
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
-              <div>
-                <p className="text-sm font-semibold text-red-300">
-                  Live marine data unavailable
-                </p>
-                <p className="mt-1 text-xs text-slate-300">{errorMessage}</p>
-                <p className="mt-2 text-[11px] text-fathom">
-                  ORCA-X does not substitute synthetic weather or ocean
-                  measurements when a live provider fails.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {analysisData ? (
-            <>
-              {currentTab === "dashboard" && (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                    <div className="space-y-4 lg:col-span-5">
-                      <QueryPanel
-                        onSearch={(q, loc, time) => fetchAnalysis(q, loc, time)}
-                        isLoading={isLoading}
-                        language={language}
-                      />
-                      <MarineTelemetry
-                        weather={analysisData.weather}
-                        ocean={analysisData.ocean}
-                        satellite={analysisData.satellite}
-                        language={language}
-                      />
-                    </div>
-                    <div className="space-y-4 lg:col-span-7">
-                      <RiskCard
-                        risk={analysisData.risk}
-                        location={analysisData.location}
-                        timeWindow={analysisData.timeWindow}
-                        language={language}
-                        groundedSummary={analysisData.groundedSummary}
-                      />
-                      <InteractiveMap
-                        location={analysisData.location}
-                        gisLayers={analysisData.gisLayers}
-                        ocean={analysisData.ocean}
-                        riskLevel={analysisData.risk.riskLevel}
-                        onSelectLocation={handleLocationSelect}
-                        onCoordinateClick={handleMapCoordinateClick}
-                        language={language}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                    <div className="lg:col-span-6">
-                      <FeatureContributions risk={analysisData.risk} language={language} />
-                    </div>
-                    <div className="lg:col-span-6">
-                      <AgentExecutionTimeline
-                        traces={analysisData.agentTraces}
-                        queryId={analysisData.queryId}
-                        language={language}
-                      />
-                    </div>
-                  </div>
-
-                  <GroundedEvidenceDrawer
-                    evidence={analysisData.evidence}
-                    groundedSummary={analysisData.groundedSummary}
-                    language={language}
-                  />
-                </div>
-              )}
-
-              {currentTab === "analysis" && (
-                <div className="space-y-6">
-                  <RiskCard
-                    risk={analysisData.risk}
-                    location={analysisData.location}
-                    timeWindow={analysisData.timeWindow}
-                    language={language}
-                    groundedSummary={analysisData.groundedSummary}
-                  />
-                  <FeatureContributions risk={analysisData.risk} language={language} />
-                  <MarineTelemetry
-                    weather={analysisData.weather}
-                    ocean={analysisData.ocean}
-                    satellite={analysisData.satellite}
-                    language={language}
-                  />
-                </div>
-              )}
-
-              {currentTab === "satellite" && (
-                <div className="space-y-6">
-                  <SatelliteAnalysisView
-                    satellite={analysisData.satellite}
-                    location={analysisData.location}
-                    ocean={analysisData.ocean}
-                    language={language}
-                  />
-                  <InteractiveMap
-                    location={analysisData.location}
-                    gisLayers={analysisData.gisLayers}
-                    ocean={analysisData.ocean}
-                    riskLevel={analysisData.risk.riskLevel}
-                    onSelectLocation={handleLocationSelect}
-                    onCoordinateClick={handleMapCoordinateClick}
-                    language={language}
-                  />
-                </div>
-              )}
-
-              {currentTab === "evidence" && (
-                <div className="space-y-6">
-                  <GroundedEvidenceDrawer
-                    evidence={analysisData.evidence}
-                    groundedSummary={analysisData.groundedSummary}
-                    language={language}
-                  />
-                  <AgentExecutionTimeline
-                    traces={analysisData.agentTraces}
-                    queryId={analysisData.queryId}
-                    language={language}
-                  />
-                </div>
-              )}
-
-              {currentTab === "simulator" && (
-                <div className="space-y-6">
-                  <WhatIfSimulator
-                    location={analysisData.location}
-                    initialWeather={analysisData.weather}
-                    initialOcean={analysisData.ocean}
-                    initialSatellite={analysisData.satellite}
-                    language={language}
-                  />
-                  <InteractiveMap
-                    location={analysisData.location}
-                    gisLayers={analysisData.gisLayers}
-                    ocean={analysisData.ocean}
-                    riskLevel={analysisData.risk.riskLevel}
-                    onSelectLocation={handleLocationSelect}
-                    onCoordinateClick={handleMapCoordinateClick}
-                    language={language}
-                  />
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center space-y-4 py-24 text-center">
-              {isLoading ? (
-                <RefreshCw className="h-7 w-7 animate-spin text-shoal" />
-              ) : (
-                <AlertCircle className="h-7 w-7 text-red-400" />
-              )}
-              <p className="font-mono text-xs tracking-wide text-fathom">
-                {isLoading
-                  ? "Connecting to live marine intelligence services…"
-                  : "No live analysis yet. Start the API on port 3000, then retry."}
-              </p>
-              {!isLoading && errorMessage && (
-                <button
-                  className="rounded-sm border border-shoal/35 px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.2em] text-shoal transition-colors hover:border-shoal/70 hover:bg-shoal/8"
-                  onClick={() =>
-                    fetchAnalysis(
-                      "Is it safe for small fishing boats near Digha right now?",
-                    )
-                  }
-                >
-                  Retry live data
-                </button>
-              )}
-            </div>
-          )}
-        </main>
-
-        <footer className="mt-8 border-t border-shoal/12 bg-abyssal py-4">
-          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-4 text-xs text-fathom sm:flex-row sm:px-6 lg:px-8">
-            <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-shoal" />
-              <span className="font-semibold text-slate-300">
-                ORCA-X — Ocean Reasoning &amp; Collaborative AI
-              </span>
-              <span className="font-mono text-[10px] text-fathom">
-                | Smart India Hackathon
-              </span>
-            </div>
-            <div className="max-w-xl text-center text-[11px] leading-tight sm:text-right">
-              <strong className="text-slate-300">Statutory notice:</strong>{" "}
-              {analysisData?.officialDisclaimer || dict.disclaimer}
+            <div>
+              <h1 className="text-sm font-black uppercase tracking-[0.2em]">ORCA-X</h1>
+              <p className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Ocean Reasoning & Collaborative AI</p>
             </div>
           </div>
-        </footer>
-      </div>
+          <div className="hidden items-center gap-2 text-xs text-slate-400 sm:flex">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            Decision-support mode
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-[1600px] px-4 py-6 lg:px-6">
+        <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-xl">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3 md:flex-row">
+            <div className="relative flex-1">
+              <MessageSquare className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Ask ORCA-X about current marine risk, forecasts, or evidence..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 py-3 pl-10 pr-4 text-sm text-slate-100 outline-none transition focus:border-cyan-500/60"
+              />
+            </div>
+            <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-400">
+              <Search className="h-4 w-4" />
+              Analyze
+            </button>
+          </form>
+        </div>
+
+        <div className="mb-6 flex gap-2 overflow-x-auto border-b border-slate-800 pb-2">
+          {tabs.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setCurrentTab(key)}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${currentTab === key ? "bg-cyan-500 text-slate-950" : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"}`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {currentTab === "overview" && (
+          <div className="space-y-6">
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500"><BrainCircuit className="h-4 w-4" /> Risk</div>
+                <div className="text-3xl font-black">{analysisData.risk.riskLevel}</div>
+                <div className="mt-1 text-xs text-slate-500">Score {Number(analysisData.risk.riskScore).toFixed(2)}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500"><Globe2 className="h-4 w-4" /> Location</div>
+                <div className="text-xl font-black">{analysisData.location.name}</div>
+                <div className="mt-1 text-xs text-slate-500">{analysisData.location.latitude.toFixed(4)}, {analysisData.location.longitude.toFixed(4)}</div>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+                <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500"><Database className="h-4 w-4" /> Evidence</div>
+                <div className="text-3xl font-black">{analysisData.evidence?.length ?? 0}</div>
+                <div className="mt-1 text-xs text-slate-500">Retrieved grounding items</div>
+              </div>
+            </div>
+
+            <InteractiveMap
+              location={analysisData.location}
+              gisLayers={analysisData.gisLayers}
+              ocean={analysisData.ocean}
+              riskLevel={analysisData.risk.riskLevel}
+              onSelectLocation={handleLocationSelect}
+              onCoordinateClick={handleMapCoordinateClick}
+              language={language}
+            />
+
+            <FeatureContributions risk={analysisData.risk} language={language} />
+            <AgentExecutionTimeline traces={analysisData.agentTraces} />
+          </div>
+        )}
+
+        {currentTab === "evidence" && (
+          <div className="space-y-6">
+            <GroundedEvidenceDrawer evidence={analysisData.evidence} language={language} />
+            <button onClick={() => setShowEvidence(true)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:bg-slate-900">Open evidence details</button>
+            {showEvidence && <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">{dict.evidenceSummary || "Grounded evidence retrieved from the configured knowledge sources."}</div>}
+          </div>
+        )}
+
+        {currentTab === "satellite" && (
+          <div className="space-y-6">
+            <SatelliteAnalysisView
+              satellite={analysisData.satellite}
+              location={analysisData.location}
+              language={language}
+            />
+            <InteractiveMap
+              location={analysisData.location}
+              gisLayers={analysisData.gisLayers}
+              ocean={analysisData.ocean}
+              riskLevel={analysisData.risk.riskLevel}
+              onSelectLocation={handleLocationSelect}
+              onCoordinateClick={handleMapCoordinateClick}
+              language={language}
+            />
+          </div>
+        )}
+
+        {currentTab === "telemetry" && (
+          <MarineTelemetry
+            weather={analysisData.weather}
+            ocean={analysisData.ocean}
+            satellite={analysisData.satellite}
+            language={language}
+          />
+        )}
+
+        {analysisData.warnings?.length > 0 && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-300">
+            <div className="mb-2 flex items-center gap-2 font-bold"><AlertTriangle className="h-4 w-4" /> Operational warnings</div>
+            <ul className="space-y-1">{analysisData.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+          </div>
+        )}
+      </main>
     </div>
   );
 };
-
-export default ConsolePage;
