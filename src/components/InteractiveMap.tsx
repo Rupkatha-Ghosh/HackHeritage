@@ -37,9 +37,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   onCoordinateClick,
   language
 }) => {
+  const outerWrapperRef = useRef<HTMLDivElement>(null);
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const geojsonLayerRef = useRef<L.GeoJSON | null>(null);
   const targetMarkerRef = useRef<L.Marker | null>(null);
   /* Leaflet drives its camera in JS, so no CSS media query can quiet it. */
@@ -51,6 +53,44 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [showBuoys, setShowBuoys] = useState<boolean>(true);
   const [showSstOverlay, setShowSstOverlay] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Native Fullscreen API Handler
+  const toggleFullscreen = () => {
+    const container = outerWrapperRef.current;
+    if (!container) return;
+
+    if (!document.fullscreenElement) {
+      if (container.requestFullscreen) {
+        container.requestFullscreen().catch(() => setIsFullscreen(true));
+      } else {
+        setIsFullscreen(true);
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => setIsFullscreen(false));
+      } else {
+        setIsFullscreen(false);
+      }
+    }
+  };
+
+  // Fullscreen Change Event Listener
+  useEffect(() => {
+    const handleFSChange = () => {
+      const isFS = Boolean(document.fullscreenElement);
+      setIsFullscreen(isFS);
+      const map = mapInstanceRef.current;
+      if (map) {
+        setTimeout(() => map.invalidateSize(), 50);
+        setTimeout(() => map.invalidateSize(), 200);
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFSChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFSChange);
+    };
+  }, []);
 
   // Initialize Map
   useEffect(() => {
@@ -64,14 +104,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         attributionControl: true
       });
 
-      // Add clean dark nautical tiles. CARTO's basemaps are licensed on the
-      // condition that CARTO and OpenStreetMap are credited, so the attribution
-      // control stays on — styled down to 9px in index.css to keep it discreet.
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      // OpenStreetMap Detailed Map Engine (Google Maps-level details: cities, towns, villages, beaches, ports, roads)
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
-        subdomains: 'abcd',
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(map);
 
       // Custom Zoom control in bottom right
@@ -112,6 +148,26 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       easeLinearity: 0.25
     });
   }, [location.latitude, location.longitude, reducedMotion]);
+
+  // Handle container resize & visibility changes (e.g., tab switches or fullscreen)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // Immediately invalidate size to prevent tile vanishing
+    map.invalidateSize();
+
+    // Staggered invalidations to account for CSS transition animations
+    const t1 = setTimeout(() => map.invalidateSize(), 50);
+    const t2 = setTimeout(() => map.invalidateSize(), 150);
+    const t3 = setTimeout(() => map.invalidateSize(), 350);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [isFullscreen, location]);
 
   // Render GeoJSON layers & markers
   useEffect(() => {
@@ -242,45 +298,60 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   }, [gisLayers, location, riskLevel, ocean, showHazardZones, showSafeCorridors, showBuoys]);
 
   return (
-    <div className={`relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-xl transition-all ${isFullscreen ? 'fixed inset-4 z-[100]' : 'h-[440px] sm:h-[480px] lg:h-[540px]'}`}>
-      
-      {/* Map Header & Controls Overlay */}
-      <div className="absolute top-3 left-3 z-[400] flex flex-wrap items-center gap-2 max-w-[92%]">
+    <div 
+      ref={outerWrapperRef} 
+      className={`orca-map-frame relative bg-slate-900 rounded-2xl overflow-hidden shadow-2xl transition-all ${
+        isFullscreen ? 'fixed inset-0 z-[9999] w-screen h-screen rounded-none' : 'h-[440px] sm:h-[480px] lg:h-[540px]'
+      }`}
+    >
+      {/* Decorative glowing border frame — purely cosmetic, non-interactive */}
+      <div className="orca-frame-glow pointer-events-none absolute inset-0 z-[350] rounded-2xl" />
+      <div className="orca-corner orca-corner-tl pointer-events-none" />
+      <div className="orca-corner orca-corner-tr pointer-events-none" />
+      <div className="orca-corner orca-corner-bl pointer-events-none" />
+      <div className="orca-corner orca-corner-br pointer-events-none" />
+
+      {/* Decorative scanline sweep — purely cosmetic, non-interactive */}
+      <div className="orca-scanline pointer-events-none absolute inset-0 z-[340] rounded-2xl overflow-hidden" />
+
+      {/* Map Header & Controls Overlay — Stacked layout prevents UI collision */}
+      <div className="absolute top-3 left-3 z-[400] flex flex-col items-start gap-2 max-w-[82%] sm:max-w-[88%] lg:max-w-2xl">
         
-        {/* Quick Coastal Hub Jump Menu */}
-        <div className="bg-slate-950/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-lg flex items-center space-x-1.5 overflow-x-auto max-w-[280px] sm:max-w-md">
-          <span className="text-[10px] font-mono uppercase text-slate-400 pl-1.5 flex items-center gap-1">
+        {/* Quick Coastal Hub Jump Menu — All 17 Indian Coastal Hubs */}
+        <div className="orca-glass-panel p-1.5 flex items-center space-x-1.5 overflow-x-auto max-w-full scrollbar-thin">
+          <span className="text-[10px] font-mono uppercase text-slate-400 pl-1.5 flex items-center gap-1 shrink-0">
             <Compass className="h-3 w-3 text-cyan-400" />
             <span className="hidden sm:inline">{dict.coastalHubs}:</span>
           </span>
-          {['digha', 'puri', 'paradeep', 'visakhapatnam', 'kochi', 'chennai', 'mumbai'].map((key) => {
+          {Object.keys(COASTAL_LOCATIONS).map((key) => {
             const loc = COASTAL_LOCATIONS[key];
             if (!loc) return null;
             const isSelected = loc.name.toLowerCase() === location.name.toLowerCase() || location.name.toLowerCase().includes(key);
+            const shortName = loc.name.split(' ')[0].replace('/', '');
             return (
               <button
                 key={key}
                 id={`map-loc-${key}`}
                 onClick={() => onSelectLocation(key)}
-                className={`px-2 py-0.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`px-2 py-0.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${
                   isSelected
-                    ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    ? 'bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(34,211,238,0.6)]'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
                 }`}
               >
-                {loc.name.split(' ')[0]}
+                {shortName}
               </button>
             );
           })}
         </div>
 
         {/* Layer Toggles Popover */}
-        <div className="bg-slate-950/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-lg flex items-center space-x-1">
+        <div className="orca-glass-panel p-1 flex items-center space-x-1">
           <button
             onClick={() => setShowHazardZones(!showHazardZones)}
             title="Toggle Hazard Polygons"
             className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all ${
-              showHazardZones ? 'bg-red-950/80 text-red-300 border border-red-800/60' : 'text-slate-400 hover:bg-slate-800'
+              showHazardZones ? 'bg-red-950/70 text-red-300 border border-red-700/50 shadow-[0_0_10px_rgba(239,68,68,0.25)]' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
           >
             <Waves className="h-3 w-3 text-red-400" />
@@ -291,7 +362,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             onClick={() => setShowSafeCorridors(!showSafeCorridors)}
             title="Toggle Safe Navigation Corridors"
             className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all ${
-              showSafeCorridors ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60' : 'text-slate-400 hover:bg-slate-800'
+              showSafeCorridors ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/50 shadow-[0_0_10px_rgba(16,185,129,0.25)]' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
           >
             <Navigation className="h-3 w-3 text-emerald-400" />
@@ -302,7 +373,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             onClick={() => setShowBuoys(!showBuoys)}
             title="Toggle Ocean Buoys"
             className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all ${
-              showBuoys ? 'bg-purple-950/80 text-purple-300 border border-purple-800/60' : 'text-slate-400 hover:bg-slate-800'
+              showBuoys ? 'bg-purple-950/70 text-purple-300 border border-purple-700/50 shadow-[0_0_10px_rgba(168,85,247,0.25)]' : 'text-slate-400 hover:bg-slate-800/60'
             }`}
           >
             <Radio className="h-3 w-3 text-purple-400" />
@@ -314,19 +385,23 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       {/* Fullscreen Toggle */}
       <button
-        onClick={() => setIsFullscreen(!isFullscreen)}
-        className="absolute top-3 right-3 z-[400] bg-slate-950/90 hover:bg-slate-800 text-slate-300 p-2 rounded-xl border border-slate-700/80 shadow-lg transition-all"
+        onClick={toggleFullscreen}
+        className="orca-glass-panel absolute top-3 right-3 z-[400] p-2 text-slate-300 hover:bg-slate-800/60 transition-all"
         title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Map'}
       >
         {isFullscreen ? <Minimize2 className="h-4 w-4 text-cyan-400" /> : <Maximize2 className="h-4 w-4 text-cyan-400" />}
       </button>
 
       {/* Map Floating Legend (Bottom Left) */}
-      <div className="absolute bottom-3 left-3 z-[400] bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-xl p-2.5 shadow-xl text-xs space-y-1.5 max-w-[210px] hidden sm:block">
-        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase border-b border-slate-800 pb-1">
+      <div className="orca-glass-panel absolute bottom-3 left-3 z-[400] p-2.5 text-xs space-y-1.5 max-w-[210px] hidden sm:block">
+        <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase border-b border-slate-700/60 pb-1">
           <span className="flex items-center gap-1">
             <Layers className="h-3 w-3 text-cyan-400" />
             <span>{dict.gisLegend}</span>
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-cyan-400">
+            <span className="orca-live-dot" />
+            Active
           </span>
           <span className="text-[10px] text-cyan-400">{dict.active}</span>
         </div>
@@ -353,7 +428,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       </div>
 
-      {/* Actual Leaflet Container */}
+      {/* Actual Leaflet Container — untouched */}
       <div ref={mapContainerRef} className="w-full h-full" />
 
     </div>
