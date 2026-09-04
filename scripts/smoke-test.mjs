@@ -33,13 +33,27 @@ assert(Array.isArray(ragSearch.results) && ragSearch.results.length > 0, 'RAG se
 const appHealth = await request(`${baseUrl}/api/health`);
 assert(appHealth.status === 'healthy', 'ORCA API health check failed');
 assert(appHealth.services.mlRiskApi, 'ML service metadata is missing');
+assert(appHealth.capabilities?.tomorrowMarineForecast === true, 'Tomorrow forecast capability is not enabled');
 
 const live = await request(`${baseUrl}/api/marine/conditions?lat=21.6266&lon=87.5074`);
-assert(live.degraded === false, 'Live marine/weather provider is degraded');
+// Overall realtime fusion is DEGRADED when only one live source is configured. CI does
+// not provide private/approved INCOIS or MOSDAC endpoints, so this is expected and must
+// not be treated as a provider outage. The selected Open-Meteo weather/marine payloads
+// themselves must still be LIVE and usable.
+assert(['LIVE', 'DEGRADED'].includes(live.metadata?.dataQuality), 'Live marine fusion returned an invalid data-quality state');
+assert(live.metadata?.dataQuality !== 'UNAVAILABLE', 'Live marine/weather fusion is unavailable');
 assert(live.weather?.dataQuality === 'LIVE', 'Weather data is not marked LIVE');
 assert(live.ocean?.dataQuality === 'LIVE', 'Marine data is not marked LIVE');
 assert(live.weather?.source === 'Open-Meteo Weather API', 'Unexpected weather provider');
 assert(live.ocean?.source === 'Open-Meteo Marine API', 'Unexpected marine provider');
+
+const forecast = await request(`${baseUrl}/api/marine/forecast?locationKey=digha`);
+assert(forecast.sourceType === 'FORECAST', 'Marine forecast is not explicitly marked as forecast data');
+assert(typeof forecast.forecastDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(forecast.forecastDate), 'Forecast date is invalid');
+assert(Array.isArray(forecast.hourly) && forecast.hourly.length >= 12, 'Tomorrow forecast returned too few hourly points');
+assert(forecast.hourly.every((point) => point.risk?.riskLevel && Number.isFinite(point.risk?.riskScore)), 'Forecast contains an invalid ML risk point');
+assert(forecast.hourly.every((point) => point.risk?.predictionTarget?.includes('forecast hour')), 'Forecast points are not labeled as forecast predictions');
+assert(['LOW', 'MODERATE', 'HIGH', 'EXTREME'].includes(forecast.summary?.worstRiskLevel), 'Forecast summary returned an invalid risk level');
 
 const risk = await request(`${baseUrl}/api/marine/risk`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
@@ -77,12 +91,16 @@ const satelliteWarning = Array.isArray(orca.warnings)
   ? orca.warnings.find((warning) => /sentinel|satellite/i.test(String(warning)))
   : undefined;
 
-console.log('ORCA-X Refinement 3 smoke test passed:', JSON.stringify({
+console.log('ORCA-X live + forecast smoke test passed:', JSON.stringify({
   ml: mlHealth.model_version,
   rag: ragSearch.retrieval,
   embedding: ragSearch.embedding_model,
   liveWeather: live.weather.source,
   liveMarine: live.ocean.source,
+  liveFusionQuality: live.metadata?.dataQuality || 'UNKNOWN',
+  forecastDate: forecast.forecastDate,
+  forecastHours: forecast.hourly.length,
+  worstForecastRisk: forecast.summary.worstRiskLevel,
   riskLevel: orca.risk.riskLevel,
   evidenceCount: orca.evidence.length,
   satelliteStatus: orca.satellite?.status || 'UNKNOWN',

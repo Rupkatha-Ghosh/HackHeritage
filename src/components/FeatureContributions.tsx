@@ -9,13 +9,17 @@ import {
   CheckCircle,
   HelpCircle
 } from 'lucide-react';
-import { FeatureContribution, RiskPrediction } from '../types';
+import { FeatureContribution, RiskPrediction, LanguageCode } from '../types';
+import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
+import { localizeFeatureName, localizeImpactLabel } from '../utils/presentationLocalization';
 
 interface FeatureContributionsProps {
   risk: RiskPrediction;
+  language: LanguageCode;
 }
 
-export const FeatureContributions: React.FC<FeatureContributionsProps> = ({ risk }) => {
+export const FeatureContributions: React.FC<FeatureContributionsProps> = ({ risk, language }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   return (
     <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
       
@@ -24,7 +28,7 @@ export const FeatureContributions: React.FC<FeatureContributionsProps> = ({ risk
         <div className="flex items-center space-x-2">
           <BarChart3 className="h-4 w-4 text-cyan-400" />
           <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
-            ML Feature Importance & Risk Decomposition
+            {dict.factors}
           </h3>
         </div>
         <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
@@ -71,7 +75,7 @@ export const FeatureContributions: React.FC<FeatureContributionsProps> = ({ risk
                     <TrendingDown className="h-4 w-4 text-emerald-400 shrink-0" />
                   )}
                   <span className="font-semibold text-xs text-slate-200">
-                    {feat.featureName}
+                    {localizeFeatureName(feat.featureName, language)}
                   </span>
                   <span className="text-[11px] font-mono text-cyan-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
                     {feat.featureValue} {feat.unit}
@@ -80,7 +84,7 @@ export const FeatureContributions: React.FC<FeatureContributionsProps> = ({ risk
 
                 <div className="flex items-center space-x-2">
                   <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${getImpactBadge(feat.impactLevel)}`}>
-                    {feat.impactLevel}
+                    {localizeImpactLabel(feat.impactLevel, language)}
                   </span>
                   <span className="text-xs font-mono font-bold text-slate-300">
                     {isPositive ? `+${(feat.riskWeight * 100).toFixed(0)}%` : `${(feat.riskWeight * 100).toFixed(0)}%`}

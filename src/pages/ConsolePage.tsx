@@ -31,6 +31,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
     queryText: string,
     locOverride?: string,
     timeOverride?: string,
+    responseLanguage: LanguageCode = language,
   ) => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -43,7 +44,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
           query: queryText,
           locationOverride: locOverride,
           timeOverride,
-          language,
+          language: responseLanguage,
         }),
       });
 
@@ -102,13 +103,13 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
         setLanguage={(nextLanguage) => {
           setLanguage(nextLanguage);
           if (analysisData)
-            fetchAnalysis(analysisData.originalQuery, undefined, undefined);
+            fetchAnalysis(analysisData.originalQuery, undefined, undefined, nextLanguage);
         }}
         isProcessing={isLoading}
         onExit={onExit}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col justify-between">
+      <div className="flex min-w-0 flex-1 flex-col justify-between pb-20 lg:pb-0">
         <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
           {/* The console is a wall of live modules with no visible title, which
               leaves a screen-reader user on an unnamed page. This names it
@@ -127,10 +128,10 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
           </button>
 
           {/* Multi-Port Coastal Hubs Live Status Bar */}
-          <div className="flex items-center space-x-2 overflow-x-auto py-1 px-3 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono no-scrollbar">
-            <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider shrink-0 flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>Coastal Stations:</span>
+          <div className="flex items-center space-x-2 overflow-x-auto py-2 px-3 bg-slate-950/90 border border-slate-800 rounded-xl text-xs font-mono no-scrollbar shadow-inner">
+            <span className="text-[11px] text-cyan-400 font-bold uppercase tracking-wider shrink-0 flex items-center gap-1.5 px-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Coastal Ports:</span>
             </span>
             {['digha', 'puri', 'paradeep', 'visakhapatnam', 'kochi', 'chennai', 'mumbai'].map((key) => {
               const loc = COASTAL_LOCATIONS[key];
@@ -140,14 +141,14 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                 <button
                   key={key}
                   onClick={() => handleLocationSelect(key)}
-                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all flex items-center space-x-1.5 ${
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 active:scale-95 ${
                     isSelected
-                      ? 'bg-cyan-500 text-slate-950 shadow-sm font-bold'
-                      : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                      ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30 font-black border border-cyan-300'
+                      : 'bg-slate-900 text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700'
                   }`}
                 >
                   <span>{loc.name.split(' ')[0]}</span>
-                  <span className="text-[9px] opacity-75 font-mono">({loc.latitude.toFixed(1)}°N)</span>
+                  <span className="text-[10px] opacity-80 font-mono">({loc.latitude.toFixed(1)}°N)</span>
                 </button>
               );
             })}
@@ -199,6 +200,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         weather={analysisData.weather}
                         ocean={analysisData.ocean}
                         satellite={analysisData.satellite}
+                        language={language}
                       />
                     </div>
                     <div className="space-y-4 lg:col-span-7">
@@ -216,18 +218,20 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         riskLevel={analysisData.risk.riskLevel}
                         onSelectLocation={handleLocationSelect}
                         onCoordinateClick={handleMapCoordinateClick}
+                        language={language}
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
                     <div className="lg:col-span-6">
-                      <FeatureContributions risk={analysisData.risk} />
+                      <FeatureContributions risk={analysisData.risk} language={language} />
                     </div>
                     <div className="lg:col-span-6">
                       <AgentExecutionTimeline
                         traces={analysisData.agentTraces}
                         queryId={analysisData.queryId}
+                        language={language}
                       />
                     </div>
                   </div>
@@ -235,6 +239,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <GroundedEvidenceDrawer
                     evidence={analysisData.evidence}
                     groundedSummary={analysisData.groundedSummary}
+                    language={language}
                   />
                 </div>
               )}
@@ -248,11 +253,12 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     language={language}
                     groundedSummary={analysisData.groundedSummary}
                   />
-                  <FeatureContributions risk={analysisData.risk} />
+                  <FeatureContributions risk={analysisData.risk} language={language} />
                   <MarineTelemetry
                     weather={analysisData.weather}
                     ocean={analysisData.ocean}
                     satellite={analysisData.satellite}
+                    language={language}
                   />
                 </div>
               )}
@@ -263,6 +269,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     satellite={analysisData.satellite}
                     location={analysisData.location}
                     ocean={analysisData.ocean}
+                    language={language}
                   />
                   <InteractiveMap
                     location={analysisData.location}
@@ -271,6 +278,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
                     onCoordinateClick={handleMapCoordinateClick}
+                    language={language}
                   />
                 </div>
               )}
@@ -280,10 +288,12 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <GroundedEvidenceDrawer
                     evidence={analysisData.evidence}
                     groundedSummary={analysisData.groundedSummary}
+                    language={language}
                   />
                   <AgentExecutionTimeline
                     traces={analysisData.agentTraces}
                     queryId={analysisData.queryId}
+                    language={language}
                   />
                 </div>
               )}
@@ -295,6 +305,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     initialWeather={analysisData.weather}
                     initialOcean={analysisData.ocean}
                     initialSatellite={analysisData.satellite}
+                    language={language}
                   />
                   <InteractiveMap
                     location={analysisData.location}
@@ -303,6 +314,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
                     onCoordinateClick={handleMapCoordinateClick}
+                    language={language}
                   />
                 </div>
               )}

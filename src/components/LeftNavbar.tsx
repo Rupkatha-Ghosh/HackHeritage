@@ -33,7 +33,11 @@ const languages: { code: LanguageCode; label: string; native: string }[] = [
   { code: 'hi', label: 'Hindi', native: 'हिन्दी' },
   { code: 'ta', label: 'Tamil', native: 'தமிழ்' },
   { code: 'or', label: 'Odia', native: 'ଓଡ଼ିଆ' },
-  { code: 'te', label: 'Telugu', native: 'తెలుగు' }
+  { code: 'te', label: 'Telugu', native: 'తెలుగు' },
+  { code: 'ml', label: 'Malayalam', native: 'മലയാളം' },
+  { code: 'gu', label: 'Gujarati', native: 'ગુજરાતી' },
+  { code: 'mr', label: 'Marathi', native: 'मराठी' },
+  { code: 'kn', label: 'Kannada', native: 'ಕನ್ನಡ' }
 ];
 
 const navItems: {
@@ -108,7 +112,9 @@ const Wordmark: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
  * closing the language `<select>` under the operator's cursor.
  */
 
-const StatusLamp: React.FC<{ isProcessing: boolean }> = ({ isProcessing }) => (
+const StatusLamp: React.FC<{ isProcessing: boolean; language?: LanguageCode }> = ({ isProcessing, language = 'en' }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  return (
   <span className="flex items-center gap-2">
     <span className="relative flex h-1.5 w-1.5">
       {isProcessing && (
@@ -121,16 +127,19 @@ const StatusLamp: React.FC<{ isProcessing: boolean }> = ({ isProcessing }) => (
       />
     </span>
     <span className="font-mono text-[9.5px] tracking-[0.18em] text-fathom">
-      {isProcessing ? 'RUNNING' : 'STANDING BY'}
+      {isProcessing ? dict.running : dict.standingBy}
     </span>
   </span>
-);
+  );
+};
 
 const LanguageField: React.FC<{
   id: string;
   language: LanguageCode;
   setLanguage: (lang: LanguageCode) => void;
-}> = ({ id, language, setLanguage }) => (
+}> = ({ id, language, setLanguage }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  return (
   <div>
     <label
       htmlFor={id}
@@ -138,7 +147,7 @@ const LanguageField: React.FC<{
     >
       <span className="flex items-center gap-1.5">
         <Globe className="h-3 w-3 text-shoal" />
-        Answer language
+        {dict.languageLabel}
       </span>
       <span className="text-buoy">{language}</span>
     </label>
@@ -155,13 +164,31 @@ const LanguageField: React.FC<{
       ))}
     </select>
   </div>
-);
+  );
+};
 
 const NavList: React.FC<{
   currentTab: TabId;
   setCurrentTab: (tab: TabId) => void;
   onNavigate?: () => void;
-}> = ({ currentTab, setCurrentTab, onNavigate }) => (
+  language?: LanguageCode;
+}> = ({ currentTab, setCurrentTab, onNavigate, language = 'en' }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  const labels: Record<TabId, string> = {
+    dashboard: dict.missionTitle,
+    analysis: dict.riskScore,
+    satellite: dict.satelliteIntelligence,
+    evidence: dict.evidenceGrounding,
+    simulator: dict.whatIfSimulation
+  };
+  const descriptions: Record<TabId, string> = {
+    dashboard: `${dict.recommendations}, ${dict.telemetryTitle}`,
+    analysis: dict.factors,
+    satellite: dict.satelliteLayer,
+    evidence: dict.citations,
+    simulator: dict.simulatorTitle
+  };
+  return (
   <nav className="space-y-0.5">
     {navItems.map((item) => {
       const Icon = item.icon;
@@ -192,10 +219,10 @@ const NavList: React.FC<{
             />
             <span className="min-w-0">
               <span className="block truncate text-[12.5px] font-medium leading-tight">
-                {item.label}
+                {labels[item.id]}
               </span>
               <span className="mt-0.5 block truncate text-[10.5px] leading-tight text-fathom">
-                {item.description}
+                {descriptions[item.id]}
               </span>
             </span>
           </span>
@@ -213,12 +240,14 @@ const NavList: React.FC<{
       );
     })}
   </nav>
-);
+  );
+};
 
 /** Returns to the project brief. Shown in both the drawer and the sidebar. */
-const BriefLink: React.FC<{ onExit: () => void; size?: 'sm' | 'xs' }> = ({
+const BriefLink: React.FC<{ onExit: () => void; size?: 'sm' | 'xs'; language?: LanguageCode }> = ({
   onExit,
-  size = 'xs'
+  size = 'xs',
+  language = 'en'
 }) => (
   <button
     onClick={onExit}
@@ -227,7 +256,7 @@ const BriefLink: React.FC<{ onExit: () => void; size?: 'sm' | 'xs' }> = ({
     } uppercase tracking-[0.18em] text-fathom transition-colors hover:text-shoal`}
   >
     <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-translate-x-1" />
-    Project brief
+    {(MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en).projectBrief}
   </button>
 );
 
@@ -284,7 +313,7 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
       <header className="sticky top-0 z-40 flex items-center justify-between border-b border-shoal/12 bg-abyssal/95 px-4 py-3 backdrop-blur-md lg:hidden">
         <Wordmark compact />
         <div className="flex items-center gap-3">
-          <StatusLamp isProcessing={isProcessing} />
+          <StatusLamp isProcessing={isProcessing} language={language} />
           <button
             id="mobile-nav-toggle"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -322,6 +351,7 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
               {onExit && (
                 <BriefLink
                   size="sm"
+                  language={language}
                   onExit={() => {
                     setMobileMenuOpen(false);
                     onExit();
@@ -332,6 +362,7 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
               <NavList
                 currentTab={currentTab}
                 setCurrentTab={setCurrentTab}
+                language={language}
                 onNavigate={() => setMobileMenuOpen(false)}
               />
               <LanguageField
@@ -348,6 +379,44 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
         </div>
       )}
 
+      {/* ---- Mobile Sticky Bottom Thumb Navigation Bar ------------------- */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-slate-700 bg-slate-950/95 py-2 px-1 backdrop-blur-lg lg:hidden shadow-2xl">
+        {navItems.slice(0, 4).map((item) => {
+          const Icon = item.icon;
+          const isActive = currentTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setCurrentTab(item.id)}
+              className={`flex flex-col items-center justify-center min-h-[52px] min-w-[64px] py-1 px-2 rounded-xl transition-all ${
+                isActive
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
+                  : 'text-slate-400 hover:text-slate-200 active:scale-95'
+              }`}
+            >
+              <Icon className={`h-5 w-5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] tracking-tight mt-1 truncate max-w-[70px]">
+                {item.label.split(' ')[0]}
+              </span>
+            </button>
+          );
+        })}
+        {/* Mobile Language Selector Button */}
+        <div className="flex flex-col items-center justify-center min-h-[52px] px-1">
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as LanguageCode)}
+            className="bg-slate-900 text-cyan-300 font-bold border border-cyan-500/40 text-[11px] rounded-xl px-2 py-2 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-400"
+          >
+            {languages.map((l) => (
+              <option key={l.code} value={l.code} className="bg-slate-900 text-slate-200">
+                {l.native}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* ---- Desktop sidebar -------------------------------------------- */}
       <aside
         id="left-sidebar-navigation"
@@ -356,11 +425,11 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
         <div className="space-y-7 p-5">
           <Wordmark />
 
-          {onExit && <BriefLink onExit={onExit} />}
+          {onExit && <BriefLink onExit={onExit} language={language} />}
 
           <div className="border border-shoal/15 bg-shelf/40 p-3.5">
             <div className="flex items-center justify-between">
-              <StatusLamp isProcessing={isProcessing} />
+              <StatusLamp isProcessing={isProcessing} language={language} />
               <span className="font-mono text-[8.5px] tracking-[0.14em] text-emerald-400">
                 LIVE FEED
               </span>
@@ -371,8 +440,8 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
           </div>
 
           <div>
-            <p className="plate-label mb-3 pl-3.5">Modules</p>
-            <NavList currentTab={currentTab} setCurrentTab={setCurrentTab} />
+            <p className="plate-label mb-3 pl-3.5">{dict.modules}</p>
+            <NavList currentTab={currentTab} setCurrentTab={setCurrentTab} language={language} />
           </div>
         </div>
 

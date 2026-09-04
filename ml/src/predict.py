@@ -47,12 +47,11 @@ def _observed_hour(features: dict[str, Any]) -> int:
 
 
 def build_inference_features(features: dict[str, Any], feature_columns: list[str]) -> dict[str, float]:
-    """Build exactly the features required by the committed model.
+    """Build exactly the features required by the loaded model.
 
-    Refinement 4 uses point-in-time engineered features only. Earlier v1 model
-    artifacts use the 14-column contract. Lag/trend features are intentionally
-    not supported because a single live observation cannot legitimately derive
-    historical deltas without a separate time-series buffer.
+    Point-in-time features only are supported. Lag/trend features are intentionally
+    not synthesized from a single live observation because doing so would create
+    an undocumented and potentially misleading inference contract.
     """
     values = dict(features)
     if values.get("mean_wave_period_s") is None:
@@ -107,6 +106,19 @@ class OrcaXRiskPredictor:
         self.model.load_model(str(model_path))
         self.metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         self.feature_columns = list(self.metadata.get("features", FEATURE_COLUMNS))
+
+        # Fail closed if the JSON metadata and the actual XGBoost artifact drift
+        # apart. This prevents the application from silently feeding a model the
+        # wrong columns after a future retraining or artifact replacement.
+        artifact_feature_columns = list(self.model.get_booster().feature_names or [])
+        if artifact_feature_columns and artifact_feature_columns != self.feature_columns:
+            raise RuntimeError(
+                "Model artifact feature contract does not match metadata. "
+                f"artifact={artifact_feature_columns}, metadata={self.feature_columns}"
+            )
+        if not artifact_feature_columns:
+            raise RuntimeError("Loaded XGBoost artifact does not expose feature names; refusing unverified inference.")
+
         supported_engineered = {
             name for name in FEATURE_COLUMNS
         } | {
