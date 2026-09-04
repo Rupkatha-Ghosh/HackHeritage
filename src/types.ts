@@ -82,6 +82,19 @@ export interface SatelliteObservation {
   acquisitionTime?: string;
   cloudCoverPct?: number;
   distanceKm?: number;
+  observationAgeHours?: number;
+  processingLevel?: string;
+  productType?: string;
+  timeliness?: string;
+  orbitState?: string;
+  relativeOrbit?: number;
+  productSizeMb?: number;
+  assetCount?: number;
+  sceneWaterPct?: number;
+  sceneVegetationPct?: number;
+  sceneCloudShadowPct?: number;
+  sceneHighCloudPct?: number;
+  sceneMediumCloudPct?: number;
 }
 
 export type SatelliteStatus = 'LIVE' | 'DEGRADED' | 'UNAVAILABLE' | 'SIMULATED';
@@ -107,6 +120,14 @@ export interface SatelliteData {
   thermalFrontDetected?: boolean;
   surfaceSlickAnomalies?: boolean;
   confidenceScore?: number;
+  latestObservationAgeHours?: number;
+  nearestObservationDistanceKm?: number;
+  collectionCount?: number;
+  totalAssetCount?: number;
+  totalProductSizeMb?: number;
+  bestSceneWaterPct?: number;
+  bestSceneHighCloudPct?: number;
+  bestSceneMediumCloudPct?: number;
   source: string;
   sourceUrl: string;
   observationType: 'OBSERVATION' | 'NO_OBSERVATION';

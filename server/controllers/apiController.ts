@@ -86,6 +86,7 @@ export async function satelliteAnalysis(req: Request, res: Response) {
   try {
     const lat = Number(req.body.latitude);
     const lon = Number(req.body.longitude);
+    const forceRefresh = Boolean(req.body.forceRefresh);
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
     }
@@ -95,7 +96,7 @@ export async function satelliteAnalysis(req: Request, res: Response) {
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return res.status(400).json({ error: 'startTime and endTime must be valid ISO timestamps.' });
     if (start > now) { start = new Date(now.getTime() - 7 * 24 * 3600000); end = now; }
     else { if (end > now) end = now; if (start >= end) start = new Date(end.getTime() - 24 * 3600000); }
-    res.json(await fetchSatelliteData(lat, lon, start.toISOString(), end.toISOString()));
+    res.json(await fetchSatelliteData(lat, lon, start.toISOString(), end.toISOString(), forceRefresh));
   } catch (error) {
     console.error('Satellite analysis error:', error);
     res.status(502).json({ error: error instanceof Error ? error.message : 'Satellite observation search failed.' });
