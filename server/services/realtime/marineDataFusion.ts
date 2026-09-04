@@ -36,8 +36,28 @@ async function openMeteoSource(lat: number, lon: number): Promise<MarineSourceOb
   }
 }
 
+const configuredProviders = (): MarineObservationSource[] => [
+  incoisProvider,
+  mosdacProvider,
+  { id: 'OPEN_METEO', displayName: 'Open-Meteo', priority: OPEN_METEO_PRIORITY, enabled: true, fetch: openMeteoSource },
+];
+
+export function getRealtimeSourceReadiness() {
+  return configuredProviders().map((provider) => ({
+    id: provider.id,
+    displayName: provider.displayName,
+    enabled: provider.enabled,
+    priority: provider.priority,
+    configured: provider.id === 'OPEN_METEO'
+      ? true
+      : provider.id === 'INCOIS'
+        ? Boolean(process.env.INCOIS_REALTIME_URL)
+        : Boolean(process.env.MOSDAC_REALTIME_URL),
+  }));
+}
+
 export async function fetchFusedRealtimeMarineObservation(lat: number, lon: number): Promise<FusedMarineObservation> {
-  const providers: MarineObservationSource[] = [incoisProvider, mosdacProvider, { id: 'OPEN_METEO', displayName: 'Open-Meteo', priority: OPEN_METEO_PRIORITY, enabled: true, fetch: openMeteoSource }];
+  const providers = configuredProviders();
   const enabled = providers.filter((provider) => provider.enabled);
   const observations = await Promise.all(enabled.map((provider) => provider.fetch(lat, lon)));
   const nowMs = Date.now();
