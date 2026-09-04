@@ -49,23 +49,22 @@ function loadPersisted(): void {
   }
 }
 
-function persist(event: MarineSourceTelemetry): void {
+export function recordMarineTelemetry(event: MarineSourceTelemetry): void {
+  loadPersisted();
+  events.push(event);
+  const exceededCapacity = events.length > MAX_EVENTS;
+  if (exceededCapacity) events.splice(0, events.length - MAX_EVENTS);
+
   try {
     mkdirSync(dirname(STORE_PATH), { recursive: true });
-    appendFileSync(STORE_PATH, `${JSON.stringify(event)}\n`, 'utf8');
-    if (events.length >= MAX_EVENTS) {
+    if (exceededCapacity) {
       writeFileSync(STORE_PATH, `${events.map((item) => JSON.stringify(item)).join('\n')}\n`, 'utf8');
+    } else {
+      appendFileSync(STORE_PATH, `${JSON.stringify(event)}\n`, 'utf8');
     }
   } catch (error) {
     console.warn(`Marine telemetry write failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
-
-export function recordMarineTelemetry(event: MarineSourceTelemetry): void {
-  loadPersisted();
-  events.push(event);
-  if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
-  persist(event);
 }
 
 export function getMarineTelemetry(limit = 50): MarineSourceTelemetry[] {
