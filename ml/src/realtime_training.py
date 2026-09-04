@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -192,6 +192,7 @@ def mature_labels() -> None:
     labeled = df[df["label_status"] == "LABELED"].copy()
     if labeled.empty:
         print("No matured live rows available yet.")
+        print(f"Training remains WAITING_FOR_6H_LABELS. Re-run collect+mature after at least {RISK_HORIZON_HOURS} hours.")
         return
     labeled = labeled.drop(columns=["retrieved_at", "label_status", "label_observed_at"], errors="ignore")
     labeled["risk_class"] = labeled["future_risk_class"].astype(int)
@@ -203,7 +204,10 @@ def mature_labels() -> None:
 
 def train_live_candidate() -> None:
     if not LABELED_PATH.exists():
-        raise FileNotFoundError(f"No matured live dataset at {LABELED_PATH}. Run collect then mature first.")
+        print("LIVE CANDIDATE: WAITING — no matured +6h live labels are available yet.")
+        print(f"Run `python ml/src/realtime_training.py collect` hourly, then `python ml/src/realtime_training.py mature` after the {RISK_HORIZON_HOURS}h horizon matures.")
+        print("No model artifact was created or modified.")
+        return
     historical = load_dataset()
     live = pd.read_parquet(LABELED_PATH)
     required = {"location_id", "timestamp", *FEATURE_COLUMNS, "risk_class"}
@@ -214,7 +218,9 @@ def train_live_candidate() -> None:
     live = live[live["location_id"] != "digha_wb"].copy()
     live = live[live["timestamp"] >= pd.Timestamp("2026-01-01", tz="UTC")].copy()
     if live.empty:
-        raise ValueError("No eligible non-Digha 2026+ live rows available for candidate training.")
+        print("LIVE CANDIDATE: WAITING — no eligible non-Digha 2026+ live rows available.")
+        print("No model artifact was created or modified.")
+        return
     live = live.drop_duplicates(["location_id", "timestamp"])
 
     historical, feature_columns = add_dynamic_features(historical)
