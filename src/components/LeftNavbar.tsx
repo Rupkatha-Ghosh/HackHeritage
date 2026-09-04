@@ -33,7 +33,11 @@ const languages: { code: LanguageCode; label: string; native: string }[] = [
   { code: 'hi', label: 'Hindi', native: 'हिन्दी' },
   { code: 'ta', label: 'Tamil', native: 'தமிழ்' },
   { code: 'or', label: 'Odia', native: 'ଓଡ଼ିଆ' },
-  { code: 'te', label: 'Telugu', native: 'తెలుగు' }
+  { code: 'te', label: 'Telugu', native: 'తెలుగు' },
+  { code: 'ml', label: 'Malayalam', native: 'മലയാളം' },
+  { code: 'gu', label: 'Gujarati', native: 'ગુજરાતી' },
+  { code: 'mr', label: 'Marathi', native: 'मराठी' },
+  { code: 'kn', label: 'Kannada', native: 'ಕನ್ನಡ' }
 ];
 
 const navItems: {
@@ -374,6 +378,44 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
           </div>
         </div>
       )}
+
+      {/* ---- Mobile Sticky Bottom Thumb Navigation Bar ------------------- */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-slate-700 bg-slate-950/95 py-2 px-1 backdrop-blur-lg lg:hidden shadow-2xl">
+        {navItems.slice(0, 4).map((item) => {
+          const Icon = item.icon;
+          const isActive = currentTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setCurrentTab(item.id)}
+              className={`flex flex-col items-center justify-center min-h-[52px] min-w-[64px] py-1 px-2 rounded-xl transition-all ${
+                isActive
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
+                  : 'text-slate-400 hover:text-slate-200 active:scale-95'
+              }`}
+            >
+              <Icon className={`h-5 w-5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+              <span className="text-[10px] tracking-tight mt-1 truncate max-w-[70px]">
+                {item.label.split(' ')[0]}
+              </span>
+            </button>
+          );
+        })}
+        {/* Mobile Language Selector Button */}
+        <div className="flex flex-col items-center justify-center min-h-[52px] px-1">
+          <select
+            value={language}
+            onChange={(e) => setLanguage(e.target.value as LanguageCode)}
+            className="bg-slate-900 text-cyan-300 font-bold border border-cyan-500/40 text-[11px] rounded-xl px-2 py-2 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-400"
+          >
+            {languages.map((l) => (
+              <option key={l.code} value={l.code} className="bg-slate-900 text-slate-200">
+                {l.native}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {/* ---- Desktop sidebar -------------------------------------------- */}
       <aside

@@ -1,19 +1,20 @@
 import React from 'react';
 import { Satellite, Sparkles, Droplet, Eye, CheckCircle, AlertTriangle, Clock, Scan, Compass, ExternalLink } from 'lucide-react';
-import { SatelliteData, LocationInfo, LanguageCode } from '../types';
+import { SatelliteData, LocationInfo, OceanData, LanguageCode } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 import { localizeSatelliteText } from '../utils/presentationLocalization';
 
 interface SatelliteAnalysisViewProps {
   satellite: SatelliteData;
   location: LocationInfo;
-  language: LanguageCode;
+  ocean?: OceanData;
+  language?: LanguageCode;
 }
 
 const formatValue = (value: number | undefined, digits = 2) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'N/A';
 
-export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location, language }) => {
+export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location, ocean, language = 'en' }) => {
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   const statusClass = satellite.status === 'LIVE'
     ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'

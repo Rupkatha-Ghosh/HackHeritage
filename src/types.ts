@@ -1,6 +1,6 @@
 export type RiskLevel = 'LOW' | 'MODERATE' | 'HIGH' | 'EXTREME';
 
-export type LanguageCode = 'en' | 'bn' | 'hi' | 'ta' | 'or' | 'te';
+export type LanguageCode = 'en' | 'bn' | 'hi' | 'ta' | 'or' | 'te' | 'ml' | 'gu' | 'mr' | 'kn';
 
 export interface LocationInfo {
   name: string;

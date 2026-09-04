@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Mic, 
-  MicOff, 
-  Send, 
-  Sparkles, 
-  MapPin, 
-  Calendar, 
+import {
+  Search,
+  Mic,
+  MicOff,
+  Send,
+  Sparkles,
+  MapPin,
+  Calendar,
   HelpCircle,
   Volume2,
   RefreshCw,
@@ -36,31 +36,31 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
 
-  // Pre-configured scenario presets
+  // Fisherman-tailored quick question chips with icon tags
   const samplePrompts = [
     {
-      text: 'Is it safe to fish near Digha tomorrow morning?',
-      tag: 'Digha • Tomorrow Morning',
+      text: 'Is it safe to go fishing near Digha right now?',
+      tag: '⚓ Can I go fishing today?',
       loc: 'digha'
     },
     {
-      text: 'Puri sea beach wave surge and artisanal fishing advisory',
-      tag: 'Puri • Swell Surge',
+      text: 'How high are the waves and ocean swell near Puri?',
+      tag: '🌊 How high are the waves?',
       loc: 'puri'
     },
     {
-      text: 'Visakhapatnam deep sea current and gale squall warning',
-      tag: 'Vizag • Deep Sea',
+      text: 'Visakhapatnam wind speed, gusts, and storm warning',
+      tag: '💨 Is wind speed dangerous?',
       loc: 'visakhapatnam'
     },
     {
-      text: 'Kochi Arabian sea trawler safety and chlorophyll PFZ check',
-      tag: 'Kochi • Trawler Safety',
+      text: 'Kochi sea weather and small boat advisory',
+      tag: '⛈️ Any storm / rain warning?',
       loc: 'kochi'
     },
     {
-      text: 'Paradeep major port storm advisory and craft restrictions',
-      tag: 'Paradeep • Storm Alert',
+      text: 'Paradeep port swell surge and craft restrictions',
+      tag: '🛑 Is port advisory active?',
       loc: 'paradeep'
     }
   ];
@@ -80,7 +80,11 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
         hi: 'hi-IN',
         ta: 'ta-IN',
         or: 'or-IN',
-        te: 'te-IN'
+        te: 'te-IN',
+        ml: 'ml-IN',
+        gu: 'gu-IN',
+        mr: 'mr-IN',
+        kn: 'kn-IN'
       };
       recognition.lang = langMap[language] || 'en-IN';
 
@@ -147,7 +151,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
   return (
     <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
-      
+
       {/* Query Bar Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
@@ -186,11 +190,10 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
               type="button"
               onClick={toggleListening}
               title={isListening ? 'Stop listening' : 'Start voice input'}
-              className={`p-2 rounded-lg transition-all ${
-                isListening
+              className={`p-2 rounded-lg transition-all ${isListening
                   ? 'bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/50'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
-              }`}
+                }`}
             >
               {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </button>
@@ -228,7 +231,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
         {/* Optional Structured Filters (Location & Time Override) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-          
+
           <div className="flex items-center space-x-2 bg-slate-950/70 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
             <MapPin className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
             <select

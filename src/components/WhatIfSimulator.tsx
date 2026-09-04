@@ -263,10 +263,51 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
                 {simRisk.primaryRecommendation}
               </p>
             </div>
+
+            {/* 2D Hazard Envelope Matrix Grid */}
+            <div className="space-y-1.5 pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <span>Hs vs Wind Hazard Matrix</span>
+                <span className="text-cyan-400">● Active Position</span>
+              </div>
+              <div className="grid grid-cols-5 gap-1 text-[9px] font-mono text-center">
+                {/* Wave rows from high to low */}
+                {[3.5, 2.5, 1.8, 1.2, 0.6].map((waveThreshold) => (
+                  <React.Fragment key={waveThreshold}>
+                    {[8, 14, 20, 26, 32].map((windThreshold) => {
+                      const isCurrentCell = 
+                        Math.abs(simWaveHeight - waveThreshold) < 0.6 && 
+                        Math.abs(simWindSpeed - windThreshold) < 4;
+
+                      const cellRisk = 
+                        waveThreshold > 3.0 || windThreshold > 28 ? 'EXTREME' :
+                        waveThreshold > 2.0 || windThreshold > 20 ? 'HIGH' :
+                        waveThreshold > 1.3 || windThreshold > 12 ? 'MODERATE' : 'LOW';
+
+                      const cellBg = cellRisk === 'EXTREME' ? 'bg-red-950/80 text-red-300 border-red-800/60' :
+                        cellRisk === 'HIGH' ? 'bg-rose-950/80 text-rose-300 border-rose-800/60' :
+                        cellRisk === 'MODERATE' ? 'bg-amber-950/80 text-amber-300 border-amber-800/60' :
+                        'bg-emerald-950/80 text-emerald-300 border-emerald-800/60';
+
+                      return (
+                        <div 
+                          key={`${waveThreshold}-${windThreshold}`}
+                          className={`p-1 rounded border transition-all ${cellBg} ${isCurrentCell ? 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-slate-950 font-bold scale-105 z-10' : 'opacity-75'}`}
+                          title={`Hs: ~${waveThreshold}m | Wind: ~${windThreshold}kts`}
+                        >
+                          {waveThreshold}m
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
           </div>
 
-          <div className="text-[11px] font-mono text-slate-500 pt-2 border-t border-slate-800">
-            Model: {simRisk.modelVersion} • Instant re-calculation
+          <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-800 flex items-center justify-between">
+            <span>Model: {simRisk.modelVersion}</span>
+            <span>Realtime Safety Curve</span>
           </div>
 
         </div>

@@ -9,7 +9,7 @@ type RiskCopy = {
   safe: string[];
 };
 
-const copy: Record<LanguageCode, Record<RiskPrediction['riskLevel'], RiskCopy>> = {
+const copy: Partial<Record<LanguageCode, Record<RiskPrediction['riskLevel'], RiskCopy>>> = {
   en: {
     LOW: { primary: 'Favorable conditions. Safe for routine fishing operations.', summary: (o, w) => `Normal sea state (Douglas Scale ${o.seaStateIndex}). Wave height is ${o.waveHeightMeters.toFixed(1)}m and wind is ${w.windSpeedKts.toFixed(0)} kts.`, advisories: ['Carry lifejackets and verify VHF Marine Channel 16.', 'Observe routine tidal timings near harbor sandbars.'], restricted: [], safe: ['Traditional non-motorized boats', 'Motorized FRP crafts', 'Mechanized trawlers and gillnetters', 'Commercial vessels'] },
     MODERATE: { primary: 'Proceed with elevated caution. Small crafts should remain vigilant near breakers.', summary: (o, w) => `Moderate sea state (Douglas Scale ${o.seaStateIndex}). Waves are ${o.waveHeightMeters.toFixed(1)}m with gusts up to ${w.windGustKts.toFixed(0)} kts.`, advisories: ['Keep small non-motorized boats close to shore.', 'Check anchor lines, bilges, and fuel before departure.', 'Monitor VHF Marine Channel 16 for official updates.'], restricted: ['Small unstabilized canoes and rafts'], safe: ['Experienced motorized FRP crews', 'Deep-sea mechanized trawlers', 'Coast Guard patrol vessels'] },
@@ -49,7 +49,7 @@ const copy: Record<LanguageCode, Record<RiskPrediction['riskLevel'], RiskCopy>> 
 };
 
 export function localizeRiskPrediction(risk: RiskPrediction, weather: WeatherData, ocean: OceanData, language: LanguageCode): RiskPrediction {
-  const selected = copy[language][risk.riskLevel] || copy.en[risk.riskLevel];
+  const selected = (copy[language] || copy.en!)[risk.riskLevel];
   return {
     ...risk,
     primaryRecommendation: selected.primary,
@@ -81,7 +81,7 @@ export function buildLocalizedGroundedSummary(
   provider: string,
   retrievedAt: string,
 ): string {
-  const labels: Record<LanguageCode, { live: string; wave: string; wind: string; swell: string; current: string; sea: string; retrieved: string; advisories: string; evidence: string }> = {
+  const labels: Partial<Record<LanguageCode, { live: string; wave: string; wind: string; swell: string; current: string; sea: string; retrieved: string; advisories: string; evidence: string }>> = {
     en: { live: 'LIVE DATA', wave: 'Significant Wave Height', wind: 'Wind', swell: 'Swell Period', current: 'Current', sea: 'Sea State', retrieved: 'Retrieved', advisories: 'Safety Advisories', evidence: 'Evidence' },
     bn: { live: 'লাইভ তথ্য', wave: 'উল্লেখযোগ্য ঢেউয়ের উচ্চতা', wind: 'বাতাস', swell: 'সোয়েল পর্যায়', current: 'স্রোত', sea: 'সমুদ্র অবস্থা', retrieved: 'সংগ্রহের সময়', advisories: 'নিরাপত্তা নির্দেশিকা', evidence: 'প্রমাণ' },
     hi: { live: 'लाइव डेटा', wave: 'महत्वपूर्ण लहर ऊंचाई', wind: 'हवा', swell: 'स्वेल अवधि', current: 'धारा', sea: 'समुद्री स्थिति', retrieved: 'प्राप्त समय', advisories: 'सुरक्षा सलाह', evidence: 'साक्ष्य' },
