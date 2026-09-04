@@ -153,12 +153,12 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
         <div className="flex items-center space-x-2">
           <Sparkles className="h-4 w-4 text-cyan-400" />
           <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
-            Marine Intelligence Query
+            {dict.queryTitle}
           </h2>
         </div>
         <span className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
           <Radio className="h-3 w-3 text-emerald-400 animate-pulse" />
-          <span>Multilingual Voice & Text</span>
+          <span>{dict.languageMode}</span>
         </span>
       </div>
 
@@ -205,7 +205,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <>
-                  <span>Run</span>
+                  <span>{dict.run}</span>
                   <Send className="h-3 w-3" />
                 </>
               )}
@@ -237,7 +237,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
               onChange={(e) => setSelectedLocation(e.target.value)}
               className="bg-transparent text-slate-200 text-xs w-full cursor-pointer"
             >
-              <option value="" className="bg-slate-900 text-slate-400">Auto-detect Coastal Location</option>
+              <option value="" className="bg-slate-900 text-slate-400">{dict.autoLocation}</option>
               {Object.entries(COASTAL_LOCATIONS).map(([key, loc]) => (
                 <option key={key} value={key} className="bg-slate-900 text-slate-200">
                   {loc.name} ({loc.state})
@@ -254,11 +254,11 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
               onChange={(e) => setSelectedTime(e.target.value)}
               className="bg-transparent text-slate-200 text-xs w-full cursor-pointer"
             >
-              <option value="" className="bg-slate-900 text-slate-400">Auto-detect Forecast Time</option>
-              <option value="current" className="bg-slate-900 text-slate-200">Current Next 6 Hours</option>
-              <option value="tomorrow morning" className="bg-slate-900 text-slate-200">Tomorrow Morning (06:00 - 12:00)</option>
-              <option value="tomorrow" className="bg-slate-900 text-slate-200">Tomorrow Full Day</option>
-              <option value="weekend" className="bg-slate-900 text-slate-200">Upcoming Weekend Window</option>
+              <option value="" className="bg-slate-900 text-slate-400">{dict.autoTime}</option>
+              <option value="current" className="bg-slate-900 text-slate-200">{dict.currentNextHours}</option>
+              <option value="tomorrow morning" className="bg-slate-900 text-slate-200">{dict.tomorrowMorning}</option>
+              <option value="tomorrow" className="bg-slate-900 text-slate-200">{dict.tomorrowFullDay}</option>
+              <option value="weekend" className="bg-slate-900 text-slate-200">{dict.upcomingWeekend}</option>
             </select>
           </div>
 
@@ -269,8 +269,8 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
       {/* Suggested Prompt Chips */}
       <div className="space-y-1.5 pt-1">
         <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
-          <span>Operational Benchmark Scenarios:</span>
-          <span className="text-[10px] text-cyan-400">Click to run</span>
+          <span>{dict.benchmarkScenarios}</span>
+          <span className="text-[10px] text-cyan-400">{dict.clickToRun}</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {samplePrompts.map((p, idx) => (

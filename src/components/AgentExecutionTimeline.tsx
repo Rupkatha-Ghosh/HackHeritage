@@ -13,17 +13,22 @@ import {
   ArrowRight,
   ShieldAlert
 } from 'lucide-react';
-import { AgentStepTrace } from '../types';
+import { AgentStepTrace, LanguageCode } from '../types';
+import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
+import { localizeTraceText } from '../utils/presentationLocalization';
 
 interface AgentExecutionTimelineProps {
   traces: AgentStepTrace[];
   queryId: string;
+  language: LanguageCode;
 }
 
 export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
   traces,
-  queryId
+  queryId,
+  language
 }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
 
   const toggleExpand = (name: string) => {
@@ -63,7 +68,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
         <div className="flex items-center space-x-2">
           <GitBranch className="h-4 w-4 text-cyan-400" />
           <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
-            LangGraph Multi-Agent Orchestration Audit
+            {dict.agentWorkflow}
           </h3>
         </div>
         <div className="flex items-center space-x-2 text-[11px] font-mono text-slate-400">
@@ -71,13 +76,13 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
             Trace ID: {queryId}
           </span>
           <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded">
-            All Nodes Validated
+            {localizeTraceText('All Nodes Validated', language)}
           </span>
         </div>
       </div>
 
       <p className="text-xs text-slate-300">
-        Deterministic multi-agent execution pipeline with state isolation, parallelized environmental connectors, and strict grounding verification before LLM response generation.
+        {language === 'bn' ? 'অবস্থা বিচ্ছিন্নতা, সমান্তরাল পরিবেশগত সংযোগ এবং LLM উত্তরের আগে কঠোর যাচাইসহ নির্ধারিত মাল্টি-এজেন্ট কার্যপ্রবাহ।' : language === 'hi' ? 'स्टेट आइसोलेशन, समानांतर पर्यावरणीय कनेक्टर और LLM उत्तर से पहले कड़े सत्यापन वाला मल्टी-एजेंट कार्यप्रवाह।' : language === 'ta' ? 'நிலை தனிமைப்படுத்தல், இணை சுற்றுச்சூழல் இணைப்புகள் மற்றும் LLM பதிலுக்கு முன் சரிபார்ப்புடன் கூடிய பணி ஓட்டம்.' : language === 'or' ? 'ଷ୍ଟେଟ୍ ବିଚ୍ଛିନ୍ନତା, ସମାନ୍ତରାଳ ପରିବେଶୀୟ ସଂଯୋଗ ଓ LLM ଉତ୍ତର ପୂର୍ବରୁ ଯାଞ୍ଚ ସହ କାର୍ଯ୍ୟପ୍ରବାହ।' : language === 'te' ? 'స్టేట్ ఐసోలేషన్, సమాంతర పర్యావరణ కనెక్టర్లు మరియు LLM సమాధానానికి ముందు కఠిన ధృవీకరణతో కూడిన వర్క్‌ఫ్లో.' : 'Deterministic multi-agent execution pipeline with state isolation, parallelized environmental connectors, and strict grounding verification before LLM response generation.'}
       </p>
 
       {/* Interactive Workflow Node Chain */}
@@ -116,7 +121,7 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate max-w-[280px] sm:max-w-md">
-                      {trace.outputSummary || trace.inputSummary}
+                      {localizeTraceText(trace.outputSummary || trace.inputSummary, language)}
                     </div>
                   </div>
                 </div>
@@ -146,26 +151,26 @@ export const AgentExecutionTimeline: React.FC<AgentExecutionTimelineProps> = ({
               {isExpanded && (
                 <div className="px-3.5 py-3 border-t border-slate-800/80 bg-slate-950 space-y-2 text-xs font-mono">
                   <div>
-                    <span className="text-slate-400 uppercase text-[10px]">Input Schema:</span>
+                    <span className="text-slate-400 uppercase text-[10px]">{dict.inputSchema}</span>
                     <p className="text-slate-200 mt-0.5 bg-slate-900/90 p-2 rounded border border-slate-800">
-                      {trace.inputSummary}
+                      {localizeTraceText(trace.inputSummary, language)}
                     </p>
                   </div>
 
                   <div>
-                    <span className="text-slate-400 uppercase text-[10px]">Output Result:</span>
+                    <span className="text-slate-400 uppercase text-[10px]">{dict.outputResult}</span>
                     <p className="text-emerald-300 mt-0.5 bg-slate-900/90 p-2 rounded border border-slate-800">
-                      {trace.outputSummary || 'In progress...'}
+                      {localizeTraceText(trace.outputSummary || 'In progress...', language)}
                     </p>
                   </div>
 
                   <div>
-                    <span className="text-slate-400 uppercase text-[10px]">Execution Telemetry Logs:</span>
+                    <span className="text-slate-400 uppercase text-[10px]">{dict.telemetryLogs}</span>
                     <div className="bg-black/80 rounded p-2 text-[11px] text-slate-400 space-y-1 mt-0.5 border border-slate-800">
                       {trace.logs.map((log, lIdx) => (
                         <div key={lIdx} className="flex items-center space-x-1.5">
                           <span className="text-cyan-500">{'>'}</span>
-                          <span>{log}</span>
+                          <span>{localizeTraceText(log, language)}</span>
                         </div>
                       ))}
                     </div>
