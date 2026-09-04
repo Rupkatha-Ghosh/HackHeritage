@@ -37,6 +37,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const geojsonLayerRef = useRef<L.GeoJSON | null>(null);
   const targetMarkerRef = useRef<L.Marker | null>(null);
   /* Leaflet drives its camera in JS, so no CSS media query can quiet it. */
@@ -48,6 +49,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [showBuoys, setShowBuoys] = useState<boolean>(true);
   const [showSstOverlay, setShowSstOverlay] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [tileMode, setTileMode] = useState<'nautical' | 'dark' | 'satellite'>('dark');
 
   // Initialize Map
   useEffect(() => {
@@ -61,15 +63,15 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         attributionControl: true
       });
 
-      // Add clean dark nautical tiles. CARTO's basemaps are licensed on the
-      // condition that CARTO and OpenStreetMap are credited, so the attribution
-      // control stays on — styled down to 9px in index.css to keep it discreet.
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      // Add default dark tactical tile layer
+      const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         subdomains: 'abcd',
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
       }).addTo(map);
+
+      tileLayerRef.current = tileLayer;
 
       // Custom Zoom control in bottom right
       L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -109,6 +111,33 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       easeLinearity: 0.25
     });
   }, [location.latitude, location.longitude, reducedMotion]);
+
+  // Handle Basemap Tile Switcher
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    let attribution = '&copy; OpenStreetMap &copy; CARTO Dark';
+
+    if (tileMode === 'satellite') {
+      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+      attribution = '&copy; Esri World Imagery Satellite';
+    } else if (tileMode === 'nautical') {
+      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+      attribution = '&copy; OpenStreetMap &copy; CARTO Voyager';
+    }
+
+    tileLayerRef.current = L.tileLayer(url, {
+      maxZoom: 19,
+      subdomains: 'abcd',
+      attribution
+    }).addTo(map);
+  }, [tileMode]);
 
   // Render GeoJSON layers & markers
   useEffect(() => {
@@ -273,6 +302,37 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
         {/* Layer Toggles Popover */}
         <div className="bg-slate-950/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-lg flex items-center space-x-1">
+          {/* Basemap Mode Switcher */}
+          <div className="flex items-center space-x-0.5 border-r border-slate-800 pr-1 mr-0.5">
+            <button
+              onClick={() => setTileMode('dark')}
+              title="Tactical Dark Map"
+              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                tileMode === 'dark' ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              Dark
+            </button>
+            <button
+              onClick={() => setTileMode('satellite')}
+              title="Esri World Satellite Photos"
+              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                tileMode === 'satellite' ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              Satellite
+            </button>
+            <button
+              onClick={() => setTileMode('nautical')}
+              title="Nautical Chart"
+              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
+                tileMode === 'nautical' ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              Chart
+            </button>
+          </div>
+
           <button
             onClick={() => setShowHazardZones(!showHazardZones)}
             title="Toggle Hazard Polygons"

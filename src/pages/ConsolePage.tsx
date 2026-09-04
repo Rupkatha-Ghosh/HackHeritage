@@ -126,6 +126,33 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
             Project brief
           </button>
 
+          {/* Multi-Port Coastal Hubs Live Status Bar */}
+          <div className="flex items-center space-x-2 overflow-x-auto py-1 px-3 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono no-scrollbar">
+            <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider shrink-0 flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Coastal Stations:</span>
+            </span>
+            {['digha', 'puri', 'paradeep', 'visakhapatnam', 'kochi', 'chennai', 'mumbai'].map((key) => {
+              const loc = COASTAL_LOCATIONS[key];
+              if (!loc) return null;
+              const isSelected = analysisData?.location.name.toLowerCase().includes(key);
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleLocationSelect(key)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition-all flex items-center space-x-1.5 ${
+                    isSelected
+                      ? 'bg-cyan-500 text-slate-950 shadow-sm font-bold'
+                      : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <span>{loc.name.split(' ')[0]}</span>
+                  <span className="text-[9px] opacity-75 font-mono">({loc.latitude.toFixed(1)}°N)</span>
+                </button>
+              );
+            })}
+          </div>
+
           {isLoading && (
             <div className="flex items-center gap-3 rounded-sm border border-shoal/25 bg-shoal/8 p-3.5">
               <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-shoal" />

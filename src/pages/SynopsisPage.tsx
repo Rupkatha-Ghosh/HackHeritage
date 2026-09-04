@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   motion,
   useMotionValueEvent,
@@ -20,6 +20,8 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Waves,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { ContourField } from "../components/ui/ContourField";
 import { DepthMarker } from "../components/ui/DepthMarker";
@@ -28,6 +30,7 @@ import { SpotlightCard } from "../components/ui/SpotlightCard";
 import { GlassPanel } from "../components/ui/GlassPanel";
 import { ShimmerText } from "../components/ui/ShimmerText";
 import { SoundingNumber } from "../components/ui/SoundingNumber";
+import { hydrophoneEngine } from "../services/hydrophoneAudio";
 import { AttractButton } from "../components/ui/AttractButton";
 import { Marquee } from "../components/ui/Marquee";
 import { BentoGrid, BentoCell } from "../components/ui/BentoGrid";
@@ -244,6 +247,18 @@ export const SynopsisPage: React.FC<SynopsisPageProps> = ({ onEnterConsole }) =>
   const { scrollYProgress } = useScroll();
   const fieldY = useTransform(scrollYProgress, [0, 1], ["0%", "12%"]);
   const fieldOpacity = useTransform(scrollYProgress, [0, 0.35, 1], [1, 0.7, 0.32]);
+  const [isAudioActive, setIsAudioActive] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = hydrophoneEngine.subscribe((active) => {
+      setIsAudioActive(active);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleToggleAudio = () => {
+    hydrophoneEngine.toggleAudio();
+  };
 
   // The page-load sequence: the headline rises line by line, then the rail and
   // the actions settle in behind it. One orchestrated moment, not scattered effects.
@@ -322,13 +337,37 @@ export const SynopsisPage: React.FC<SynopsisPageProps> = ({ onEnterConsole }) =>
             </span>
           </div>
 
-          <button
-            onClick={onEnterConsole}
-            className="group flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-shoal transition-colors hover:text-buoy"
-          >
-            Live console
-            <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" />
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleToggleAudio}
+              title={isAudioActive ? "Mute hydrophone audio" : "Enable hydrophone ocean audio"}
+              className={`flex items-center gap-2 rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] transition-all ${
+                isAudioActive
+                  ? "border-shoal/60 bg-shoal/20 text-shoal shadow-sm shadow-shoal/30"
+                  : "border-shoal/20 bg-shoal/5 text-fathom hover:border-shoal/40 hover:text-shoal"
+              }`}
+            >
+              {isAudioActive ? (
+                <>
+                  <Volume2 className="h-3.5 w-3.5 text-shoal animate-pulse" />
+                  <span>Hydrophone On</span>
+                </>
+              ) : (
+                <>
+                  <VolumeX className="h-3.5 w-3.5 text-fathom" />
+                  <span>Hydrophone Off</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={onEnterConsole}
+              className="group flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-shoal transition-colors hover:text-buoy"
+            >
+              Live console
+              <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" />
+            </button>
+          </div>
         </div>
       </header>
 

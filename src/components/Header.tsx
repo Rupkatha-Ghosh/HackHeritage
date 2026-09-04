@@ -11,10 +11,13 @@ import {
   SlidersHorizontal, 
   BookOpen,
   Radio,
-  Clock
+  Clock,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { LanguageCode } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
+import { hydrophoneEngine } from '../services/hydrophoneAudio';
 
 interface HeaderProps {
   currentTab: 'dashboard' | 'analysis' | 'satellite' | 'evidence' | 'simulator';
@@ -22,6 +25,7 @@ interface HeaderProps {
   language: LanguageCode;
   setLanguage: (lang: LanguageCode) => void;
   isProcessing?: boolean;
+  onExit?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,10 +33,23 @@ export const Header: React.FC<HeaderProps> = ({
   setCurrentTab,
   language,
   setLanguage,
-  isProcessing = false
+  isProcessing = false,
+  onExit
 }) => {
   const [timeUtc, setTimeUtc] = useState<string>('');
   const [timeIst, setTimeIst] = useState<string>('');
+  const [isAudioActive, setIsAudioActive] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = hydrophoneEngine.subscribe((active) => {
+      setIsAudioActive(active);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleToggleAudio = () => {
+    hydrophoneEngine.toggleAudio();
+  };
 
   useEffect(() => {
     const updateTime = () => {
@@ -193,6 +210,35 @@ export const Header: React.FC<HeaderProps> = ({
               </select>
               <Globe className="h-3.5 w-3.5 text-slate-400 absolute right-2 top-2 pointer-events-none" />
             </div>
+
+            {/* Hydrophone Audio Toggle */}
+            <button
+              id="hydrophone-audio-toggle"
+              onClick={handleToggleAudio}
+              title={isAudioActive ? "Hydrophone Ambiance: Active (Click to mute)" : "Hydrophone Ambiance: Muted (Click to enable ocean audio)"}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
+                isAudioActive
+                  ? "bg-cyan-950/80 border-cyan-500/80 text-cyan-300 shadow-md shadow-cyan-500/20"
+                  : "bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600"
+              }`}
+            >
+              {isAudioActive ? (
+                <>
+                  <Volume2 className="h-4 w-4 text-cyan-400 animate-pulse" />
+                  <span className="text-[11px] font-mono hidden xl:inline text-cyan-300">
+                    HYDROPHONE ON
+                  </span>
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-ping" />
+                </>
+              ) : (
+                <>
+                  <VolumeX className="h-4 w-4 text-slate-400" />
+                  <span className="text-[11px] font-mono hidden xl:inline">
+                    HYDROPHONE OFF
+                  </span>
+                </>
+              )}
+            </button>
 
           </div>
 
