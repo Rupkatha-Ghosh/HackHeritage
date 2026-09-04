@@ -12,7 +12,8 @@ import {
   Clock, 
   Cpu, 
   HelpCircle,
-  FileText
+  FileText,
+  Printer
 } from 'lucide-react';
 import { RiskPrediction, LanguageCode, LocationInfo, TimeWindow } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
@@ -137,20 +138,33 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           </p>
         </div>
 
-        {/* Audio TTS Button */}
-        <button
-          id="btn-risk-audio-narration"
-          onClick={handleToggleAudio}
-          title={isPlayingAudio ? 'Stop audio' : 'Listen to marine risk summary'}
-          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-            isPlayingAudio
-              ? 'bg-cyan-500 text-slate-950 border-cyan-400 animate-pulse shadow-md shadow-cyan-500/50'
-              : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-700'
-          }`}
-        >
-          {isPlayingAudio ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-cyan-400" />}
-          <span className="hidden sm:inline">{isPlayingAudio ? 'Speaking...' : 'Listen Audio'}</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          {/* Print Bulletin Button */}
+          <button
+            id="btn-print-advisory-bulletin"
+            onClick={() => window.print()}
+            title="Print Official Safety Bulletin"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-200 transition-all"
+          >
+            <Printer className="h-3.5 w-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Print Bulletin</span>
+          </button>
+
+          {/* Audio TTS Button */}
+          <button
+            id="btn-risk-audio-narration"
+            onClick={handleToggleAudio}
+            title={isPlayingAudio ? 'Stop audio' : 'Listen to marine risk summary'}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+              isPlayingAudio
+                ? 'bg-cyan-500 text-slate-950 border-cyan-400 animate-pulse shadow-md shadow-cyan-500/50'
+                : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-700'
+            }`}
+          >
+            {isPlayingAudio ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-cyan-400" />}
+            <span className="hidden sm:inline">{isPlayingAudio ? 'Speaking...' : 'Listen Audio'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Score & Categorical Card */}

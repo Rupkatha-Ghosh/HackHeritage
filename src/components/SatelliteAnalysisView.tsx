@@ -1,10 +1,11 @@
 import React from 'react';
 import { Satellite, Sparkles, Droplet, Eye, CheckCircle, AlertTriangle, Clock, Scan, Compass, ExternalLink } from 'lucide-react';
-import { SatelliteData, LocationInfo } from '../types';
+import { SatelliteData, LocationInfo, OceanData } from '../types';
 
 interface SatelliteAnalysisViewProps {
   satellite: SatelliteData;
   location: LocationInfo;
+  ocean?: OceanData;
 }
 
 const formatValue = (value: number | undefined, digits = 2) =>

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Mic, 
-  MicOff, 
-  Send, 
-  Sparkles, 
-  MapPin, 
-  Calendar, 
+import {
+  Search,
+  Mic,
+  MicOff,
+  Send,
+  Sparkles,
+  MapPin,
+  Calendar,
   HelpCircle,
   Volume2,
   RefreshCw,
@@ -147,7 +147,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
   return (
     <div className="bg-slate-900/95 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
-      
+
       {/* Query Bar Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
@@ -186,11 +186,10 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
               type="button"
               onClick={toggleListening}
               title={isListening ? 'Stop listening' : 'Start voice input'}
-              className={`p-2 rounded-lg transition-all ${
-                isListening
+              className={`p-2 rounded-lg transition-all ${isListening
                   ? 'bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-500/50'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
-              }`}
+                }`}
             >
               {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </button>
@@ -228,7 +227,7 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
         {/* Optional Structured Filters (Location & Time Override) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-          
+
           <div className="flex items-center space-x-2 bg-slate-950/70 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300">
             <MapPin className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
             <select
