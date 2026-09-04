@@ -1,5 +1,5 @@
-import React from 'react';
-import { Satellite, Sparkles, Droplet, Eye, CheckCircle, AlertTriangle, Clock, Scan, Compass, ExternalLink } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Satellite, Sparkles, Droplet, Eye, CheckCircle, AlertTriangle, Clock, Scan, Compass, ExternalLink, RefreshCw } from 'lucide-react';
 import { SatelliteData, LocationInfo, LanguageCode } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 import { localizeSatelliteText } from '../utils/presentationLocalization';
@@ -13,11 +13,103 @@ interface SatelliteAnalysisViewProps {
 const formatValue = (value: number | undefined, digits = 2) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'N/A';
 
+const ageHoursFromIso = (iso?: string): number | undefined => {
+  if (!iso) return undefined;
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.max(0, (Date.now() - timestamp) / 3600000);
+};
+
+const formatAge = (hours?: number): string => {
+  if (typeof hours !== 'number' || !Number.isFinite(hours)) return 'Unavailable';
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  if (hours < 48) return `${hours.toFixed(1)} h`;
+  return `${(hours / 24).toFixed(1)} d`;
+};
+
+const formatSceneDistance = (distanceKm?: number): string => {
+  if (typeof distanceKm !== 'number' || !Number.isFinite(distanceKm)) return '';
+  return distanceKm < 0.05 ? '' : `${distanceKm.toFixed(1)} km`;
+};
+
 export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location, language }) => {
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
-  const statusClass = satellite.status === 'LIVE'
+  const [liveSatellite, setLiveSatellite] = useState<SatelliteData>(satellite);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const satelliteUi = {
+    en: { liveProducts: 'Latest Live Sentinel Products', noProducts: 'No live Sentinel product was found for this location and time window.', age: 'Age', distance: 'Distance', catalogue: 'Catalogue metadata', processing: 'Real pixel-derived value from source product', derivedUnavailable: 'No pixel-derived satellite indicators are displayed because this deployment currently receives live catalogue metadata only.', refresh: 'Refresh', refreshing: 'Refreshing', updated: 'Updated', realOnly: 'Only real Copernicus catalogue observations are shown. No synthetic satellite measurements are generated.' },
+    bn: { liveProducts: 'সর্বশেষ লাইভ Sentinel পণ্য', noProducts: 'এই স্থান ও সময়সীমার জন্য কোনো লাইভ Sentinel পণ্য পাওয়া যায়নি।', age: 'বয়স', distance: 'দূরত্ব', catalogue: 'ক্যাটালগ তথ্য', processing: 'পিক্সেল প্রক্রিয়াকরণ উপলব্ধ নয়', derivedUnavailable: 'অনুপলব্ধ: এই মান ক্যাটালগ তথ্য থেকে নির্ণয় করা হয়নি।' },
+    hi: { liveProducts: 'नवीनतम लाइव Sentinel उत्पाद', noProducts: 'इस स्थान और समयावधि के लिए कोई लाइव Sentinel उत्पाद नहीं मिला।', age: 'आयु', distance: 'दूरी', catalogue: 'कैटलॉग जानकारी', processing: 'पिक्सेल प्रसंस्करण उपलब्ध नहीं', derivedUnavailable: 'अनुपलब्ध: यह मान कैटलॉग जानकारी से निर्धारित नहीं है।' },
+    ta: { liveProducts: 'சமீபத்திய நேரடி Sentinel தயாரிப்புகள்', noProducts: 'இந்த இடம் மற்றும் நேரத்திற்கு நேரடி Sentinel தயாரிப்பு கிடைக்கவில்லை.', age: 'வயது', distance: 'தூரம்', catalogue: 'பட்டியல் தகவல்', processing: 'பிக்சல் செயலாக்கம் இல்லை', derivedUnavailable: 'கிடைக்கவில்லை: இந்த மதிப்பு பட்டியல் தகவலிலிருந்து கணிக்கப்படவில்லை.' },
+    or: { liveProducts: 'ସର୍ବଶେଷ ଲାଇଭ୍ Sentinel ଉତ୍ପାଦ', noProducts: 'ଏହି ସ୍ଥାନ ଓ ସମୟ ପାଇଁ କୌଣସି ଲାଇଭ୍ Sentinel ଉତ୍ପାଦ ମିଳିଲା ନାହିଁ।', age: 'ବୟସ', distance: 'ଦୂରତା', catalogue: 'କ୍ୟାଟାଲଗ୍ ତଥ୍ୟ', processing: 'ପିକ୍ସେଲ୍ ପ୍ରକ୍ରିୟାକରଣ ଉପଲବ୍ଧ ନୁହେଁ', derivedUnavailable: 'ଉପଲବ୍ଧ ନୁହେଁ: ଏହି ମୂଲ୍ୟ କ୍ୟାଟାଲଗ୍ ତଥ୍ୟରୁ ନିର୍ଣ୍ଣୟ ହୋଇନାହିଁ।' },
+    te: { liveProducts: 'తాజా లైవ్ Sentinel ఉత్పత్తులు', noProducts: 'ఈ ప్రదేశం మరియు సమయానికి లైవ్ Sentinel ఉత్పత్తి కనుగొనబడలేదు.', age: 'వయస్సు', distance: 'దూరం', catalogue: 'కేటలాగ్ సమాచారం', processing: 'పిక్సెల్ ప్రాసెసింగ్ అందుబాటులో లేదు', derivedUnavailable: 'అందుబాటులో లేదు: ఈ విలువ కేటలాగ్ సమాచారం నుంచి నిర్ణయించబడలేదు.' }
+  }[language] || {
+    liveProducts: 'Latest Live Sentinel Products', noProducts: 'No live Sentinel product was found for this location and time window.', age: 'Age', distance: 'Distance', catalogue: 'Catalogue metadata', processing: 'Real pixel-derived value from source product', derivedUnavailable: 'No pixel-derived satellite indicators are displayed because this deployment currently receives live catalogue metadata only.', refresh: 'Refresh', refreshing: 'Refreshing', updated: 'Updated', realOnly: 'Only real Copernicus catalogue observations are shown. No synthetic satellite measurements are generated.'
+  };
+  const currentSatellite = liveSatellite || satellite;
+  const derivedMetrics = useMemo(() => [
+    { title: dict.chlorophyll, icon: <Sparkles className="h-3.5 w-3.5 text-emerald-400" />, value: currentSatellite.chlorophyllConcentrationMgM3, unit: 'mg/m³' },
+    { title: dict.sstAnomalyLabel, icon: <Compass className="h-3.5 w-3.5 text-rose-400" />, value: currentSatellite.sstAnomalyC, unit: '°C' },
+    { title: dict.turbidity, icon: <Droplet className="h-3.5 w-3.5 text-amber-400" />, value: currentSatellite.turbidityNTU, unit: 'NTU' },
+    { title: dict.sarRoughness, icon: <Scan className="h-3.5 w-3.5 text-purple-400" />, value: currentSatellite.sarRoughnessIndex, unit: 'index' },
+  ].filter((metric) => typeof metric.value === 'number' && Number.isFinite(metric.value)), [currentSatellite, dict]);
+  const collectionCount = new Set(currentSatellite.observations.map((observation) => observation.collectionId)).size;
+  const latestObservationAge = currentSatellite.latestObservationAgeHours ?? currentSatellite.observationAgeHours ?? ageHoursFromIso(currentSatellite.acquisitionTime);
+  const nearestDistanceKm = currentSatellite.observations
+    .map((observation) => observation.distanceKm)
+    .filter((distance): distance is number => typeof distance === 'number' && Number.isFinite(distance))
+    .sort((a, b) => a - b)[0];
+  const realSignalCards = [
+    { title: 'Latest pass age', icon: <Clock className="h-3.5 w-3.5 text-emerald-400" />, value: formatAge(latestObservationAge), note: 'Computed from acquisition time', available: typeof latestObservationAge === 'number' },
+    { title: 'Collections', icon: <Scan className="h-3.5 w-3.5 text-purple-400" />, value: String(currentSatellite.collectionCount ?? collectionCount), note: 'Sentinel collection families', available: (currentSatellite.collectionCount ?? collectionCount) > 0 },
+    { title: 'Nearest edge', icon: <Compass className="h-3.5 w-3.5 text-amber-400" />, value: formatSceneDistance(currentSatellite.nearestObservationDistanceKm ?? nearestDistanceKm), note: 'Shown only when outside scene', available: !!formatSceneDistance(currentSatellite.nearestObservationDistanceKm ?? nearestDistanceKm) },
+    { title: 'Asset files', icon: <ExternalLink className="h-3.5 w-3.5 text-sky-400" />, value: typeof currentSatellite.totalAssetCount === 'number' ? String(currentSatellite.totalAssetCount) : '', note: 'Real product asset entries', available: typeof currentSatellite.totalAssetCount === 'number' },
+    { title: 'Product volume', icon: <Droplet className="h-3.5 w-3.5 text-blue-400" />, value: typeof currentSatellite.totalProductSizeMb === 'number' ? `${currentSatellite.totalProductSizeMb.toFixed(1)} MB` : '', note: 'Catalogue product size', available: typeof currentSatellite.totalProductSizeMb === 'number' },
+    { title: 'Scene water', icon: <Sparkles className="h-3.5 w-3.5 text-teal-400" />, value: typeof currentSatellite.bestSceneWaterPct === 'number' ? `${currentSatellite.bestSceneWaterPct.toFixed(2)}%` : '', note: 'Sentinel-2 scene statistic', available: typeof currentSatellite.bestSceneWaterPct === 'number' },
+    { title: 'High cloud', icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />, value: typeof currentSatellite.bestSceneHighCloudPct === 'number' ? `${currentSatellite.bestSceneHighCloudPct.toFixed(1)}%` : '', note: 'Sentinel-2 scene statistic', available: typeof currentSatellite.bestSceneHighCloudPct === 'number' },
+  ].filter((metric) => metric.available);
+
+  const refreshSatellite = async (forceRefresh = false) => {
+    const requestId = ++requestIdRef.current;
+    setIsRefreshing(true);
+    setRefreshError(null);
+    try {
+      const response = await fetch('/api/satellite/analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          endTime: new Date().toISOString(),
+          forceRefresh,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || `Satellite service returned ${response.status}`);
+      if (requestId === requestIdRef.current) {
+        setLiveSatellite(payload as SatelliteData);
+      }
+    } catch (error) {
+      if (requestId === requestIdRef.current) {
+        setRefreshError(error instanceof Error ? error.message : 'Unable to refresh satellite observations.');
+      }
+    } finally {
+      if (requestId === requestIdRef.current) setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    setLiveSatellite(satellite);
+  }, [satellite]);
+
+  useEffect(() => {
+    refreshSatellite(false);
+  }, [location.latitude, location.longitude]);
+  const statusClass = currentSatellite.status === 'LIVE'
     ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-    : satellite.status === 'DEGRADED'
+    : currentSatellite.status === 'DEGRADED'
       ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
       : 'text-slate-400 bg-slate-800/50 border-slate-700';
 
@@ -30,66 +122,142 @@ export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ sa
             <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
               {dict.satelliteLayer}
             </h3>
-            <p className="text-xs text-slate-400 font-mono">{satellite.satelliteName}</p>
+            <p className="text-xs text-slate-400 font-mono">{currentSatellite.satelliteName}</p>
           </div>
         </div>
-        <span className={`text-[11px] font-mono px-2.5 py-1 rounded-lg border ${statusClass}`}>
-          {satellite.status}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.platform}</div>
-          <div className="text-sm font-bold text-slate-200 mt-1">{satellite.platform || dict.notReported}</div>
-        </div>
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.acquisition}</div>
-          <div className="text-sm font-bold text-slate-200 mt-1 flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5 text-cyan-400" />
-            {satellite.acquisitionTime ? new Date(satellite.acquisitionTime).toLocaleString('en-IN', { timeZone: 'UTC' }) + ' UTC' : dict.unavailable}
-          </div>
-        </div>
-        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.cloudCover}</div>
-          <div className="text-sm font-bold text-slate-200 mt-1">
-            {typeof satellite.cloudCoverPct === 'number' ? `${formatValue(satellite.cloudCoverPct, 0)}%` : dict.notReported}
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => refreshSatellite(true)}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/25 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-cyan-300 transition-colors hover:border-cyan-400/60 hover:bg-cyan-500/10 disabled:cursor-wait disabled:opacity-60"
+          >
+            <RefreshCw className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? satelliteUi.refreshing || 'Refreshing' : satelliteUi.refresh || 'Refresh'}
+          </button>
+          <span className={`text-[11px] font-mono px-2.5 py-1 rounded-lg border ${statusClass}`}>
+            {currentSatellite.status}
+          </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <Metric title={dict.chlorophyll} icon={<Sparkles className="h-3.5 w-3.5 text-emerald-400" />} value={formatValue(satellite.chlorophyllConcentrationMgM3)} unit="mg/m³" note="Requires a retrieved Sentinel-3 water observation and pixel-level product processing." />
-        <Metric title={dict.sstAnomalyLabel} icon={<Compass className="h-3.5 w-3.5 text-rose-400" />} value={formatValue(satellite.sstAnomalyC)} unit="°C" note="No synthetic anomaly is generated when a valid SST product is unavailable." />
-        <Metric title={dict.turbidity} icon={<Droplet className="h-3.5 w-3.5 text-amber-400" />} value={formatValue(satellite.turbidityNTU)} unit="NTU" note="Derived only from an actual optical observation; not inferred from wave conditions." />
-        <Metric title={dict.sarRoughness} icon={<Scan className="h-3.5 w-3.5 text-purple-400" />} value={formatValue(satellite.sarRoughnessIndex)} unit="index" note="Requires Sentinel-1 GRD backscatter processing; metadata alone is not treated as a roughness measurement." />
+      {currentSatellite.observations.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.platform}</div>
+            <div className="text-sm font-bold text-slate-200 mt-1">{currentSatellite.platform || dict.notReported}</div>
+          </div>
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.acquisition}</div>
+            <div className="text-sm font-bold text-slate-200 mt-1 flex items-center gap-1">
+              <Clock className="h-3.5 w-3.5 text-cyan-400" />
+              {currentSatellite.acquisitionTime ? new Date(currentSatellite.acquisitionTime).toLocaleString('en-IN', { timeZone: 'UTC' }) + ' UTC' : dict.unavailable}
+            </div>
+          </div>
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.cloudCover}</div>
+            <div className="text-sm font-bold text-slate-200 mt-1">
+              {typeof currentSatellite.cloudCoverPct === 'number' ? `${formatValue(currentSatellite.cloudCoverPct, 0)}%` : dict.notReported}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400">
+          No live Copernicus Sentinel product is available for this exact location window right now.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+        {realSignalCards.map((metric) => (
+          <RealMetric key={metric.title} title={metric.title} icon={metric.icon} value={metric.value} note={metric.note} />
+        ))}
+      </div>
+
+      {refreshError && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-[11px] text-amber-200">
+          {refreshError}
+        </div>
+      )}
+
+      {derivedMetrics.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {derivedMetrics.map((metric) => (
+            <Metric key={metric.title} title={metric.title} icon={metric.icon} value={formatValue(metric.value)} unit={metric.unit} note={satelliteUi.processing || 'Real pixel-derived value from source product'} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-[11px] leading-relaxed text-slate-400">
+          {satelliteUi.derivedUnavailable}
+        </div>
+      )}
+
+      <div className="bg-slate-950/70 border border-cyan-500/20 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-xs font-bold text-slate-200">{satelliteUi.liveProducts}</h4>
+            <p className="text-[11px] text-slate-500">{satelliteUi.catalogue} · latest returned Sentinel products</p>
+          </div>
+          <span className="text-[10px] font-mono text-cyan-400">{satelliteUi.updated || 'Updated'} {new Date(currentSatellite.processingTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}</span>
+        </div>
+        <p className="text-[11px] text-slate-500">{satelliteUi.realOnly || 'Only real Copernicus catalogue observations are shown. No synthetic satellite measurements are generated.'}</p>
+        {currentSatellite.observations.length === 0 ? (
+          <p className="text-[11px] text-slate-400">{satelliteUi.noProducts}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {currentSatellite.observations.map((observation) => (
+              <div key={observation.productId} className="border border-slate-800 bg-slate-900/70 rounded-lg p-3 space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-200">{observation.collectionTitle}</div>
+                    <div className="text-[10px] text-cyan-300 font-mono break-all">{observation.productId}</div>
+                  </div>
+                  {observation.productUrl && <a href={observation.productUrl} target="_blank" rel="noreferrer" className="text-[10px] text-cyan-400"><ExternalLink className="h-3 w-3" /></a>}
+                </div>
+                <div className="text-[10px] text-slate-400 grid grid-cols-2 gap-1">
+                  <span>{dict.acquisition}: {observation.acquisitionTime ? new Date(observation.acquisitionTime).toLocaleString('en-IN', { timeZone: 'UTC' }) : dict.unavailable}</span>
+                  <span>{satelliteUi.age}: {formatAge(observation.observationAgeHours ?? ageHoursFromIso(observation.acquisitionTime))}</span>
+                  <span>{dict.cloudCover}: {typeof observation.cloudCoverPct === 'number' ? `${observation.cloudCoverPct.toFixed(0)}%` : dict.notReported}</span>
+                  {formatSceneDistance(observation.distanceKm) && <span>{satelliteUi.distance}: {formatSceneDistance(observation.distanceKm)}</span>}
+                  {observation.processingLevel && <span>Level: {observation.processingLevel}</span>}
+                  {observation.productType && <span>Type: {observation.productType}</span>}
+                  {(observation.orbitState || typeof observation.relativeOrbit === 'number') && <span>Orbit: {observation.orbitState || 'orbit'}{typeof observation.relativeOrbit === 'number' ? ` / ${observation.relativeOrbit}` : ''}</span>}
+                  {typeof observation.assetCount === 'number' && <span>Assets: {observation.assetCount}</span>}
+                  {typeof observation.productSizeMb === 'number' && <span>Size: {observation.productSizeMb.toFixed(1)} MB</span>}
+                  {observation.timeliness && <span>Timeliness: {observation.timeliness}</span>}
+                  {typeof observation.sceneWaterPct === 'number' && <span>Water: {observation.sceneWaterPct.toFixed(2)}%</span>}
+                  {typeof observation.sceneHighCloudPct === 'number' && <span>High cloud: {observation.sceneHighCloudPct.toFixed(1)}%</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-        <StatusCard title={dict.algalBloom} active={satellite.algalBloomDetected} unavailable={satellite.algalBloomDetected === undefined} icon={<AlertTriangle className="h-4 w-4" />} language={language} />
-        <StatusCard title={dict.frontalZone} active={satellite.thermalFrontDetected} unavailable={satellite.thermalFrontDetected === undefined} icon={<Compass className="h-4 w-4" />} language={language} />
-        <StatusCard title={dict.slickAnomaly} active={satellite.surfaceSlickAnomalies} unavailable={satellite.surfaceSlickAnomalies === undefined} icon={<Eye className="h-4 w-4" />} language={language} />
+        <StatusCard title={dict.algalBloom} active={currentSatellite.algalBloomDetected} unavailable={currentSatellite.algalBloomDetected === undefined} icon={<AlertTriangle className="h-4 w-4" />} language={language} />
+        <StatusCard title={dict.frontalZone} active={currentSatellite.thermalFrontDetected} unavailable={currentSatellite.thermalFrontDetected === undefined} icon={<Compass className="h-4 w-4" />} language={language} />
+        <StatusCard title={dict.slickAnomaly} active={currentSatellite.surfaceSlickAnomalies} unavailable={currentSatellite.surfaceSlickAnomalies === undefined} icon={<Eye className="h-4 w-4" />} language={language} />
       </div>
 
       <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-bold text-slate-200">{dict.observationProvenance}</div>
-            <div className="text-[11px] text-slate-500">{location.name} · {satellite.latitude.toFixed(4)}, {satellite.longitude.toFixed(4)}</div>
+            <div className="text-[11px] text-slate-500">{location.name} · {currentSatellite.latitude.toFixed(4)}, {currentSatellite.longitude.toFixed(4)}</div>
           </div>
-          {satellite.productUrl && (
-            <a href={satellite.productUrl} target="_blank" rel="noreferrer" className="text-[11px] text-cyan-400 flex items-center gap-1">
+          {currentSatellite.productUrl && (
+            <a href={currentSatellite.productUrl} target="_blank" rel="noreferrer" className="text-[11px] text-cyan-400 flex items-center gap-1">
               {dict.product} <ExternalLink className="h-3 w-3" />
             </a>
           )}
         </div>
-        <div className="text-[11px] text-slate-400">Source: {satellite.source}</div>
-        {satellite.productId && <div className="text-[10px] font-mono text-slate-500 break-all">{satellite.productId}</div>}
+        <div className="text-[11px] text-slate-400">Source: {currentSatellite.source}</div>
+        {currentSatellite.productId && <div className="text-[10px] font-mono text-slate-500 break-all">{currentSatellite.productId}</div>}
       </div>
 
-      {satellite.warnings.length > 0 && (
+      {currentSatellite.warnings.length > 0 && (
         <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 space-y-1">
-          {satellite.warnings.map((warning, index) => (
+          {currentSatellite.warnings.map((warning, index) => (
             <div key={index} className="text-[11px] text-amber-300 flex gap-2">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>{warning}</span>
@@ -101,7 +269,7 @@ export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ sa
   );
 };
 
-function Metric({ title, icon, value, unit, note }: { title: string; icon: React.ReactNode; value: string; unit: string; note: string }) {
+const Metric: React.FC<{ title: string; icon: React.ReactNode; value: string; unit: string; note: string }> = ({ title, icon, value, unit, note }) => {
   return (
     <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-1.5">
       <div className="flex items-center gap-1 text-xs text-slate-400 font-medium">{icon}<span>{title}</span></div>
@@ -112,9 +280,19 @@ function Metric({ title, icon, value, unit, note }: { title: string; icon: React
       <p className="text-[10px] text-slate-500 leading-tight pt-1 border-t border-slate-800/80">{note}</p>
     </div>
   );
-}
+};
 
-function StatusCard({ title, active, unavailable, icon, language }: { title: string; active?: boolean; unavailable: boolean; icon: React.ReactNode; language: LanguageCode }) {
+const RealMetric: React.FC<{ title: string; icon: React.ReactNode; value: string; note: string }> = ({ title, icon, value, note }) => {
+  return (
+    <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-1.5">
+      <div className="flex items-center gap-1 text-xs text-slate-400 font-medium">{icon}<span>{title}</span></div>
+      <div className="text-2xl font-black text-slate-100 font-mono">{value}</div>
+      <p className="text-[10px] text-slate-500 leading-tight pt-1 border-t border-slate-800/80">{note}</p>
+    </div>
+  );
+};
+
+const StatusCard: React.FC<{ title: string; active?: boolean; unavailable: boolean; icon: React.ReactNode; language: LanguageCode }> = ({ title, active, unavailable, icon, language }) => {
   const text = unavailable ? 'Not derived from available observations' : active ? 'Detected by satellite processing' : 'No anomaly detected';
   return (
     <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center space-x-3">
@@ -127,4 +305,4 @@ function StatusCard({ title, active, unavailable, icon, language }: { title: str
       </div>
     </div>
   );
-}
+};
