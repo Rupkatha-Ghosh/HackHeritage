@@ -235,7 +235,6 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <SatelliteAnalysisView
                     satellite={analysisData.satellite}
                     location={analysisData.location}
-                    ocean={analysisData.ocean}
                   />
                   <InteractiveMap
                     location={analysisData.location}

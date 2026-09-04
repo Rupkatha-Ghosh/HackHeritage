@@ -411,9 +411,9 @@
   z-index: 10;
 }
 
-/* Desaturate raster tiles toward chart ink so GIS overlays read clearly. */
+/* Invert OpenStreetMap tiles into a dark nautical theme with high-contrast labels. */
 .leaflet-tile-pane {
-  filter: saturate(0.45) brightness(0.72) hue-rotate(150deg) contrast(1.08);
+  filter: invert(1) hue-rotate(180deg) brightness(0.82) contrast(1.25) saturate(0.85);
 }
 
 .leaflet-popup-content-wrapper {
@@ -464,5 +464,97 @@
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* ============================================================================
+   ORCA-X Map Frame & Tactical HUD Enhancements
+   ========================================================================= */
+
+.orca-map-frame {
+  border: 1px solid rgba(127, 212, 193, 0.15);
+}
+
+/* Glowing animated border frame */
+.orca-frame-glow {
+  box-shadow:
+    inset 0 0 0 1px rgba(127, 212, 193, 0.12),
+    inset 0 0 40px rgba(34, 211, 238, 0.04),
+    0 0 24px rgba(34, 211, 238, 0.08);
+  animation: orcaFrameBreathe 4s ease-in-out infinite;
+}
+
+@keyframes orcaFrameBreathe {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(127, 212, 193, 0.10), inset 0 0 30px rgba(34, 211, 238, 0.03), 0 0 18px rgba(34, 211, 238, 0.06); }
+  50% { box-shadow: inset 0 0 0 1px rgba(127, 212, 193, 0.22), inset 0 0 50px rgba(34, 211, 238, 0.07), 0 0 30px rgba(34, 211, 238, 0.12); }
+}
+
+/* Corner brackets — HUD / tactical chart styling */
+.orca-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  z-index: 360;
+  border-color: rgba(127, 212, 193, 0.55);
+  opacity: 0.85;
+}
+.orca-corner-tl { top: 10px; left: 10px; border-top: 2px solid; border-left: 2px solid; border-radius: 4px 0 0 0; }
+.orca-corner-tr { top: 10px; right: 10px; border-top: 2px solid; border-right: 2px solid; border-radius: 0 4px 0 0; }
+.orca-corner-bl { bottom: 10px; left: 10px; border-bottom: 2px solid; border-left: 2px solid; border-radius: 0 0 0 4px; }
+.orca-corner-br { bottom: 10px; right: 10px; border-bottom: 2px solid; border-right: 2px solid; border-radius: 0 0 4px 0; }
+
+/* Refined glass panel (restrained opacity + hairline border) */
+.orca-glass-panel {
+  background: rgba(10, 20, 28, 0.72);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(127, 212, 193, 0.18);
+  border-radius: 12px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Live pulsing status dot */
+.orca-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22d3ee;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.9);
+  animation: orcaLivePulse 1.8s ease-in-out infinite;
+}
+@keyframes orcaLivePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Subtle animated scanline sweep — decorative, pointer-events disabled */
+.orca-scanline::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(34, 211, 238, 0.05) 8deg,
+    transparent 16deg,
+    transparent 360deg
+  );
+  animation: orcaScanRotate 8s linear infinite;
+}
+@keyframes orcaScanRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orca-frame-glow,
+  .orca-live-dot,
+  .orca-scanline::before {
+    animation: none !important;
   }
 }
