@@ -44,8 +44,9 @@ export function getRealtimeSourceReadiness() {
 
 export async function fetchFusedRealtimeMarineObservation(lat: number, lon: number): Promise<FusedMarineObservation> {
   const providers = configuredProviders();
-  const enabled = providers.filter((provider) => provider.enabled);
-  const rawObservations = await Promise.all(enabled.map((provider) => provider.fetch(lat, lon)));
+  // Query every provider so telemetry records explicit UNAVAILABLE/DEGRADED states.
+  // Unconfigured Indian providers perform no network request and return immediately.
+  const rawObservations = await Promise.all(providers.map((provider) => provider.fetch(lat, lon)));
   const retrievedAt = new Date().toISOString();
   const normalizedSources = rawObservations.map((source) => normalizeMarineObservation(
     source.source,
@@ -76,8 +77,14 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
     ? [`${source.source}: ${source.missingVariables.length} normalized variables are missing.`]
     : []);
   const warnings = [...new Set([...normalizedSources.flatMap((source) => source.warnings), ...validationWarnings, ...disagreementWarnings])];
-  const uniqueSources = [...new Set(ranked.filter((entry) => entry.score > 0).map((entry) => entry.source.source))];
-  const dataQuality = uniqueSources.length >= 2 ? 'LIVE' : ranked.some((entry) => entry.source.availability === 'LIVE' && entry.score > 0) ? 'LIVE' : 'DEGRADED';
+  const liveSources = [...new Set(ranked.filter((entry) => entry.score > 0 && entry.source.availability === 'LIVE').map((entry) => entry.source.source))];
+  const uniqueSources = [...new Set(liveSources)];
+  // One-source operation is usable but explicitly degraded; LIVE means independent multi-source coverage.
+  const dataQuality = uniqueSources.length >= 2
+    ? 'LIVE'
+    : uniqueSources.length === 1
+      ? 'DEGRADED'
+      : 'UNAVAILABLE';
 
   recordMarineTelemetry({
     timestamp: retrievedAt,
