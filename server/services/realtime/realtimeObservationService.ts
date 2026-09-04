@@ -1,12 +1,13 @@
 import { RealtimeObservationMetadata, WeatherData, OceanData } from '../../../src/types.ts';
 import { fetchFusedRealtimeMarineObservation } from './marineDataFusion.ts';
+import type { MarineSourceId } from './marineDataSource.ts';
 
 export interface RealtimeMarineObservation {
   weather: WeatherData;
   ocean: OceanData;
   metadata: RealtimeObservationMetadata & {
-    selectedSources: Record<string, string>;
-    sourceScores: Record<string, number>;
+    selectedSources: Record<string, MarineSourceId>;
+    sourceScores: Record<MarineSourceId, number>;
   };
   degraded: boolean;
 }
