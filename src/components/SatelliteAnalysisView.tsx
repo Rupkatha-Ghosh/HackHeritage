@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Satellite, Sparkles, Droplet, Eye, CheckCircle, AlertTriangle, Clock, Scan, Compass, ExternalLink, RefreshCw } from 'lucide-react';
-import { SatelliteData, LocationInfo, LanguageCode } from '../types';
+import { SatelliteData, LocationInfo, OceanData, LanguageCode } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 import { localizeSatelliteText } from '../utils/presentationLocalization';
 
 interface SatelliteAnalysisViewProps {
   satellite: SatelliteData;
   location: LocationInfo;
-  language: LanguageCode;
+  ocean?: OceanData;
+  language?: LanguageCode;
 }
 
 const formatValue = (value: number | undefined, digits = 2) =>
@@ -32,7 +33,7 @@ const formatSceneDistance = (distanceKm?: number): string => {
   return distanceKm < 0.05 ? '' : `${distanceKm.toFixed(1)} km`;
 };
 
-export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location, language }) => {
+export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location, ocean, language = 'en' }) => {
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   const [liveSatellite, setLiveSatellite] = useState<SatelliteData>(satellite);
   const [isRefreshing, setIsRefreshing] = useState(false);

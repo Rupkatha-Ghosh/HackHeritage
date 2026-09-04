@@ -109,7 +109,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
         onExit={onExit}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col justify-between">
+      <div className="flex min-w-0 flex-1 flex-col justify-between pb-20 lg:pb-0">
         <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8">
           {/* The console is a wall of live modules with no visible title, which
               leaves a screen-reader user on an unnamed page. This names it
@@ -126,6 +126,33 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
             <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-translate-x-1" />
             Project brief
           </button>
+
+          {/* Multi-Port Coastal Hubs Live Status Bar */}
+          <div className="flex items-center space-x-2 overflow-x-auto py-2 px-3 bg-slate-950/90 border border-slate-800 rounded-xl text-xs font-mono no-scrollbar shadow-inner">
+            <span className="text-[11px] text-cyan-400 font-bold uppercase tracking-wider shrink-0 flex items-center gap-1.5 px-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>Coastal Ports:</span>
+            </span>
+            {['digha', 'puri', 'paradeep', 'visakhapatnam', 'kochi', 'chennai', 'mumbai'].map((key) => {
+              const loc = COASTAL_LOCATIONS[key];
+              if (!loc) return null;
+              const isSelected = analysisData?.location.name.toLowerCase().includes(key);
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleLocationSelect(key)}
+                  className={`min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 active:scale-95 ${
+                    isSelected
+                      ? 'bg-cyan-400 text-slate-950 shadow-md shadow-cyan-400/30 font-black border border-cyan-300'
+                      : 'bg-slate-900 text-slate-200 hover:text-white hover:bg-slate-800 border border-slate-700'
+                  }`}
+                >
+                  <span>{loc.name.split(' ')[0]}</span>
+                  <span className="text-[10px] opacity-80 font-mono">({loc.latitude.toFixed(1)}°N)</span>
+                </button>
+              );
+            })}
+          </div>
 
           {isLoading && (
             <div className="flex items-center gap-3 rounded-sm border border-shoal/25 bg-shoal/8 p-3.5">
