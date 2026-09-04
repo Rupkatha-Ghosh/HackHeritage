@@ -1,39 +1,16 @@
-import { MarineSourceId, MarineSourceObservation } from './marineDataSource.ts';
+import type { MarineSourceId } from './marineDataSource.ts';
+import type { MarineObservation, MarineObservationVariable } from './marineObservation.ts';
 
 export interface SourceComparisonMetric {
-  variable: string;
+  variable: MarineObservationVariable;
   values: Partial<Record<MarineSourceId, number>>;
   spread?: number;
+  relativeSpread?: number;
   disagreement: boolean;
 }
 
-function finite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-function read(source: MarineSourceObservation, variable: string): number | undefined {
-  switch (variable) {
-    case 'windSpeedKts':
-      return finite(source.weather?.windSpeedKts) ? source.weather.windSpeedKts : undefined;
-    case 'windGustKts':
-      return finite(source.weather?.windGustKts) ? source.weather.windGustKts : undefined;
-    case 'waveHeightMeters':
-      return finite(source.ocean?.waveHeightMeters) ? source.ocean.waveHeightMeters : undefined;
-    case 'wavePeriodSec':
-      return finite(source.ocean?.wavePeriodSec) ? source.ocean.wavePeriodSec : undefined;
-    case 'swellHeightMeters':
-      return finite(source.ocean?.swellHeightMeters) ? source.ocean.swellHeightMeters : undefined;
-    case 'swellPeriodSec':
-      return finite(source.ocean?.swellPeriodSec) ? source.ocean.swellPeriodSec : undefined;
-    case 'seaSurfaceTemperatureC':
-      return finite(source.ocean?.seaSurfaceTemperatureC) ? source.ocean.seaSurfaceTemperatureC : undefined;
-    default:
-      return undefined;
-  }
-}
-
-export function compareSources(observations: MarineSourceObservation[]): SourceComparisonMetric[] {
-  const variables = [
+export function compareSources(observations: MarineObservation[]): SourceComparisonMetric[] {
+  const variables: MarineObservationVariable[] = [
     'windSpeedKts',
     'windGustKts',
     'waveHeightMeters',
@@ -46,15 +23,21 @@ export function compareSources(observations: MarineSourceObservation[]): SourceC
   return variables.map((variable) => {
     const values: Partial<Record<MarineSourceId, number>> = {};
     for (const observation of observations) {
-      const current = read(observation, variable);
-      if (current !== undefined) values[observation.source] = current;
+      const current = observation.values[variable];
+      if (typeof current === 'number' && Number.isFinite(current)) values[observation.source] = current;
     }
 
-    const numbers = Object.values(values).filter(finite);
+    const numbers = Object.values(values).filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
     const spread = numbers.length >= 2 ? Math.max(...numbers) - Math.min(...numbers) : undefined;
     const mean = numbers.length >= 2 ? numbers.reduce((sum, item) => sum + item, 0) / numbers.length : 0;
-    const relativeSpread = mean !== 0 ? Math.abs((spread || 0) / mean) : 0;
+    const relativeSpread = mean !== 0 && spread !== undefined ? Math.abs(spread / mean) : 0;
 
-    return { variable, values, spread, disagreement: relativeSpread > 0.25 };
+    return {
+      variable,
+      values,
+      spread,
+      relativeSpread,
+      disagreement: relativeSpread > 0.25,
+    };
   });
 }
