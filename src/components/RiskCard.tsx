@@ -123,7 +123,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
         <div>
           <div className="flex items-center space-x-2">
             <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
-              ORCA-X Machine Learning Assessment
+              {dict.machineLearningAssessment}
             </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400">
               {risk.modelVersion}
@@ -134,7 +134,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           </h3>
           <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5 font-mono">
             <Clock className="h-3 w-3 text-cyan-400" />
-            <span>Target Window: {timeWindow.requestedText}</span>
+            <span>{dict.targetWindow}: {timeWindow.requestedText === 'Current Conditions' ? dict.currentConditions : timeWindow.requestedText}</span>
           </p>
         </div>
 
@@ -162,7 +162,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
             }`}
           >
             {isPlayingAudio ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-cyan-400" />}
-            <span className="hidden sm:inline">{isPlayingAudio ? 'Speaking...' : 'Listen Audio'}</span>
+            <span className="hidden sm:inline">{isPlayingAudio ? (dict.listening || 'Speaking...') : (dict.listenAudio || 'Listen Audio')}</span>
           </button>
         </div>
       </div>
@@ -201,12 +201,12 @@ export const RiskCard: React.FC<RiskCardProps> = ({
             <div className="flex items-center space-x-1.5">
               {theme.icon}
               <span className={`px-2.5 py-0.5 rounded-md text-xs font-black uppercase tracking-wider border ${theme.badgeBg}`}>
-                {risk.riskLevel} RISK
+                {risk.riskLevel === 'LOW' ? dict.lowRisk : risk.riskLevel === 'MODERATE' ? dict.moderateRisk : risk.riskLevel === 'HIGH' ? dict.highRisk : dict.extremeRisk}
               </span>
             </div>
             <div className="text-[11px] text-slate-400 mt-1 font-mono flex items-center gap-1">
               <Cpu className="h-3 w-3 text-cyan-400" />
-              <span>Confidence: <strong className="text-slate-200">{risk.confidenceScore}%</strong></span>
+              <span>{dict.confidence}: <strong className="text-slate-200">{risk.confidenceScore}%</strong></span>
             </div>
           </div>
         </div>
@@ -215,7 +215,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
         <div className="md:col-span-8 space-y-1.5">
           <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-cyan-400"></span>
-            <span>Primary Operational Directive:</span>
+            <span>{dict.primaryDirective}</span>
           </div>
           <p className="text-sm font-semibold text-slate-200 leading-snug">
             {risk.primaryRecommendation}
@@ -234,7 +234,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
         <div className="bg-emerald-950/30 border border-emerald-900/40 rounded-xl p-3 space-y-1.5">
           <div className="flex items-center space-x-1.5 font-bold text-emerald-400">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>Permitted Vessel Types</span>
+            <span>{dict.permittedVessels}</span>
           </div>
           <ul className="space-y-1 text-slate-300 text-[11px]">
             {risk.safeCraftTypes.length > 0 ? (
@@ -245,7 +245,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
                 </li>
               ))
             ) : (
-              <li className="text-slate-400 italic">No crafts cleared for regular operations.</li>
+              <li className="text-slate-400 italic">{dict.noCraftsCleared}</li>
             )}
           </ul>
         </div>
@@ -254,7 +254,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
         <div className="bg-rose-950/30 border border-rose-900/40 rounded-xl p-3 space-y-1.5">
           <div className="flex items-center space-x-1.5 font-bold text-rose-400">
             <XCircle className="h-3.5 w-3.5" />
-            <span>Restricted / High Hazard Crafts</span>
+            <span>{dict.restrictedVessels}</span>
           </div>
           <ul className="space-y-1 text-slate-300 text-[11px]">
             {risk.restrictedCraftTypes.length > 0 ? (
@@ -265,7 +265,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
                 </li>
               ))
             ) : (
-              <li className="text-emerald-400/80 italic">No restrictions on standard craft types.</li>
+              <li className="text-emerald-400/80 italic">{dict.noRestrictions}</li>
             )}
           </ul>
         </div>
@@ -277,10 +277,10 @@ export const RiskCard: React.FC<RiskCardProps> = ({
         <div className="text-xs font-bold text-slate-200 flex items-center justify-between">
           <span className="flex items-center gap-1.5">
             <FileText className="h-3.5 w-3.5 text-cyan-400" />
-            <span>Actionable Operational Advisories (IMD & INCOIS Aligned)</span>
+            <span>{dict.recommendations}</span>
           </span>
           <span className="text-[10px] font-mono text-cyan-400">
-            Valid until: {new Date(risk.validUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {dict.validUntil}: {new Date(risk.validUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-300">

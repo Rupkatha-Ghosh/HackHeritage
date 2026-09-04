@@ -31,6 +31,9 @@ ml/data/raw/
 ml/data/processed/*.csv
 ml/data/processed/*.parquet
 
+# Runtime telemetry — persist on deployment storage, never commit live observations
+/data/realtime/*.jsonl
+
 # Kaggle-generated user-specific metadata / local credentials
 ml/kaggle/kernel-metadata.json
 **/kaggle.json

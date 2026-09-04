@@ -1,6 +1,6 @@
 # ORCA-X — Ocean Reasoning & Collaborative AI
 
-ORCA-X is a marine-intelligence decision-support platform for coastal safety, fishing and navigation. It combines live weather/marine observations, Copernicus Sentinel catalogue metadata, a deterministic marine-risk engine, an XGBoost risk model, GIS layers, BGE-M3 + Qdrant evidence retrieval and optional Gemini grounded synthesis.
+ORCA-X is a marine-intelligence decision-support platform for coastal safety, fishing and navigation. It combines live weather/marine observations, hourly tomorrow weather/marine forecasts, Copernicus Sentinel catalogue metadata, a deterministic marine-risk engine, an XGBoost risk model, GIS layers, BGE-M3 + Qdrant evidence retrieval and optional Gemini grounded synthesis.
 
 ## Architecture
 
@@ -10,11 +10,14 @@ React + Vite
     ▼
 Express / TypeScript API (port 3000)
     ├── /api/orca/query
-    ├── /api/marine/conditions
-    ├── /api/marine/risk
+    ├── /api/marine/conditions       ← current/live observations
+    ├── /api/marine/forecast         ← hourly tomorrow forecast + ML risk
+    ├── /api/marine/risk             ← point-in-time ML risk
     ├── /api/satellite/analysis
     ├── /api/evidence/search
     └── /api/health
+            │
+            ├──────────────► Open-Meteo Weather + Marine APIs
             │
             ├──────────────► FastAPI + XGBoost ML API (port 8000)
             │
@@ -28,6 +31,26 @@ Express / TypeScript API (port 3000)
 ```
 
 The TypeScript backend owns orchestration and external connectors. The Python ML service owns XGBoost inference. The Python RAG service owns real BAAI/BGE-M3 dense embeddings and Qdrant vector retrieval. If the RAG service is unavailable, the backend explicitly falls back to the existing lexical evidence retriever and marks the response as degraded.
+
+## Live observations vs forecast risk
+
+ORCA-X now keeps the distinction between **what is happening now** and **what is forecast to happen tomorrow** explicit:
+
+- `GET /api/marine/conditions?lat=...&lon=...` fetches current weather and marine conditions.
+- `GET /api/marine/forecast?locationKey=digha` fetches tomorrow's hourly Open-Meteo weather + marine forecast and evaluates the configured XGBoost model at each forecast hour.
+- A forecast response is marked `sourceType: "FORECAST"` and each hourly prediction is timestamped with its forecast hour.
+- The forecast endpoint refuses to return a partial window when fewer than 12 hourly points are available.
+- Forecast output is decision support, not a guarantee of safety. IMD/INCOIS/Coast Guard warnings take precedence.
+
+Example:
+
+```text
+GET http://127.0.0.1:3000/api/marine/forecast?locationKey=digha
+```
+
+The response contains the local forecast date, timezone, model version, worst forecast risk, hourly risk predictions, and explicit safety warnings.
+
+**Important model gate:** the repository's committed production artifact is still documented separately in `ml/PRODUCTION_MODEL_STATUS.md`. Until the validated forward 6-hour v2.6 artifact is promoted, the forecast path must be treated as a forecast-input integration using the currently committed artifact, not as proof that the final v2.6 model has been trained.
 
 ## Refinement 3 — Real BGE-M3 + Qdrant RAG
 
@@ -89,8 +112,8 @@ HackHeritage/
 │   ├── services/
 │   │   ├── ml/
 │   │   │   └── riskService.ts
-│   │   │   └── satellite/
-│   │   │       └── satelliteService.ts
+│   │   └── satellite/
+│   │       └── satelliteService.ts
 │   ├── utils/
 │   │   └── marineRiskEngine.ts
 │   ├── App.tsx
@@ -104,6 +127,11 @@ HackHeritage/
 │   ├── services/
 │   │   ├── evidenceService.ts  # lexical fallback
 │   │   ├── marineService.ts
+│   │   ├── realtime/
+│   │   │   ├── openMeteoProvider.ts
+│   │   │   ├── openMeteoForecastProvider.ts
+│   │   │   ├── realtimeObservationService.ts
+│   │   │   └── marineForecastService.ts
 │   │   ├── orcaService.ts
 │   │   └── ragService.ts       # BGE-M3 RAG bridge
 │   ├── controllers/
@@ -118,183 +146,16 @@ HackHeritage/
 │   └── requirements.txt
 │
 ├── scripts/
-│   ├── ingest-rag.mjs          # Canonical evidence ingestion
-│   └── smoke-test.mjs          # End-to-end service smoke test
-│
-├── .github/workflows/ci.yml
-├── .env.example
-├── package.json
-├── package-lock.json
-├── bun.lock
-└── README.md
 ```
 
-## Prerequisites
+## Validation
 
-- Node.js 20+
-- Python 3.11+
-- npm or Bun
-- Qdrant reachable at `QDRANT_URL` (default `http://127.0.0.1:6333`)
-- A Gemini API key is optional; without it, deterministic grounded summaries are used.
-
-## Local setup
-
-### 1. Install frontend/backend dependencies
-
-```bash
-npm ci
-```
-
-or:
-
-```bash
-bun install
-```
-
-### 2. Create environment file
-
-```bash
-copy .env.example .env
-```
-
-On Linux/macOS:
-
-```bash
-cp .env.example .env
-```
-
-Keep `.env` private.
-
-### 3. Install ML/RAG dependencies
-
-From the repository root:
-
-```bash
-python -m venv .venv
-```
-
-Windows:
-
-```bash
-.venv\Scripts\activate
-```
-
-Linux/macOS:
-
-```bash
-source .venv/bin/activate
-```
-
-Then:
-
-```bash
-pip install -r ml/requirements.txt
-```
-
-### 4. Start the XGBoost ML API
-
-```bash
-npm run dev:ml
-```
-
-### 5. Start the BGE-M3 RAG API
-
-In another terminal:
-
-```bash
-npm run dev:rag
-```
-
-The RAG service downloads `BAAI/bge-m3` on first model use unless the model is already cached locally.
-
-### 6. Ingest evidence into Qdrant
-
-```bash
-npm run ingest:rag
-```
-
-### 7. Start ORCA-X
-
-In another terminal:
-
-```bash
-npm run dev
-```
-
-The application will be available at:
-
-```text
-http://localhost:3000
-```
-
-### 8. Run the integration smoke test
-
-With the Express and ML services running:
-
-```bash
-npm run smoke
-```
-
-The smoke test continues to validate the core application path. For the full Refinement 3 path, also verify the RAG health endpoint and run `npm run ingest:rag` before issuing an ORCA query.
-
-## Production build
-
-Build the frontend and bundled Express server:
+Build and type-check the TypeScript application before running the end-to-end smoke test:
 
 ```bash
 npm run lint
 npm run build
+npm run smoke
 ```
 
-Start the services separately:
-
-```bash
-npm start
-npm run start:ml
-npm run start:rag
-```
-
-Production therefore consists of three processes plus Qdrant:
-
-1. ORCA-X web/API server on port 3000.
-2. XGBoost inference API on port 8000.
-3. BGE-M3 RAG API on port 8001.
-4. Qdrant vector database on port 6333 or a hosted equivalent.
-
-Set `ORCA_ML_API_URL`, `ORCA_RAG_API_URL` and `QDRANT_URL` to the reachable service endpoints when deployed on different hosts.
-
-## ML workflow
-
-Training and dataset preparation remain under `ml/src/`:
-
-```bash
-python ml/src/download_ndbc.py
-python ml/src/prepare_dataset.py
-python ml/src/train.py
-```
-
-Raw and generated processed datasets are intentionally excluded from the repository. The checked-in dataset manifest and production model provide the reproducibility anchor; see `ml/data/README.md` for the workflow.
-
-## Current capability boundaries
-
-- **ML inference:** XGBoost with deterministic rule-based fallback.
-- **Evidence retrieval:** real BGE-M3 dense embeddings stored and searched in Qdrant, with an explicit lexical fallback when the RAG service is unavailable.
-- **Satellite:** Copernicus STAC catalogue metadata/search; this build does not perform satellite-image-derived feature extraction.
-- **ML deployment domain:** the committed model is explicitly flagged as not independently validated for the Indian coastal deployment domain.
-
-These boundaries are exposed through the workflow traces so the UI and operators do not mistake unavailable capabilities for completed services.
-
-## Continuous integration
-
-GitHub Actions runs:
-
-1. Node and Python dependency installation.
-2. TypeScript validation.
-3. Production build.
-4. ML API readiness check.
-5. Express server readiness check.
-6. End-to-end smoke test.
-
-## Safety note
-
-ORCA-X is a decision-support system. It does **not** supersede statutory warnings, advisories or instructions issued by INCOIS, IMD, Maritime Rescue Coordination Centres or other competent authorities.
+The smoke test now covers live weather/marine data **and** the tomorrow forecast path, in addition to ML, RAG/Qdrant, evidence retrieval and the ORCA workflow.

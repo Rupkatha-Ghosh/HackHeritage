@@ -1,17 +1,21 @@
 import React from 'react';
 import { Satellite, Sparkles, Droplet, Eye, CheckCircle, AlertTriangle, Clock, Scan, Compass, ExternalLink } from 'lucide-react';
-import { SatelliteData, LocationInfo, OceanData } from '../types';
+import { SatelliteData, LocationInfo, OceanData, LanguageCode } from '../types';
+import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
+import { localizeSatelliteText } from '../utils/presentationLocalization';
 
 interface SatelliteAnalysisViewProps {
   satellite: SatelliteData;
   location: LocationInfo;
   ocean?: OceanData;
+  language?: LanguageCode;
 }
 
 const formatValue = (value: number | undefined, digits = 2) =>
   typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'N/A';
 
-export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location }) => {
+export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ satellite, location, ocean, language = 'en' }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   const statusClass = satellite.status === 'LIVE'
     ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
     : satellite.status === 'DEGRADED'
@@ -25,7 +29,7 @@ export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ sa
           <Satellite className="h-5 w-5 text-cyan-400" />
           <div>
             <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
-              Satellite Observation Layer
+              {dict.satelliteLayer}
             </h3>
             <p className="text-xs text-slate-400 font-mono">{satellite.satelliteName}</p>
           </div>
@@ -37,46 +41,46 @@ export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ sa
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Platform</div>
-          <div className="text-sm font-bold text-slate-200 mt-1">{satellite.platform || 'Not reported'}</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.platform}</div>
+          <div className="text-sm font-bold text-slate-200 mt-1">{satellite.platform || dict.notReported}</div>
         </div>
         <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Acquisition</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.acquisition}</div>
           <div className="text-sm font-bold text-slate-200 mt-1 flex items-center gap-1">
             <Clock className="h-3.5 w-3.5 text-cyan-400" />
-            {satellite.acquisitionTime ? new Date(satellite.acquisitionTime).toLocaleString('en-IN', { timeZone: 'UTC' }) + ' UTC' : 'Unavailable'}
+            {satellite.acquisitionTime ? new Date(satellite.acquisitionTime).toLocaleString('en-IN', { timeZone: 'UTC' }) + ' UTC' : dict.unavailable}
           </div>
         </div>
         <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Cloud cover</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">{dict.cloudCover}</div>
           <div className="text-sm font-bold text-slate-200 mt-1">
-            {typeof satellite.cloudCoverPct === 'number' ? `${formatValue(satellite.cloudCoverPct, 0)}%` : 'Not reported'}
+            {typeof satellite.cloudCoverPct === 'number' ? `${formatValue(satellite.cloudCoverPct, 0)}%` : dict.notReported}
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <Metric title="Chlorophyll-a" icon={<Sparkles className="h-3.5 w-3.5 text-emerald-400" />} value={formatValue(satellite.chlorophyllConcentrationMgM3)} unit="mg/m³" note="Requires a retrieved Sentinel-3 water observation and pixel-level product processing." />
-        <Metric title="SST Anomaly" icon={<Compass className="h-3.5 w-3.5 text-rose-400" />} value={formatValue(satellite.sstAnomalyC)} unit="°C" note="No synthetic anomaly is generated when a valid SST product is unavailable." />
-        <Metric title="Turbidity / TSS" icon={<Droplet className="h-3.5 w-3.5 text-amber-400" />} value={formatValue(satellite.turbidityNTU)} unit="NTU" note="Derived only from an actual optical observation; not inferred from wave conditions." />
-        <Metric title="SAR Roughness" icon={<Scan className="h-3.5 w-3.5 text-purple-400" />} value={formatValue(satellite.sarRoughnessIndex)} unit="index" note="Requires Sentinel-1 GRD backscatter processing; metadata alone is not treated as a roughness measurement." />
+        <Metric title={dict.chlorophyll} icon={<Sparkles className="h-3.5 w-3.5 text-emerald-400" />} value={formatValue(satellite.chlorophyllConcentrationMgM3)} unit="mg/m³" note="Requires a retrieved Sentinel-3 water observation and pixel-level product processing." />
+        <Metric title={dict.sstAnomalyLabel} icon={<Compass className="h-3.5 w-3.5 text-rose-400" />} value={formatValue(satellite.sstAnomalyC)} unit="°C" note="No synthetic anomaly is generated when a valid SST product is unavailable." />
+        <Metric title={dict.turbidity} icon={<Droplet className="h-3.5 w-3.5 text-amber-400" />} value={formatValue(satellite.turbidityNTU)} unit="NTU" note="Derived only from an actual optical observation; not inferred from wave conditions." />
+        <Metric title={dict.sarRoughness} icon={<Scan className="h-3.5 w-3.5 text-purple-400" />} value={formatValue(satellite.sarRoughnessIndex)} unit="index" note="Requires Sentinel-1 GRD backscatter processing; metadata alone is not treated as a roughness measurement." />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-        <StatusCard title="Algal Bloom / Red Tide" active={satellite.algalBloomDetected} unavailable={satellite.algalBloomDetected === undefined} icon={<AlertTriangle className="h-4 w-4" />} />
-        <StatusCard title="Oceanic Frontal Zone" active={satellite.thermalFrontDetected} unavailable={satellite.thermalFrontDetected === undefined} icon={<Compass className="h-4 w-4" />} />
-        <StatusCard title="Surface Slick Anomaly" active={satellite.surfaceSlickAnomalies} unavailable={satellite.surfaceSlickAnomalies === undefined} icon={<Eye className="h-4 w-4" />} />
+        <StatusCard title={dict.algalBloom} active={satellite.algalBloomDetected} unavailable={satellite.algalBloomDetected === undefined} icon={<AlertTriangle className="h-4 w-4" />} language={language} />
+        <StatusCard title={dict.frontalZone} active={satellite.thermalFrontDetected} unavailable={satellite.thermalFrontDetected === undefined} icon={<Compass className="h-4 w-4" />} language={language} />
+        <StatusCard title={dict.slickAnomaly} active={satellite.surfaceSlickAnomalies} unavailable={satellite.surfaceSlickAnomalies === undefined} icon={<Eye className="h-4 w-4" />} language={language} />
       </div>
 
       <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-bold text-slate-200">Observation provenance</div>
+            <div className="text-xs font-bold text-slate-200">{dict.observationProvenance}</div>
             <div className="text-[11px] text-slate-500">{location.name} · {satellite.latitude.toFixed(4)}, {satellite.longitude.toFixed(4)}</div>
           </div>
           {satellite.productUrl && (
             <a href={satellite.productUrl} target="_blank" rel="noreferrer" className="text-[11px] text-cyan-400 flex items-center gap-1">
-              Product <ExternalLink className="h-3 w-3" />
+              {dict.product} <ExternalLink className="h-3 w-3" />
             </a>
           )}
         </div>
@@ -111,7 +115,7 @@ function Metric({ title, icon, value, unit, note }: { title: string; icon: React
   );
 }
 
-function StatusCard({ title, active, unavailable, icon }: { title: string; active?: boolean; unavailable: boolean; icon: React.ReactNode }) {
+function StatusCard({ title, active, unavailable, icon, language }: { title: string; active?: boolean; unavailable: boolean; icon: React.ReactNode; language: LanguageCode }) {
   const text = unavailable ? 'Not derived from available observations' : active ? 'Detected by satellite processing' : 'No anomaly detected';
   return (
     <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 flex items-center space-x-3">
@@ -120,7 +124,7 @@ function StatusCard({ title, active, unavailable, icon }: { title: string; activ
       </div>
       <div>
         <div className="font-bold text-slate-200">{title}</div>
-        <div className="text-[11px] text-slate-400">{text}</div>
+              <div className="text-[11px] text-slate-400">{localizeSatelliteText(text, language)}</div>
       </div>
     </div>
   );
