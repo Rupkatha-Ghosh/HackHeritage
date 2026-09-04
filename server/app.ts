@@ -1,11 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import dotenv from 'dotenv';
 import apiRouter from './routes/index.ts';
 import { errorHandler, notFound } from './middleware/errorHandler.ts';
-
-dotenv.config();
+import { startMarineTelemetryCollector } from './services/realtime/marineTelemetryCollector.ts';
 
 export const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -30,6 +29,7 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`ORCA-X server running on http://0.0.0.0:${PORT}`);
+    startMarineTelemetryCollector();
   });
 }
 
