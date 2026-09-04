@@ -1,4 +1,5 @@
-import { OceanData, WeatherData } from '../../../src/types.ts';
+import type { OceanData, WeatherData } from '../../../src/types.ts';
+import type { MarineObservation } from './marineObservation.ts';
 
 export type MarineSourceId = 'INCOIS' | 'MOSDAC' | 'OPEN_METEO';
 export type SourceAvailability = 'LIVE' | 'DEGRADED' | 'UNAVAILABLE';
@@ -25,6 +26,7 @@ export interface MarineSourceObservation {
 export interface FusedMarineObservation {
   weather: WeatherData;
   ocean: OceanData;
+  normalizedSources: MarineObservation[];
   selectedSources: Record<string, MarineSourceId>;
   sourceScores: Record<MarineSourceId, number>;
   providers: MarineSourceId[];

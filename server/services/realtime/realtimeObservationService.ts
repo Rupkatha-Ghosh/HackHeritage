@@ -1,10 +1,12 @@
 import { RealtimeObservationMetadata, WeatherData, OceanData } from '../../../src/types.ts';
 import { fetchFusedRealtimeMarineObservation } from './marineDataFusion.ts';
 import type { MarineSourceId } from './marineDataSource.ts';
+import type { MarineObservation } from './marineObservation.ts';
 
 export interface RealtimeMarineObservation {
   weather: WeatherData;
   ocean: OceanData;
+  normalizedSources: MarineObservation[];
   metadata: RealtimeObservationMetadata & {
     selectedSources: Record<string, MarineSourceId>;
     sourceScores: Record<MarineSourceId, number>;
@@ -17,6 +19,7 @@ export async function fetchRealtimeMarineObservation(lat: number, lon: number): 
   return {
     weather: result.weather,
     ocean: result.ocean,
+    normalizedSources: result.normalizedSources,
     metadata: {
       retrievedAt: result.retrievedAt,
       providers: result.providers,
