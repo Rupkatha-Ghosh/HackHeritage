@@ -14,7 +14,7 @@ function ageHours(observedAt: string, nowMs: number): number {
 function score(source: MarineSourceObservation, nowMs: number, priority: number): number {
   if (source.availability === 'UNAVAILABLE') return 0;
   const age = ageHours(source.observedAt, nowMs);
-  if (!Number.isFinite(age) || age > MAX_STALENESS_HOURS) return 0.1;
+  if (!Number.isFinite(age) || age > MAX_STALENESS_HOURS) return 0;
   const freshness = Math.max(0, 1 - age / MAX_STALENESS_HOURS);
   const completeness = Number(Boolean(source.weather)) * 0.5 + Number(Boolean(source.ocean)) * 0.5;
   const availability = source.availability === 'LIVE' ? 1 : 0.5;
@@ -22,9 +22,10 @@ function score(source: MarineSourceObservation, nowMs: number, priority: number)
 }
 
 function select<T>(sources: Array<{ source: MarineSourceObservation; score: number; value?: T }>): { value?: T; source?: MarineSourceId } {
-  return sources
+  const selected = sources
     .filter((entry) => entry.value !== undefined && entry.score > 0)
-    .sort((a, b) => b.score - a.score)[0] as { value?: T; source?: MarineSourceId } | undefined || {};
+    .sort((a, b) => b.score - a.score)[0];
+  return selected ? { value: selected.value, source: selected.source.source } : {};
 }
 
 async function openMeteoSource(lat: number, lon: number): Promise<MarineSourceObservation> {
@@ -52,10 +53,6 @@ async function openMeteoSource(lat: number, lon: number): Promise<MarineSourceOb
   }
 }
 
-function withSource<T extends { source: string }>(value: T, source: MarineSourceId): T {
-  return { ...value, source: value.source || source };
-}
-
 export async function fetchFusedRealtimeMarineObservation(lat: number, lon: number): Promise<FusedMarineObservation> {
   const providers: MarineObservationSource[] = [incoisProvider, mosdacProvider, {
     id: 'OPEN_METEO',
@@ -71,9 +68,7 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
 
   const weather = select(ranked.map((entry) => ({ ...entry, value: entry.source.weather })));
   const ocean = select(ranked.map((entry) => ({ ...entry, value: entry.source.ocean })));
-  if (!weather.value || !ocean.value) {
-    throw new Error('No usable weather and ocean source is available for real-time inference.');
-  }
+  if (!weather.value || !ocean.value) throw new Error('No usable weather and ocean source is available for real-time inference.');
 
   const selectedSources = {
     weather: weather.source || 'OPEN_METEO',
@@ -85,8 +80,8 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
   const dataQuality = uniqueSources.length >= 2 ? 'LIVE' : ranked.some((entry) => entry.source.availability === 'LIVE') ? 'LIVE' : 'DEGRADED';
 
   return {
-    weather: withSource(weather.value, weather.source || 'OPEN_METEO'),
-    ocean: withSource(ocean.value, ocean.source || 'OPEN_METEO'),
+    weather: { ...weather.value, source: weather.value.source || weather.source || 'OPEN_METEO' },
+    ocean: { ...ocean.value, source: ocean.value.source || ocean.source || 'OPEN_METEO' },
     selectedSources,
     sourceScores,
     providers: uniqueSources,
