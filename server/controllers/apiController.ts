@@ -6,6 +6,8 @@ import { COASTAL_LOCATIONS } from '../../src/data/coastalData.ts';
 import { LanguageCode, SatelliteData } from '../../src/types.ts';
 import { fetchMarineAndWeatherData } from '../services/marineService.ts';
 import { buildTomorrowMarineRiskForecast } from '../services/realtime/marineForecastService.ts';
+import { getRealtimeSourceReadiness } from '../services/realtime/marineDataFusion.ts';
+import { getMarineTelemetry, getMarineTelemetryAnalysis, getMarineTelemetrySummary } from '../services/realtime/marineTelemetry.ts';
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 
@@ -113,6 +115,16 @@ export async function evidenceSearch(req: Request, res: Response) {
   }
 }
 
+export function marineTelemetry(req: Request, res: Response) {
+  const rawLimit = Number(req.query.limit ?? 50);
+  const limit = Number.isFinite(rawLimit) ? rawLimit : 50;
+  res.json({ summary: getMarineTelemetrySummary(), events: getMarineTelemetry(limit) });
+}
+
+export function marineTelemetryAnalysis(_req: Request, res: Response) {
+  res.json(getMarineTelemetryAnalysis());
+}
+
 export function health(_req: Request, res: Response) {
   res.json({
     status: 'healthy',
@@ -120,6 +132,7 @@ export function health(_req: Request, res: Response) {
     services: {
       liveWeather: 'open_meteo_current_conditions',
       liveMarine: 'open_meteo_marine_current_conditions',
+      realtimeFusion: 'incois_mosdac_open_meteo_quality_routing',
       forecastWeather: 'open_meteo_hourly_forecast',
       forecastMarine: 'open_meteo_hourly_marine_forecast',
       satelliteCatalog: 'copernicus_dataspace_stac',
@@ -131,6 +144,8 @@ export function health(_req: Request, res: Response) {
       agentOrchestrator: 'server_workflow',
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
     },
+    realtimeSources: getRealtimeSourceReadiness(),
+    telemetry: getMarineTelemetrySummary(),
     capabilities: {
       realtimeWeather: true,
       realtimeMarine: true,
