@@ -1,26 +1,31 @@
-import { RealtimeObservationMetadata } from '../../../src/types.ts';
-import { fetchOpenMeteoCurrent } from './openMeteoProvider.ts';
+import { RealtimeObservationMetadata, WeatherData, OceanData } from '../../../src/types.ts';
+import { fetchFusedRealtimeMarineObservation } from './marineDataFusion.ts';
 
 export interface RealtimeMarineObservation {
-  weather: Awaited<ReturnType<typeof fetchOpenMeteoCurrent>>['weather'];
-  ocean: Awaited<ReturnType<typeof fetchOpenMeteoCurrent>>['ocean'];
-  metadata: RealtimeObservationMetadata;
+  weather: WeatherData;
+  ocean: OceanData;
+  metadata: RealtimeObservationMetadata & {
+    selectedSources: Record<string, string>;
+    sourceScores: Record<string, number>;
+  };
   degraded: boolean;
 }
 
 export async function fetchRealtimeMarineObservation(lat: number, lon: number): Promise<RealtimeMarineObservation> {
-  const result = await fetchOpenMeteoCurrent(lat, lon);
+  const result = await fetchFusedRealtimeMarineObservation(lat, lon);
   return {
     weather: result.weather,
     ocean: result.ocean,
     metadata: {
       retrievedAt: result.retrievedAt,
-      providers: ['Open-Meteo Weather API', 'Open-Meteo Marine API'],
-      dataQuality: 'LIVE',
-      warnings: [
-        'Open-Meteo marine currents and tides are model-derived and have limited coastal accuracy; they are advisory data, not a navigation substitute.',
+      providers: result.providers,
+      dataQuality: result.dataQuality,
+      warnings: result.warnings.length > 0 ? result.warnings : [
+        'Marine observations are advisory decision-support data and not a navigation substitute.',
       ],
+      selectedSources: result.selectedSources,
+      sourceScores: result.sourceScores,
     },
-    degraded: false,
+    degraded: result.dataQuality !== 'LIVE',
   };
 }
