@@ -62,7 +62,11 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       hi: 'hi-IN',
       ta: 'ta-IN',
       or: 'or-IN',
-      te: 'te-IN'
+      te: 'te-IN',
+      ml: 'ml-IN',
+      gu: 'gu-IN',
+      mr: 'mr-IN',
+      kn: 'kn-IN'
     };
     utterance.lang = langMap[language] || 'en-IN';
     utterance.rate = 0.95;
@@ -116,10 +120,53 @@ export const RiskCard: React.FC<RiskCardProps> = ({
   const theme = getRiskTheme(risk.riskLevel);
 
   return (
-    <div className={`rounded-2xl border ${theme.bg} p-5 shadow-xl ${theme.shadow} space-y-4 transition-all backdrop-blur-sm`}>
+    <div className={`rounded-2xl border ${theme.bg} p-4 sm:p-5 shadow-xl ${theme.shadow} space-y-4 transition-all backdrop-blur-sm`}>
       
+      {/* FISHERMAN HIGH-VISIBILITY TRAFFIC LIGHT ADVISORY BANNER */}
+      <div className={`p-4 rounded-xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left ${
+        risk.riskLevel === 'LOW' 
+          ? 'bg-emerald-900/80 border-emerald-400 text-emerald-100 shadow-lg shadow-emerald-900/40' 
+          : risk.riskLevel === 'MODERATE' 
+          ? 'bg-amber-900/80 border-amber-400 text-amber-100 shadow-lg shadow-amber-900/40' 
+          : 'bg-red-900/90 border-red-400 text-red-100 shadow-lg shadow-red-900/50 animate-pulse'
+      }`}>
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 rounded-full bg-slate-950/40 shrink-0">
+            {theme.icon}
+          </div>
+          <div>
+            <span className="text-[10px] font-mono uppercase tracking-widest opacity-80 block">
+              {location.name} • Official Sea Advisory
+            </span>
+            <h2 className="text-xl sm:text-2xl font-black tracking-tight leading-none mt-0.5">
+              {risk.riskLevel === 'LOW' && '🟢 SAFE TO SAIL'}
+              {risk.riskLevel === 'MODERATE' && '🟡 CAUTION ADVISED'}
+              {(risk.riskLevel === 'HIGH' || risk.riskLevel === 'EXTREME') && '🔴 STAY IN PORT / DO NOT SAIL'}
+            </h2>
+            <p className="text-xs font-semibold opacity-90 mt-1">
+              {risk.primaryRecommendation}
+            </p>
+          </div>
+        </div>
+
+        {/* Big One-Handed Listen Button */}
+        <button
+          id="btn-risk-audio-narration"
+          onClick={handleToggleAudio}
+          title={isPlayingAudio ? 'Stop audio' : 'Listen to marine risk summary'}
+          className={`w-full sm:w-auto min-h-[52px] px-5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-all flex items-center justify-center space-x-2 shrink-0 ${
+            isPlayingAudio
+              ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-lg shadow-cyan-400/50 animate-pulse'
+              : 'bg-slate-900 hover:bg-slate-800 text-slate-100 border-slate-600 active:scale-95'
+          }`}
+        >
+          {isPlayingAudio ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5 text-cyan-400" />}
+          <span>{isPlayingAudio ? 'Stop Audio' : '🔊 Listen Warning'}</span>
+        </button>
+      </div>
+
       {/* Header with Risk Level Badge & Audio Narration */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between pt-1">
         <div>
           <div className="flex items-center space-x-2">
             <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
@@ -144,9 +191,9 @@ export const RiskCard: React.FC<RiskCardProps> = ({
             id="btn-print-advisory-bulletin"
             onClick={() => window.print()}
             title="Print Official Safety Bulletin"
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-200 transition-all"
+            className="flex items-center space-x-1.5 min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-200 transition-all"
           >
-            <Printer className="h-3.5 w-3.5 text-cyan-400" />
+            <Printer className="h-4 w-4 text-cyan-400" />
             <span className="hidden sm:inline">Print Bulletin</span>
           </button>
 
@@ -155,13 +202,13 @@ export const RiskCard: React.FC<RiskCardProps> = ({
             id="btn-risk-audio-narration"
             onClick={handleToggleAudio}
             title={isPlayingAudio ? 'Stop audio' : 'Listen to marine risk summary'}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+            className={`flex items-center space-x-1.5 min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold border transition-all ${
               isPlayingAudio
                 ? 'bg-cyan-500 text-slate-950 border-cyan-400 animate-pulse shadow-md shadow-cyan-500/50'
                 : 'bg-slate-900/90 hover:bg-slate-800 text-slate-200 border-slate-700'
             }`}
           >
-            {isPlayingAudio ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5 text-cyan-400" />}
+            {isPlayingAudio ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4 text-cyan-400" />}
             <span className="hidden sm:inline">{isPlayingAudio ? (dict.listening || 'Speaking...') : (dict.listenAudio || 'Listen Audio')}</span>
           </button>
         </div>

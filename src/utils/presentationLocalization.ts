@@ -1,6 +1,6 @@
 import { AgentStepTrace, EvidenceItem, FeatureContribution, LanguageCode } from '../types';
 
-const featureNames: Record<LanguageCode, Record<string, string>> = {
+const featureNames: Partial<Record<LanguageCode, Record<string, string>>> = {
   en: {},
   bn: {
     'Significant Wave Height (Hs)': 'উল্লেখযোগ্য ঢেউয়ের উচ্চতা (Hs)',
@@ -64,7 +64,7 @@ const featureNames: Record<LanguageCode, Record<string, string>> = {
   }
 };
 
-const impactLabels: Record<LanguageCode, Record<string, string>> = {
+const impactLabels: Partial<Record<LanguageCode, Record<string, string>>> = {
   en: {}, bn: { CRITICAL: 'অতি গুরুতর', HIGH: 'উচ্চ', MEDIUM: 'মাঝারি', LOW: 'কম' },
   hi: { CRITICAL: 'अत्यंत गंभीर', HIGH: 'उच्च', MEDIUM: 'मध्यम', LOW: 'कम' },
   ta: { CRITICAL: 'மிகவும் தீவிரம்', HIGH: 'அதிகம்', MEDIUM: 'மிதம்', LOW: 'குறைவு' },
@@ -72,7 +72,7 @@ const impactLabels: Record<LanguageCode, Record<string, string>> = {
   te: { CRITICAL: 'క్లిష్టం', HIGH: 'అధికం', MEDIUM: 'మధ్యస్థం', LOW: 'తక్కువ' }
 };
 
-const traceLabels: Record<LanguageCode, Record<string, string>> = {
+const traceLabels: Partial<Record<LanguageCode, Record<string, string>>> = {
   en: {},
   bn: { 'Workflow execution graph created.': 'ওয়ার্কফ্লো কার্যসম্পাদন গ্রাফ তৈরি হয়েছে।', 'All Nodes Validated': 'সব নোড যাচাই করা হয়েছে', 'In progress...': 'চলছে...', 'Target:': 'লক্ষ্য:', 'LIVE': 'লাইভ', 'DEGRADED': 'সীমিত', 'UNAVAILABLE': 'অনুপলব্ধ', 'observations': 'পর্যবেক্ষণ', 'features generated.': 'ফিচার তৈরি হয়েছে।', 'evidence items retrieved via': 'প্রমাণ আইটেম সংগ্রহের মাধ্যম:', 'Grounded marine briefing generated from live environmental data plus retrieved authoritative evidence.': 'লাইভ পরিবেশগত তথ্য ও যাচাইকৃত প্রমাণ থেকে সামুদ্রিক briefing তৈরি হয়েছে।' },
   hi: { 'Workflow execution graph created.': 'वर्कफ़्लो निष्पादन ग्राफ बनाया गया।', 'All Nodes Validated': 'सभी नोड सत्यापित', 'In progress...': 'प्रगति में...', 'Target:': 'लक्ष्य:', 'LIVE': 'लाइव', 'DEGRADED': 'सीमित', 'UNAVAILABLE': 'अनुपलब्ध', 'observations': 'अवलोकन', 'features generated.': 'फीचर बनाए गए।', 'evidence items retrieved via': 'साक्ष्य प्राप्त माध्यम:', 'Grounded marine briefing generated from live environmental data plus retrieved authoritative evidence.': 'लाइव पर्यावरणीय डेटा और सत्यापित साक्ष्य से समुद्री सारांश बनाया गया।' },
@@ -96,7 +96,7 @@ export function localizeTraceText(text: string, language: LanguageCode): string 
 }
 
 export function localizeSeaState(value: string, language: LanguageCode): string {
-  const values: Record<LanguageCode, Record<string, string>> = {
+  const values: Partial<Record<LanguageCode, Record<string, string>>> = {
     en: {}, bn: { Slight: 'মৃদু', Unknown: 'অজানা' }, hi: { Slight: 'हल्की', Unknown: 'अज्ञात' }, ta: { Slight: 'மிதமான', Unknown: 'தெரியவில்லை' }, or: { Slight: 'ହାଲୁକା', Unknown: 'ଅଜଣା' }, te: { Slight: 'స్వల్పం', Unknown: 'తెలియదు' }
   };
   return values[language]?.[value] || value;
@@ -108,7 +108,7 @@ export function localizeFeature(feature: FeatureContribution, language: Language
 
 type EvidenceDisplay = Pick<EvidenceItem, 'title' | 'excerpt' | 'complianceRule'>;
 
-const evidenceDisplay: Record<LanguageCode, Record<string, EvidenceDisplay>> = {
+const evidenceDisplay: Partial<Record<LanguageCode, Record<string, EvidenceDisplay>>> = {
   en: {},
   bn: {
     'INCOIS-OSF-2026-041': { title: 'INCOIS সমুদ্র অবস্থা পূর্বাভাস: কারিগরি মাছ ধরার জন্য ঢেউ ও সোয়েল সীমা', excerpt: 'অ-মোটরচালিত ও মোটরচালিত ঐতিহ্যবাহী নৌকার জন্য Hs ১.৮ মিটারের বেশি বা সোয়েল পর্যায় ১৪ সেকেন্ডের বেশি হলে উপকূলীয় ভাঙা ঢেউয়ে উল্টে যাওয়ার ঝুঁকি বাড়ে।', complianceRule: 'নিরাপত্তা নির্দেশনা: Hs ১.৮ মিটার বা সোয়েল পর্যায় ১৪ সেকেন্ড ছাড়ালে কাজ বন্ধ রাখুন।' },
@@ -153,7 +153,7 @@ export function localizeEvidence(item: EvidenceItem, language: LanguageCode): Ev
 
 export function localizeSatelliteText(text: string, language: LanguageCode): string {
   if (language === 'en') return text;
-  const labels: Record<LanguageCode, Record<string, string>> = {
+  const labels: Partial<Record<LanguageCode, Record<string, string>>> = {
     en: {}, bn: { 'Not derived from available observations': 'উপলব্ধ পর্যবেক্ষণ থেকে নির্ণয় করা যায়নি', 'Detected by satellite processing': 'স্যাটেলাইট প্রক্রিয়ায় শনাক্ত', 'No anomaly detected': 'কোনো অস্বাভাবিকতা নেই', 'No Sentinel-3 water-surface-temperature product was found; SST metrics are unavailable.': 'কোনো Sentinel-3 জল-পৃষ্ঠ তাপমাত্রা পণ্য পাওয়া যায়নি; SST তথ্য অনুপলব্ধ।', 'Best matching optical observation has high cloud cover': 'সেরা অপটিক্যাল পর্যবেক্ষণে মেঘের আচ্ছাদন বেশি' },
     hi: { 'Not derived from available observations': 'उपलब्ध अवलोकनों से निर्धारित नहीं', 'Detected by satellite processing': 'उपग्रह प्रसंस्करण से पता चला', 'No anomaly detected': 'कोई असामान्यता नहीं', 'No Sentinel-3 water-surface-temperature product was found; SST metrics are unavailable.': 'Sentinel-3 जल-सतह तापमान उत्पाद नहीं मिला; SST जानकारी उपलब्ध नहीं।', 'Best matching optical observation has high cloud cover': 'सर्वश्रेष्ठ ऑप्टिकल अवलोकन में बादल अधिक हैं' },
     ta: { 'Not derived from available observations': 'கிடைத்த கண்காணிப்புகளில் இருந்து கணிக்கப்படவில்லை', 'Detected by satellite processing': 'செயற்கைக்கோள் செயலாக்கத்தில் கண்டறியப்பட்டது', 'No anomaly detected': 'மாறுபாடு இல்லை', 'No Sentinel-3 water-surface-temperature product was found; SST metrics are unavailable.': 'Sentinel-3 நீர் மேற்பரப்பு வெப்பநிலை தயாரிப்பு இல்லை; SST தகவல் கிடைக்கவில்லை.', 'Best matching optical observation has high cloud cover': 'சிறந்த ஒளியியல் கண்காணிப்பில் மேக மூடல் அதிகம்' },

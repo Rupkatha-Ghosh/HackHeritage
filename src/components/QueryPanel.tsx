@@ -36,31 +36,31 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
 
-  // Pre-configured scenario presets
+  // Fisherman-tailored quick question chips with icon tags
   const samplePrompts = [
     {
-      text: 'Is it safe to fish near Digha tomorrow morning?',
-      tag: 'Digha • Tomorrow Morning',
+      text: 'Is it safe to go fishing near Digha right now?',
+      tag: '⚓ Can I go fishing today?',
       loc: 'digha'
     },
     {
-      text: 'Puri sea beach wave surge and artisanal fishing advisory',
-      tag: 'Puri • Swell Surge',
+      text: 'How high are the waves and ocean swell near Puri?',
+      tag: '🌊 How high are the waves?',
       loc: 'puri'
     },
     {
-      text: 'Visakhapatnam deep sea current and gale squall warning',
-      tag: 'Vizag • Deep Sea',
+      text: 'Visakhapatnam wind speed, gusts, and storm warning',
+      tag: '💨 Is wind speed dangerous?',
       loc: 'visakhapatnam'
     },
     {
-      text: 'Kochi Arabian sea trawler safety and chlorophyll PFZ check',
-      tag: 'Kochi • Trawler Safety',
+      text: 'Kochi sea weather and small boat advisory',
+      tag: '⛈️ Any storm / rain warning?',
       loc: 'kochi'
     },
     {
-      text: 'Paradeep major port storm advisory and craft restrictions',
-      tag: 'Paradeep • Storm Alert',
+      text: 'Paradeep port swell surge and craft restrictions',
+      tag: '🛑 Is port advisory active?',
       loc: 'paradeep'
     }
   ];
@@ -80,7 +80,11 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
         hi: 'hi-IN',
         ta: 'ta-IN',
         or: 'or-IN',
-        te: 'te-IN'
+        te: 'te-IN',
+        ml: 'ml-IN',
+        gu: 'gu-IN',
+        mr: 'mr-IN',
+        kn: 'kn-IN'
       };
       recognition.lang = langMap[language] || 'en-IN';
 
