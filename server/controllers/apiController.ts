@@ -10,6 +10,7 @@ import { getRealtimeSourceReadiness } from '../services/realtime/marineDataFusio
 import { getMarineTelemetry, getMarineTelemetryAnalysis, getMarineTelemetrySummary } from '../services/realtime/marineTelemetry.ts';
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
+import { localizeRiskPrediction } from '../../src/utils/marineRiskLocalization.ts';
 
 function resolveLocationFromRequest(req: Request) {
   const locationKey = typeof req.query.locationKey === 'string' ? req.query.locationKey : undefined;
@@ -66,7 +67,7 @@ export async function marineForecast(req: Request, res: Response) {
 
 export async function marineRisk(req: Request, res: Response) {
   try {
-    const { weather, ocean, satellite, location } = req.body;
+    const { weather, ocean, satellite, location, language = 'en' } = req.body;
     if (!weather || !ocean || !location) return res.status(400).json({ error: 'Missing required environmental observation inputs.' });
     const defaultSat = satellite || {
       status: 'UNAVAILABLE', satelliteName: 'No satellite observation supplied', processingTime: new Date().toISOString(),
@@ -74,7 +75,8 @@ export async function marineRisk(req: Request, res: Response) {
       observationType: 'NO_OBSERVATION', warnings: ['Satellite observation was not supplied to the risk endpoint.'], observations: [],
     } as SatelliteData;
     const mlRisk = await predictMarineRiskWithMl(weather, ocean, defaultSat, location);
-    res.json(mlRisk || calculateMarineRisk(weather, ocean, defaultSat, location));
+    const rawRisk = mlRisk || calculateMarineRisk(weather, ocean, defaultSat, location);
+    res.json(localizeRiskPrediction(rawRisk, weather, ocean, ['en', 'bn', 'hi', 'ta', 'or', 'te'].includes(language) ? language : 'en'));
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Risk calculation failed.' });
   }

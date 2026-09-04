@@ -12,22 +12,27 @@ import {
   Navigation2,
   Cpu
 } from 'lucide-react';
-import { LocationInfo, WeatherData, OceanData, SatelliteData, RiskPrediction } from '../types';
+import { LocationInfo, WeatherData, OceanData, SatelliteData, RiskPrediction, LanguageCode } from '../types';
 import { calculateMarineRisk } from '../utils/marineRiskEngine';
+import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
+import { localizeRiskPrediction } from '../utils/marineRiskLocalization';
 
 interface WhatIfSimulatorProps {
   location: LocationInfo;
   initialWeather: WeatherData;
   initialOcean: OceanData;
   initialSatellite: SatelliteData;
+  language: LanguageCode;
 }
 
 export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
   location,
   initialWeather,
   initialOcean,
-  initialSatellite
+  initialSatellite,
+  language
 }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   // Simulator State
   const [simWaveHeight, setSimWaveHeight] = useState<number>(initialOcean.waveHeightMeters);
   const [simSwellPeriod, setSimSwellPeriod] = useState<number>(initialOcean.swellPeriodSec);
@@ -52,12 +57,13 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
     currentSpeedKts: simCurrent
   };
 
-  const simRisk: RiskPrediction = calculateMarineRisk(
+  const rawSimRisk: RiskPrediction = calculateMarineRisk(
     simulatedWeather,
     simulatedOcean,
     initialSatellite,
     location
   );
+  const simRisk = localizeRiskPrediction(rawSimRisk, simulatedWeather, simulatedOcean, language);
 
   const resetToBaseline = () => {
     setSimWaveHeight(initialOcean.waveHeightMeters);
@@ -93,7 +99,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
         <div className="flex items-center space-x-2">
           <SlidersHorizontal className="h-4 w-4 text-cyan-400" />
           <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider font-mono">
-            Interactive "What-If" Environmental Sandbox
+            {dict.simulatorTitle}
           </h3>
         </div>
         <button
@@ -101,7 +107,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
           className="flex items-center space-x-1 text-xs font-semibold text-slate-400 hover:text-white bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 hover:bg-slate-800 transition-all"
         >
           <RotateCcw className="h-3 w-3" />
-          <span>Reset to Live Feed</span>
+          <span>{dict.resetLiveFeed}</span>
         </button>
       </div>
 
@@ -120,7 +126,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
             <div className="flex justify-between text-xs font-mono">
               <span className="text-slate-300 flex items-center gap-1">
                 <Waves className="h-3.5 w-3.5 text-cyan-400" />
-                <span>Significant Wave Height (Hs)</span>
+                <span>{dict.significantWave}</span>
               </span>
               <span className="font-bold text-cyan-400">{simWaveHeight.toFixed(1)} meters</span>
             </div>
@@ -134,9 +140,9 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
               className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
             />
             <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>0.2m (Calm)</span>
-              <span>1.8m (Warning)</span>
-              <span>3.5m+ (Severe)</span>
+              <span>0.2m ({dict.calm})</span>
+              <span>1.8m ({dict.warning})</span>
+              <span>3.5m+ ({dict.severe})</span>
             </div>
           </div>
 
@@ -145,7 +151,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
             <div className="flex justify-between text-xs font-mono">
               <span className="text-slate-300 flex items-center gap-1">
                 <Clock className="h-3.5 w-3.5 text-indigo-400" />
-                <span>Swell Wave Period (Tp)</span>
+                <span>{dict.swellPeriod}</span>
               </span>
               <span className="font-bold text-indigo-400">{simSwellPeriod.toFixed(0)} seconds</span>
             </div>
@@ -159,8 +165,8 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
               className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-400"
             />
             <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>5s (Short Wind Chop)</span>
-              <span>13s+ (High Breaker Surge)</span>
+              <span>5s ({dict.shortChop})</span>
+              <span>13s+ ({dict.breakerSurge})</span>
               <span>20s</span>
             </div>
           </div>
@@ -170,7 +176,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
             <div className="flex justify-between text-xs font-mono">
               <span className="text-slate-300 flex items-center gap-1">
                 <Wind className="h-3.5 w-3.5 text-sky-400" />
-                <span>Wind Speed / Gusts</span>
+                <span>{dict.windGusts}</span>
               </span>
               <span className="font-bold text-sky-400">{simWindSpeed.toFixed(0)} kts (Gust {simWindGust.toFixed(0)})</span>
             </div>
@@ -188,9 +194,9 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
               className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-400"
             />
             <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>5 kts (Gentle)</span>
-              <span>22 kts (Fresh)</span>
-              <span>35 kts+ (Gale Force)</span>
+              <span>5 kts ({dict.gentle})</span>
+              <span>22 kts ({dict.fresh})</span>
+              <span>35 kts+ ({dict.gale})</span>
             </div>
           </div>
 
@@ -199,7 +205,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
             <div className="flex justify-between text-xs font-mono">
               <span className="text-slate-300 flex items-center gap-1">
                 <Navigation2 className="h-3.5 w-3.5 text-teal-400" />
-                <span>Tidal Current Velocity</span>
+                <span>{dict.tidalCurrent}</span>
               </span>
               <span className="font-bold text-teal-400">{simCurrent.toFixed(1)} knots</span>
             </div>
@@ -213,8 +219,8 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
               className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-teal-400"
             />
             <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>0.5 kts (Mild)</span>
-              <span>2.0 kts (Strong Shear)</span>
+              <span>0.5 kts ({dict.mild})</span>
+              <span>2.0 kts ({dict.strongShear})</span>
               <span>4.0 kts</span>
             </div>
           </div>
@@ -237,7 +243,7 @@ export const WhatIfSimulator: React.FC<WhatIfSimulatorProps> = ({
             {/* Score Progress Gauge */}
             <div className="space-y-1">
               <div className="flex justify-between text-xs font-mono">
-                <span className="text-slate-400">Calculated Score</span>
+                <span className="text-slate-400">{dict.calculatedScore}</span>
                 <span className={`font-black text-base ${theme.color}`}>{simRisk.riskScore} / 100</span>
               </div>
               <div className="w-full bg-slate-900 h-3 rounded-full overflow-hidden">

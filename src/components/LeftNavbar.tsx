@@ -108,7 +108,9 @@ const Wordmark: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
  * closing the language `<select>` under the operator's cursor.
  */
 
-const StatusLamp: React.FC<{ isProcessing: boolean }> = ({ isProcessing }) => (
+const StatusLamp: React.FC<{ isProcessing: boolean; language?: LanguageCode }> = ({ isProcessing, language = 'en' }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  return (
   <span className="flex items-center gap-2">
     <span className="relative flex h-1.5 w-1.5">
       {isProcessing && (
@@ -121,16 +123,19 @@ const StatusLamp: React.FC<{ isProcessing: boolean }> = ({ isProcessing }) => (
       />
     </span>
     <span className="font-mono text-[9.5px] tracking-[0.18em] text-fathom">
-      {isProcessing ? 'RUNNING' : 'STANDING BY'}
+      {isProcessing ? dict.running : dict.standingBy}
     </span>
   </span>
-);
+  );
+};
 
 const LanguageField: React.FC<{
   id: string;
   language: LanguageCode;
   setLanguage: (lang: LanguageCode) => void;
-}> = ({ id, language, setLanguage }) => (
+}> = ({ id, language, setLanguage }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  return (
   <div>
     <label
       htmlFor={id}
@@ -138,7 +143,7 @@ const LanguageField: React.FC<{
     >
       <span className="flex items-center gap-1.5">
         <Globe className="h-3 w-3 text-shoal" />
-        Answer language
+        {dict.languageLabel}
       </span>
       <span className="text-buoy">{language}</span>
     </label>
@@ -155,13 +160,31 @@ const LanguageField: React.FC<{
       ))}
     </select>
   </div>
-);
+  );
+};
 
 const NavList: React.FC<{
   currentTab: TabId;
   setCurrentTab: (tab: TabId) => void;
   onNavigate?: () => void;
-}> = ({ currentTab, setCurrentTab, onNavigate }) => (
+  language?: LanguageCode;
+}> = ({ currentTab, setCurrentTab, onNavigate, language = 'en' }) => {
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
+  const labels: Record<TabId, string> = {
+    dashboard: dict.missionTitle,
+    analysis: dict.riskScore,
+    satellite: dict.satelliteIntelligence,
+    evidence: dict.evidenceGrounding,
+    simulator: dict.whatIfSimulation
+  };
+  const descriptions: Record<TabId, string> = {
+    dashboard: `${dict.recommendations}, ${dict.telemetryTitle}`,
+    analysis: dict.factors,
+    satellite: dict.satelliteLayer,
+    evidence: dict.citations,
+    simulator: dict.simulatorTitle
+  };
+  return (
   <nav className="space-y-0.5">
     {navItems.map((item) => {
       const Icon = item.icon;
@@ -192,10 +215,10 @@ const NavList: React.FC<{
             />
             <span className="min-w-0">
               <span className="block truncate text-[12.5px] font-medium leading-tight">
-                {item.label}
+                {labels[item.id]}
               </span>
               <span className="mt-0.5 block truncate text-[10.5px] leading-tight text-fathom">
-                {item.description}
+                {descriptions[item.id]}
               </span>
             </span>
           </span>
@@ -213,12 +236,14 @@ const NavList: React.FC<{
       );
     })}
   </nav>
-);
+  );
+};
 
 /** Returns to the project brief. Shown in both the drawer and the sidebar. */
-const BriefLink: React.FC<{ onExit: () => void; size?: 'sm' | 'xs' }> = ({
+const BriefLink: React.FC<{ onExit: () => void; size?: 'sm' | 'xs'; language?: LanguageCode }> = ({
   onExit,
-  size = 'xs'
+  size = 'xs',
+  language = 'en'
 }) => (
   <button
     onClick={onExit}
@@ -227,7 +252,7 @@ const BriefLink: React.FC<{ onExit: () => void; size?: 'sm' | 'xs' }> = ({
     } uppercase tracking-[0.18em] text-fathom transition-colors hover:text-shoal`}
   >
     <ArrowLeft className="h-3.5 w-3.5 transition-transform duration-300 group-hover:-translate-x-1" />
-    Project brief
+    {(MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en).projectBrief}
   </button>
 );
 
@@ -284,7 +309,7 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
       <header className="sticky top-0 z-40 flex items-center justify-between border-b border-shoal/12 bg-abyssal/95 px-4 py-3 backdrop-blur-md lg:hidden">
         <Wordmark compact />
         <div className="flex items-center gap-3">
-          <StatusLamp isProcessing={isProcessing} />
+          <StatusLamp isProcessing={isProcessing} language={language} />
           <button
             id="mobile-nav-toggle"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -322,6 +347,7 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
               {onExit && (
                 <BriefLink
                   size="sm"
+                  language={language}
                   onExit={() => {
                     setMobileMenuOpen(false);
                     onExit();
@@ -332,6 +358,7 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
               <NavList
                 currentTab={currentTab}
                 setCurrentTab={setCurrentTab}
+                language={language}
                 onNavigate={() => setMobileMenuOpen(false)}
               />
               <LanguageField
@@ -356,11 +383,11 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
         <div className="space-y-7 p-5">
           <Wordmark />
 
-          {onExit && <BriefLink onExit={onExit} />}
+          {onExit && <BriefLink onExit={onExit} language={language} />}
 
           <div className="border border-shoal/15 bg-shelf/40 p-3.5">
             <div className="flex items-center justify-between">
-              <StatusLamp isProcessing={isProcessing} />
+              <StatusLamp isProcessing={isProcessing} language={language} />
               <span className="font-mono text-[8.5px] tracking-[0.14em] text-emerald-400">
                 LIVE FEED
               </span>
@@ -371,8 +398,8 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
           </div>
 
           <div>
-            <p className="plate-label mb-3 pl-3.5">Modules</p>
-            <NavList currentTab={currentTab} setCurrentTab={setCurrentTab} />
+            <p className="plate-label mb-3 pl-3.5">{dict.modules}</p>
+            <NavList currentTab={currentTab} setCurrentTab={setCurrentTab} language={language} />
           </div>
         </div>
 
