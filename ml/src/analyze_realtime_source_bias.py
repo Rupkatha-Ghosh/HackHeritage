@@ -2,7 +2,7 @@
 
 This script intentionally does not train or modify a model. It measures source
 coverage, missingness, quality and pairwise disagreement from the JSONL telemetry
-written by the server.
+written by the server and exposes an auditable evidence gate for v2.7 review.
 """
 
 from __future__ import annotations
@@ -24,6 +24,11 @@ VARIABLES = [
 ]
 
 DEFAULT_PATH = Path("data/realtime/marine_telemetry.jsonl")
+MIN_EVENTS = max(1, int(os.getenv("REALTIME_ANALYSIS_MIN_EVENTS", "100")))
+MIN_LIVE_SOURCES = max(2, int(os.getenv("REALTIME_ANALYSIS_MIN_LIVE_SOURCES", "2")))
+MIN_SOURCE_LIVE_RATE = min(1.0, max(0.0, float(os.getenv("REALTIME_ANALYSIS_MIN_LIVE_RATE", "0.80"))))
+MIN_PAIRWISE_SAMPLES = max(1, int(os.getenv("REALTIME_ANALYSIS_MIN_PAIRWISE_SAMPLES", "50")))
+MIN_SOURCE_QUALITY = min(1.0, max(0.0, float(os.getenv("REALTIME_ANALYSIS_MIN_SOURCE_QUALITY", "0.60"))))
 
 
 def load_events(path: Path) -> list[dict]:
@@ -66,17 +71,42 @@ def main() -> None:
                     pair_rows[key].append(abs(float(a) - float(b)) / denominator)
                     signed_rows[key].append(float(a) - float(b))
 
+    source_report = {
+        source: {
+            "observations": len(rows),
+            "live_rate": round(sum(row.get("availability") == "LIVE" for row in rows) / len(rows), 4),
+            "mean_quality": round(mean(float(row.get("qualityScore", 0)) for row in rows), 4),
+            "mean_missing_variables": round(mean(len(row.get("missingVariables", [])) for row in rows), 2),
+        }
+        for source, rows in sorted(source_rows.items())
+    }
+
+    live_sources = [
+        source for source, values in source_report.items()
+        if source != "UNKNOWN"
+        and values["live_rate"] >= MIN_SOURCE_LIVE_RATE
+        and values["mean_quality"] >= MIN_SOURCE_QUALITY
+    ]
+    pairwise_pairs = {
+        f"{left}__{right}": {
+            "samples": sum(len(values) for (a, b, _), values in pair_rows.items() if (a, b) == (left, right)),
+            "variables": sorted(variable for (a, b, variable) in pair_rows if (a, b) == (left, right)),
+        }
+        for left, right in sorted({(a, b) for a, b, _ in pair_rows})
+    }
+    pairwise_evidence = [key for key, value in pairwise_pairs.items() if value["samples"] >= MIN_PAIRWISE_SAMPLES]
+
+    criteria = {
+        "minimum_events": {"required": MIN_EVENTS, "actual": len(events), "pass": len(events) >= MIN_EVENTS},
+        "minimum_live_sources": {"required": MIN_LIVE_SOURCES, "actual": len(live_sources), "pass": len(live_sources) >= MIN_LIVE_SOURCES},
+        "source_live_rate": {"required": MIN_SOURCE_LIVE_RATE, "sources": live_sources, "pass": len(live_sources) >= MIN_LIVE_SOURCES},
+        "pairwise_evidence": {"required_samples_per_pair": MIN_PAIRWISE_SAMPLES, "pairs_with_evidence": pairwise_evidence, "pass": len(pairwise_evidence) >= 1},
+        "distribution_shift_review": {"pass": False, "reason": "Requires domain review of parallel-source distributions before v2.7 training."},
+    }
+
     report = {
         "event_count": len(events),
-        "sources": {
-            source: {
-                "observations": len(rows),
-                "live_rate": round(sum(row.get("availability") == "LIVE" for row in rows) / len(rows), 4),
-                "mean_quality": round(mean(float(row.get("qualityScore", 0)) for row in rows), 4),
-                "mean_missing_variables": round(mean(len(row.get("missingVariables", [])) for row in rows), 2),
-            }
-            for source, rows in sorted(source_rows.items())
-        },
+        "sources": source_report,
         "pairwise_bias": {
             f"{left}__{right}__{variable}": {
                 "samples": len(values),
@@ -87,10 +117,13 @@ def main() -> None:
         },
         "gate": {
             "ready_for_retraining": False,
-            "reason": "Collect parallel-source telemetry first, inspect source coverage/disagreement and document distribution shift before retraining XGBoost.",
+            "criteria": criteria,
+            "reason": "Multi-source evidence and distribution-shift review are required before XGBoost v2.7 retraining.",
         },
     }
 
+    # Deliberately conservative: even if coverage criteria pass, distribution-shift
+    # review remains a human/engineering gate and must be explicitly documented.
     print(json.dumps(report, indent=2, sort_keys=True))
 
 

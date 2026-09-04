@@ -36,7 +36,12 @@ assert(appHealth.services.mlRiskApi, 'ML service metadata is missing');
 assert(appHealth.capabilities?.tomorrowMarineForecast === true, 'Tomorrow forecast capability is not enabled');
 
 const live = await request(`${baseUrl}/api/marine/conditions?lat=21.6266&lon=87.5074`);
-assert(live.degraded === false, 'Live marine/weather provider is degraded');
+// Overall realtime fusion is DEGRADED when only one live source is configured. CI does
+// not provide private/approved INCOIS or MOSDAC endpoints, so this is expected and must
+// not be treated as a provider outage. The selected Open-Meteo weather/marine payloads
+// themselves must still be LIVE and usable.
+assert(['LIVE', 'DEGRADED'].includes(live.metadata?.dataQuality), 'Live marine fusion returned an invalid data-quality state');
+assert(live.metadata?.dataQuality !== 'UNAVAILABLE', 'Live marine/weather fusion is unavailable');
 assert(live.weather?.dataQuality === 'LIVE', 'Weather data is not marked LIVE');
 assert(live.ocean?.dataQuality === 'LIVE', 'Marine data is not marked LIVE');
 assert(live.weather?.source === 'Open-Meteo Weather API', 'Unexpected weather provider');
@@ -92,6 +97,7 @@ console.log('ORCA-X live + forecast smoke test passed:', JSON.stringify({
   embedding: ragSearch.embedding_model,
   liveWeather: live.weather.source,
   liveMarine: live.ocean.source,
+  liveFusionQuality: live.metadata?.dataQuality || 'UNKNOWN',
   forecastDate: forecast.forecastDate,
   forecastHours: forecast.hourly.length,
   worstForecastRisk: forecast.summary.worstRiskLevel,

@@ -31,6 +31,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
     queryText: string,
     locOverride?: string,
     timeOverride?: string,
+    responseLanguage: LanguageCode = language,
   ) => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -43,7 +44,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
           query: queryText,
           locationOverride: locOverride,
           timeOverride,
-          language,
+          language: responseLanguage,
         }),
       });
 
@@ -102,7 +103,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
         setLanguage={(nextLanguage) => {
           setLanguage(nextLanguage);
           if (analysisData)
-            fetchAnalysis(analysisData.originalQuery, undefined, undefined);
+            fetchAnalysis(analysisData.originalQuery, undefined, undefined, nextLanguage);
         }}
         isProcessing={isLoading}
         onExit={onExit}
@@ -172,6 +173,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         weather={analysisData.weather}
                         ocean={analysisData.ocean}
                         satellite={analysisData.satellite}
+                        language={language}
                       />
                     </div>
                     <div className="space-y-4 lg:col-span-7">
@@ -189,18 +191,20 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         riskLevel={analysisData.risk.riskLevel}
                         onSelectLocation={handleLocationSelect}
                         onCoordinateClick={handleMapCoordinateClick}
+                        language={language}
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
                     <div className="lg:col-span-6">
-                      <FeatureContributions risk={analysisData.risk} />
+                      <FeatureContributions risk={analysisData.risk} language={language} />
                     </div>
                     <div className="lg:col-span-6">
                       <AgentExecutionTimeline
                         traces={analysisData.agentTraces}
                         queryId={analysisData.queryId}
+                        language={language}
                       />
                     </div>
                   </div>
@@ -208,6 +212,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <GroundedEvidenceDrawer
                     evidence={analysisData.evidence}
                     groundedSummary={analysisData.groundedSummary}
+                    language={language}
                   />
                 </div>
               )}
@@ -221,11 +226,12 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     language={language}
                     groundedSummary={analysisData.groundedSummary}
                   />
-                  <FeatureContributions risk={analysisData.risk} />
+                  <FeatureContributions risk={analysisData.risk} language={language} />
                   <MarineTelemetry
                     weather={analysisData.weather}
                     ocean={analysisData.ocean}
                     satellite={analysisData.satellite}
+                    language={language}
                   />
                 </div>
               )}
@@ -235,6 +241,8 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <SatelliteAnalysisView
                     satellite={analysisData.satellite}
                     location={analysisData.location}
+                    ocean={analysisData.ocean}
+                    language={language}
                   />
                   <InteractiveMap
                     location={analysisData.location}
@@ -243,6 +251,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
                     onCoordinateClick={handleMapCoordinateClick}
+                    language={language}
                   />
                 </div>
               )}
@@ -252,10 +261,12 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <GroundedEvidenceDrawer
                     evidence={analysisData.evidence}
                     groundedSummary={analysisData.groundedSummary}
+                    language={language}
                   />
                   <AgentExecutionTimeline
                     traces={analysisData.agentTraces}
                     queryId={analysisData.queryId}
+                    language={language}
                   />
                 </div>
               )}
@@ -267,6 +278,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     initialWeather={analysisData.weather}
                     initialOcean={analysisData.ocean}
                     initialSatellite={analysisData.satellite}
+                    language={language}
                   />
                   <InteractiveMap
                     location={analysisData.location}
@@ -275,6 +287,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
                     onCoordinateClick={handleMapCoordinateClick}
+                    language={language}
                   />
                 </div>
               )}

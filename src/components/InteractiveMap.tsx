@@ -14,8 +14,8 @@ import {
   Minimize2,
   Info
 } from 'lucide-react';
-import { LocationInfo, GisLayerData, RiskLevel, OceanData } from '../types';
-import { COASTAL_LOCATIONS } from '../data/coastalData';
+import { LocationInfo, GisLayerData, RiskLevel, OceanData, LanguageCode } from '../types';
+import { COASTAL_LOCATIONS, MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion';
 
 interface InteractiveMapProps {
@@ -25,6 +25,7 @@ interface InteractiveMapProps {
   riskLevel: RiskLevel;
   onSelectLocation: (locKey: string) => void;
   onCoordinateClick?: (lat: number, lon: number) => void;
+  language: LanguageCode;
 }
 
 export const InteractiveMap: React.FC<InteractiveMapProps> = ({
@@ -33,9 +34,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   ocean,
   riskLevel,
   onSelectLocation,
-  onCoordinateClick
+  onCoordinateClick,
+  language
 }) => {
   const outerWrapperRef = useRef<HTMLDivElement>(null);
+  const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
@@ -318,7 +321,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         <div className="orca-glass-panel p-1.5 flex items-center space-x-1.5 overflow-x-auto max-w-full scrollbar-thin">
           <span className="text-[10px] font-mono uppercase text-slate-400 pl-1.5 flex items-center gap-1 shrink-0">
             <Compass className="h-3 w-3 text-cyan-400" />
-            <span className="hidden sm:inline">Coastal Hubs:</span>
+            <span className="hidden sm:inline">{dict.coastalHubs}:</span>
           </span>
           {Object.keys(COASTAL_LOCATIONS).map((key) => {
             const loc = COASTAL_LOCATIONS[key];
@@ -352,7 +355,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             }`}
           >
             <Waves className="h-3 w-3 text-red-400" />
-            <span className="hidden md:inline">Hazard Zones</span>
+            <span className="hidden md:inline">{dict.hazardZones}</span>
           </button>
 
           <button
@@ -363,7 +366,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             }`}
           >
             <Navigation className="h-3 w-3 text-emerald-400" />
-            <span className="hidden md:inline">Safe Channels</span>
+            <span className="hidden md:inline">{dict.safeChannels}</span>
           </button>
 
           <button
@@ -374,7 +377,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             }`}
           >
             <Radio className="h-3 w-3 text-purple-400" />
-            <span className="hidden md:inline">Buoys</span>
+            <span className="hidden md:inline">{dict.buoys}</span>
           </button>
         </div>
 
@@ -394,29 +397,30 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase border-b border-slate-700/60 pb-1">
           <span className="flex items-center gap-1">
             <Layers className="h-3 w-3 text-cyan-400" />
-            <span>GIS Map Legend</span>
+            <span>{dict.gisLegend}</span>
           </span>
           <span className="flex items-center gap-1 text-[10px] text-cyan-400">
             <span className="orca-live-dot" />
             Active
           </span>
+          <span className="text-[10px] text-cyan-400">{dict.active}</span>
         </div>
         <div className="space-y-1 text-[11px]">
           <div className="flex items-center space-x-2">
             <span className="w-3 h-3 rounded bg-red-500/40 border border-red-500"></span>
-            <span className="text-slate-300">Offshore Hazard Sector</span>
+            <span className="text-slate-300">{dict.offshoreHazard}</span>
           </div>
           <div className="flex items-center space-x-2">
             <span className="w-3 h-3 rounded bg-blue-500/30 border border-blue-400"></span>
-            <span className="text-slate-300">Inshore Coastal Buffer</span>
+            <span className="text-slate-300">{dict.inshoreBuffer}</span>
           </div>
           <div className="flex items-center space-x-2">
             <span className="w-3 h-0.5 bg-emerald-400 border border-emerald-400 border-dashed"></span>
-            <span className="text-slate-300">Fairway Safe Channel</span>
+            <span className="text-slate-300">{dict.fairwayChannel}</span>
           </div>
           <div className="flex items-center space-x-2">
             <span className="w-2.5 h-2.5 rounded-full bg-purple-500 border border-white"></span>
-            <span className="text-slate-300">INCOIS MoES Buoy</span>
+            <span className="text-slate-300">{dict.buoyStation}</span>
           </div>
         </div>
         <div className="text-[10px] text-slate-500 pt-0.5 font-mono">
