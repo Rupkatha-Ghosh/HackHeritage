@@ -82,11 +82,17 @@ export async function marineRisk(req: Request, res: Response) {
   }
 }
 
+function parseBoolean(value: unknown, defaultValue = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return defaultValue;
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
 export async function satelliteAnalysis(req: Request, res: Response) {
   try {
     const lat = Number(req.body.latitude);
     const lon = Number(req.body.longitude);
-    const forceRefresh = Boolean(req.body.forceRefresh);
+    const forceRefresh = parseBoolean(req.body.forceRefresh);
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
     }
