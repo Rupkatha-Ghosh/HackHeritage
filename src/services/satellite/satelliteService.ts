@@ -88,7 +88,7 @@ async function searchCollections(collectionIds: string[], lat: number, lon: numb
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/geo+json, application/json' },
     body: JSON.stringify({ collections: collectionIds, bbox: bboxAroundPoint(lat, lon), datetime: `${start}/${end}`, limit, sortby: [{ field: 'datetime', direction: 'desc' }] }),
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(6000),
   });
   if (!response.ok) throw new Error(`Copernicus STAC ${response.status}: ${(await response.text().catch(() => '')).slice(0, 180)}`);
   const json = await response.json() as { features?: StacItem[] };
@@ -229,8 +229,23 @@ export async function fetchSatelliteData(lat: number, lon: number, resolvedStart
     ...COLLECTIONS.s1Grd,
     ...COLLECTIONS.s2L2a,
   ];
-  const searchedItems = await searchCollections(allCollectionIds, lat, lon, start, end);
-  const allItems = await Promise.all(searchedItems.slice(0, 12).map(fetchItemDetail));
+  let searchedItems: StacItem[] = [];
+  try {
+    searchedItems = await searchCollections(allCollectionIds, lat, lon, start, end);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push(`Copernicus STAC search degraded: ${msg}`);
+  }
+
+  let allItems: StacItem[] = [];
+  if (searchedItems.length > 0) {
+    try {
+      allItems = await Promise.all(searchedItems.slice(0, 12).map(fetchItemDetail));
+    } catch {
+      allItems = searchedItems.slice(0, 12);
+    }
+  }
+
   const seen = new Set<string>();
   for (const item of allItems) {
     const observation = toObservation(item, lat, lon);
@@ -244,10 +259,11 @@ export async function fetchSatelliteData(lat: number, lon: number, resolvedStart
   observations.splice(12);
 
   if (!observations.length) {
-    const emptyResult = buildNoObservation(lat, lon, [
-    'No matching Copernicus Sentinel observation was found for the last 7 days around the requested location.',
-    'Satellite-derived ocean indicators are therefore not available for this analysis.',
-    ]);
+    const defaultMsg = warnings.length > 0 ? warnings : [
+      'No matching Copernicus Sentinel observation was found for the last 7 days around the requested location.',
+      'Satellite-derived ocean indicators are therefore not available for this analysis.',
+    ];
+    const emptyResult = buildNoObservation(lat, lon, defaultMsg);
     satelliteCache.set(key, { expiresAt: now.getTime() + CACHE_TTL_MS, data: emptyResult });
     return emptyResult;
   }
