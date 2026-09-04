@@ -53,7 +53,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [showBuoys, setShowBuoys] = useState<boolean>(true);
   const [showSstOverlay, setShowSstOverlay] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [tileMode, setTileMode] = useState<'nautical' | 'dark' | 'satellite'>('dark');
 
   // Native Fullscreen API Handler
   const toggleFullscreen = () => {
@@ -105,15 +104,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         attributionControl: true
       });
 
-      // Add default dark tactical tile layer
-      const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       // OpenStreetMap Detailed Map Engine (Google Maps-level details: cities, towns, villages, beaches, ports, roads)
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(map);
-
-      tileLayerRef.current = tileLayer;
 
       // Custom Zoom control in bottom right
       L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -154,33 +149,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     });
   }, [location.latitude, location.longitude, reducedMotion]);
 
-  // Handle Basemap Tile Switcher
   // Handle container resize & visibility changes (e.g., tab switches or fullscreen)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    if (tileLayerRef.current) {
-      map.removeLayer(tileLayerRef.current);
-    }
-
-    let url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-    let attribution = '&copy; OpenStreetMap &copy; CARTO Dark';
-
-    if (tileMode === 'satellite') {
-      url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      attribution = '&copy; Esri World Imagery Satellite';
-    } else if (tileMode === 'nautical') {
-      url = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-      attribution = '&copy; OpenStreetMap &copy; CARTO Voyager';
-    }
-
-    tileLayerRef.current = L.tileLayer(url, {
-      maxZoom: 19,
-      subdomains: 'abcd',
-      attribution
-    }).addTo(map);
-  }, [tileMode]);
     // Immediately invalidate size to prevent tile vanishing
     map.invalidateSize();
 
@@ -373,38 +346,6 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
 
         {/* Layer Toggles Popover */}
-        <div className="bg-slate-950/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-1 shadow-lg flex items-center space-x-1">
-          {/* Basemap Mode Switcher */}
-          <div className="flex items-center space-x-0.5 border-r border-slate-800 pr-1 mr-0.5">
-            <button
-              onClick={() => setTileMode('dark')}
-              title="Tactical Dark Map"
-              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
-                tileMode === 'dark' ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              Dark
-            </button>
-            <button
-              onClick={() => setTileMode('satellite')}
-              title="Esri World Satellite Photos"
-              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
-                tileMode === 'satellite' ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              Satellite
-            </button>
-            <button
-              onClick={() => setTileMode('nautical')}
-              title="Nautical Chart"
-              className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold transition-all ${
-                tileMode === 'nautical' ? 'bg-cyan-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:bg-slate-800'
-              }`}
-            >
-              Chart
-            </button>
-          </div>
-
         <div className="orca-glass-panel p-1 flex items-center space-x-1">
           <button
             onClick={() => setShowHazardZones(!showHazardZones)}
