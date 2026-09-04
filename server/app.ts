@@ -1,11 +1,9 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import dotenv from 'dotenv';
 import apiRouter from './routes/index.ts';
 import { errorHandler, notFound } from './middleware/errorHandler.ts';
-
-dotenv.config();
 
 export const app = express();
 const PORT = Number(process.env.PORT || 3000);
