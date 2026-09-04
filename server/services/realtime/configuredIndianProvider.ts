@@ -1,11 +1,10 @@
-import { OceanData, WeatherData } from '../../../src/types.ts';
 import { MarineObservationSource, MarineSourceObservation } from './marineDataSource.ts';
 
 const REQUEST_TIMEOUT_MS = Number(process.env.REALTIME_DATA_TIMEOUT_MS || 8000);
 
 interface NormalizedProviderPayload {
-  weather?: WeatherData;
-  ocean?: OceanData;
+  weather?: MarineSourceObservation['weather'];
+  ocean?: MarineSourceObservation['ocean'];
   observedAt?: string;
   retrievedAt?: string;
   warnings?: string[];
@@ -23,22 +22,19 @@ async function fetchConfigured(source: 'INCOIS' | 'MOSDAC', lat: number, lon: nu
       observedAt: new Date(0).toISOString(),
       retrievedAt: new Date().toISOString(),
       availability: 'UNAVAILABLE',
-      warnings: [`${source} provider is not configured. No endpoint was assumed or invented.`],
+      warnings: [`${source} provider is not configured. No endpoint is assumed.`],
       qualityScore: 0,
     };
   }
-
   const url = new URL(endpoint);
   url.searchParams.set('latitude', String(lat));
   url.searchParams.set('longitude', String(lon));
-
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json() as NormalizedProviderPayload;
     const retrievedAt = payload.retrievedAt || new Date().toISOString();
     if (!payload.weather && !payload.ocean) throw new Error('Provider returned neither weather nor ocean data.');
-
     return {
       source,
       weather: payload.weather,
@@ -62,17 +58,13 @@ async function fetchConfigured(source: 'INCOIS' | 'MOSDAC', lat: number, lon: nu
 }
 
 export const incoisProvider: MarineObservationSource = {
-  id: 'INCOIS',
-  displayName: 'INCOIS',
-  priority: 100,
+  id: 'INCOIS', displayName: 'INCOIS', priority: 100,
   enabled: Boolean(process.env.INCOIS_REALTIME_URL),
   fetch: (lat, lon) => fetchConfigured('INCOIS', lat, lon),
 };
 
 export const mosdacProvider: MarineObservationSource = {
-  id: 'MOSDAC',
-  displayName: 'MOSDAC / ISRO',
-  priority: 90,
+  id: 'MOSDAC', displayName: 'MOSDAC / ISRO', priority: 90,
   enabled: Boolean(process.env.MOSDAC_REALTIME_URL),
   fetch: (lat, lon) => fetchConfigured('MOSDAC', lat, lon),
 };
