@@ -7,7 +7,7 @@ import { LanguageCode, SatelliteData } from '../../src/types.ts';
 import { fetchMarineAndWeatherData } from '../services/marineService.ts';
 import { buildTomorrowMarineRiskForecast } from '../services/realtime/marineForecastService.ts';
 import { getRealtimeSourceReadiness } from '../services/realtime/marineDataFusion.ts';
-import { getMarineTelemetry, getMarineTelemetrySummary } from '../services/realtime/marineTelemetry.ts';
+import { getMarineTelemetry, getMarineTelemetryAnalysis, getMarineTelemetrySummary } from '../services/realtime/marineTelemetry.ts';
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 
@@ -119,6 +119,10 @@ export function marineTelemetry(req: Request, res: Response) {
   const rawLimit = Number(req.query.limit ?? 50);
   const limit = Number.isFinite(rawLimit) ? rawLimit : 50;
   res.json({ summary: getMarineTelemetrySummary(), events: getMarineTelemetry(limit) });
+}
+
+export function marineTelemetryAnalysis(_req: Request, res: Response) {
+  res.json(getMarineTelemetryAnalysis());
 }
 
 export function health(_req: Request, res: Response) {

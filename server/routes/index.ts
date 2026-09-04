@@ -6,6 +6,7 @@ import {
   marineForecast,
   marineRisk,
   marineTelemetry,
+  marineTelemetryAnalysis,
   orcaQuery,
   satelliteAnalysis,
 } from '../controllers/apiController.ts';
@@ -16,6 +17,7 @@ router.post('/orca/query', orcaQuery);
 router.get('/marine/conditions', marineConditions);
 router.get('/marine/forecast', marineForecast);
 router.get('/marine/telemetry', marineTelemetry);
+router.get('/marine/telemetry/analysis', marineTelemetryAnalysis);
 router.post('/marine/risk', marineRisk);
 router.post('/satellite/analysis', satelliteAnalysis);
 router.post('/evidence/search', evidenceSearch);

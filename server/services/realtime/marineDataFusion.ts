@@ -92,6 +92,7 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
       completenessScore: source.completenessScore,
       qualityScore: source.qualityScore,
       missingVariables: source.missingVariables,
+      values: source.values,
       warningCount: source.warnings.length,
     })),
     selectedSources,
