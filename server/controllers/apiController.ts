@@ -6,6 +6,7 @@ import { COASTAL_LOCATIONS } from '../../src/data/coastalData.ts';
 import { LanguageCode, SatelliteData } from '../../src/types.ts';
 import { fetchMarineAndWeatherData } from '../services/marineService.ts';
 import { buildTomorrowMarineRiskForecast } from '../services/realtime/marineForecastService.ts';
+import { getRealtimeSourceReadiness } from '../services/realtime/marineDataFusion.ts';
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 
@@ -120,6 +121,7 @@ export function health(_req: Request, res: Response) {
     services: {
       liveWeather: 'open_meteo_current_conditions',
       liveMarine: 'open_meteo_marine_current_conditions',
+      realtimeFusion: 'incois_mosdac_open_meteo_quality_routing',
       forecastWeather: 'open_meteo_hourly_forecast',
       forecastMarine: 'open_meteo_hourly_marine_forecast',
       satelliteCatalog: 'copernicus_dataspace_stac',
@@ -131,6 +133,7 @@ export function health(_req: Request, res: Response) {
       agentOrchestrator: 'server_workflow',
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
     },
+    realtimeSources: getRealtimeSourceReadiness(),
     capabilities: {
       realtimeWeather: true,
       realtimeMarine: true,
