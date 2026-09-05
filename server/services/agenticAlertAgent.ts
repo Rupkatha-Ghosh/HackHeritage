@@ -23,9 +23,15 @@ export interface AgenticAlertResult extends AlertEvaluationResult {
  * Agent-facing alert gate. The deterministic alert engine owns signal
  * detection; this layer turns those signals into an operational action state
  * that can be consumed by the planner/executor and final response grounding.
+ * Previous risk/PFZ values are only used when supplied by a real state store;
+ * the current workflow intentionally does not fabricate a previous state.
  */
 export function runAgenticAlertEvaluation(input: AgenticAlertInput): AgenticAlertResult {
-  const evaluation = evaluateMarineAlerts(input);
+  const evaluation = evaluateMarineAlerts({
+    ...input,
+    previousRiskLevel: input.previousRiskScore === undefined ? undefined : input.previousRiskLevel,
+    previousPfzScore: input.previousPfzScore,
+  });
   const decision = evaluation.highestSeverity === 'CRITICAL'
     ? 'ACT'
     : evaluation.highestSeverity === 'WARNING' || evaluation.highestSeverity === 'ADVISORY'
