@@ -10,6 +10,7 @@
     "dev:rag": "uvicorn ml.rag_api:app --reload --host 0.0.0.0 --port 8001",
     "ingest:rag": "tsx scripts/ingest-rag.mjs",
     "analyze:realtime": "python ml/src/analyze_realtime_source_bias.py",
+    "import:realtime-ml": "python ml/src/import_realtime_telemetry.py",
     "verify:realtime": "node scripts/verify-marine-sources.mjs",
     "build": "vite build && esbuild server/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node -e \"process.env.ORCA_PRODUCTION='true'; require('./dist/server.cjs')\"",
