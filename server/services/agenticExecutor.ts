@@ -86,7 +86,12 @@ export async function executeOrcaPlan(
 
     const failedOptional = plan.tasks.find(task => task.status === 'failed' && !task.required);
     if (failedOptional && replans < maxReplans) {
-      plan = replanAfterFailure({ plan, failedTask: failedOptional.id, reason: failures.at(-1)?.reason || failedOptional.reason });
+      const failure = failures.find(entry => entry.taskId === failedOptional.id);
+      plan = replanAfterFailure({
+        plan,
+        failedTask: failedOptional.id,
+        reason: failure?.reason || failedOptional.reason,
+      });
       replans += 1;
       continue;
     }
