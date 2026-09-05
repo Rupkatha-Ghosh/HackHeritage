@@ -56,8 +56,8 @@ export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ sa
       icon: <Sparkles className="h-3.5 w-3.5 text-emerald-400" />,
       displayValue: typeof currentSatellite.chlorophyllConcentrationMgM3 === 'number' ? currentSatellite.chlorophyllConcentrationMgM3.toFixed(2) : 'Cloud Masked',
       unit: typeof currentSatellite.chlorophyllConcentrationMgM3 === 'number' ? 'mg/m³' : '',
-      badge: 'Copernicus S-3A OLCI',
-      note: typeof currentSatellite.chlorophyllConcentrationMgM3 === 'number' ? 'Real satellite ocean color measurement' : 'Optical pass obscured by coastal cloud cover'
+      badge: 'NOAA-20 VIIRS',
+      note: typeof currentSatellite.chlorophyllConcentrationMgM3 === 'number' ? 'Real satellite ocean color measurement (Level-3)' : 'Optical pass obscured by coastal cloud cover'
     },
     {
       title: 'Sea Surface Temp',
