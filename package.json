@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx server/app.ts",
     "dev:ml": "uvicorn ml.api:app --reload --host 0.0.0.0 --port 8000",
-    "dev:rag": "uvicorn ml.rag_api --reload --host 0.0.0.0 --port 8001",
+    "dev:rag": "uvicorn ml.rag_api:app --reload --host 0.0.0.0 --port 8001",
     "ingest:rag": "tsx scripts/ingest-rag.mjs",
     "analyze:realtime": "python ml/src/analyze_realtime_source_bias.py",
     "import:realtime-ml": "python ml/src/import_realtime_telemetry.py",
@@ -28,6 +28,7 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@types/express": "^4.17.21",
     "@types/leaflet": "^1.9.22",
     "@vitejs/plugin-react": "^5.0.4",
     "animejs": "^4.0.2",
@@ -42,7 +43,6 @@
     "react-dom": "^19.0.1"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
