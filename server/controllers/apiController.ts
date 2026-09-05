@@ -31,11 +31,13 @@ function resolveLocationFromRequest(req: Request) {
   };
 }
 
+const SUPPORTED_LANGUAGES: LanguageCode[] = ['en', 'bn', 'hi', 'ta', 'or', 'te', 'ml', 'gu', 'mr', 'kn'];
+
 export async function orcaQuery(req: Request, res: Response) {
   try {
     const { query, locationOverride, timeOverride, language = 'en' } = req.body;
     if (!query || typeof query !== 'string') return res.status(400).json({ error: 'Query string is required.' });
-    if (!['en', 'bn', 'hi', 'ta', 'or', 'te'].includes(language)) return res.status(400).json({ error: 'Unsupported language code.' });
+    if (!SUPPORTED_LANGUAGES.includes(language as LanguageCode)) return res.status(400).json({ error: 'Unsupported language code.' });
     res.json(await runOrcaAgentWorkflow(query, locationOverride, timeOverride, language as LanguageCode));
   } catch (error) {
     console.error('ORCA query error:', error);
@@ -78,7 +80,7 @@ export async function marineRisk(req: Request, res: Response) {
     } as SatelliteData;
     const mlRisk = await predictMarineRiskWithMl(weather, ocean, defaultSat, location);
     const rawRisk = mlRisk || calculateMarineRisk(weather, ocean, defaultSat, location);
-    res.json(localizeRiskPrediction(rawRisk, weather, ocean, ['en', 'bn', 'hi', 'ta', 'or', 'te'].includes(language) ? language : 'en'));
+    res.json(localizeRiskPrediction(rawRisk, weather, ocean, SUPPORTED_LANGUAGES.includes(language as LanguageCode) ? (language as LanguageCode) : 'en'));
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Risk calculation failed.' });
   }
