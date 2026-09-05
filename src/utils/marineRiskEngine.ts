@@ -1,4 +1,5 @@
 import { WeatherData, OceanData, SatelliteData, RiskPrediction, FeatureContribution, RiskLevel, GisLayerData, LocationInfo } from '../types';
+import { generateMaritimeGeoJsonFeatures } from '../data/maritimeBoundaries.ts';
 
 export function calculateMarineRisk(
   weather: WeatherData,
@@ -359,6 +360,9 @@ export function generateGisLayers(
       }
     }
   });
+
+  // 5. Authentic International Maritime Boundary Lines (IMBL) & Marine Protected Areas (MPAs)
+  features.push(...generateMaritimeGeoJsonFeatures());
 
   return {
     type: 'FeatureCollection',
