@@ -67,7 +67,10 @@ def event_to_row(event: dict) -> dict | None:
     try:
         latitude = float(event["latitude"])
         longitude = float(event["longitude"])
-        timestamp = pd.Timestamp(event["timestamp"], tz="UTC")
+        timestamp = pd.to_datetime(event["timestamp"], utc=True)
+        if pd.isna(timestamp):
+            return None
+        timestamp = pd.Timestamp(timestamp)
     except (KeyError, TypeError, ValueError):
         return None
 
