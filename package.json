@@ -31,6 +31,7 @@
     "test:pfz": "tsx scripts/test-pfz.ts",
     "test:decision-fusion": "tsx scripts/test-decision-fusion.ts",
     "test:safe-routing": "tsx scripts/test-safe-routing.ts",
+    "test:alerts": "tsx scripts/test-alert-engine.ts",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
