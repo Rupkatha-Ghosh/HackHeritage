@@ -11,16 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -32,6 +32,13 @@ jobs:
 
       - name: Type check
         run: npm run lint
+
+      - name: CLI runtime tests
+        run: |
+          npm run test:agentic
+          npm run test:agentic-pfz
+          npm run test:decision-fusion
+          npm run test:safe-routing
 
       - name: Python syntax validation
         run: python -m compileall -q ml
@@ -56,8 +63,6 @@ jobs:
           cat /tmp/orca-ml.log
           exit 1
 
-      # Refinement 3 integration environment: the smoke test requires a real
-      # Qdrant server and the real BGE-M3 RAG API, not mocks or a lexical stub.
       - name: Start Qdrant
         run: |
           docker run -d --name orca-qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:latest
@@ -124,7 +129,7 @@ jobs:
 
       - name: Upload service logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: orca-x-service-logs
           path: /tmp/orca-*.log
