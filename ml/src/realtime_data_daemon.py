@@ -16,11 +16,18 @@ ROOT = Path(__file__).resolve().parents[2]
 INTERVAL_SECONDS = max(300, int(os.environ.get("REALTIME_ML_SYNC_INTERVAL_SECONDS", "900")))
 
 
-def run(command: str) -> None:
-    script = ROOT / "ml" / "src" / f"{command}.py"
+def run_import() -> None:
+    script = ROOT / "ml" / "src" / "import_realtime_telemetry.py"
     result = subprocess.run([sys.executable, str(script)], cwd=ROOT, check=False)
     if result.returncode != 0:
-        print(f"REALTIME ML SYNC: {command} exited with code {result.returncode}")
+        print(f"REALTIME ML SYNC: telemetry import exited with code {result.returncode}")
+
+
+def run_mature() -> None:
+    script = ROOT / "ml" / "src" / "realtime_training.py"
+    result = subprocess.run([sys.executable, str(script), "mature"], cwd=ROOT, check=False)
+    if result.returncode != 0:
+        print(f"REALTIME ML SYNC: label maturation exited with code {result.returncode}")
 
 
 def main() -> None:
@@ -28,17 +35,8 @@ def main() -> None:
     while True:
         started = time.monotonic()
         try:
-            run("import_realtime_telemetry")
-            run("realtime_training")
-            # realtime_training.py requires an explicit command; the mature operation is
-            # intentionally invoked separately so this daemon never trains a candidate.
-            result = subprocess.run(
-                [sys.executable, str(ROOT / "ml" / "src" / "realtime_training.py"), "mature"],
-                cwd=ROOT,
-                check=False,
-            )
-            if result.returncode != 0:
-                print(f"REALTIME ML SYNC: mature exited with code {result.returncode}")
+            run_import()
+            run_mature()
         except Exception as exc:
             print(f"REALTIME ML SYNC: cycle failed: {exc}")
         elapsed = time.monotonic() - started
