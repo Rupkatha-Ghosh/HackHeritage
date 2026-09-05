@@ -26,7 +26,14 @@ export const Reveal: React.FC<RevealProps> = ({
   const ref = useRef<HTMLElement>(null);
   const inView = useInView(ref, { once: true, margin: "-12% 0px -12% 0px" });
   const reduced = usePrefersReducedMotion();
-  const Tag = motion[as] as typeof motion.div;
+  const motionTags = {
+    div: motion.div,
+    section: motion.section,
+    li: motion.li,
+    article: motion.article,
+    header: motion.header,
+  } as const;
+  const Tag = motionTags[as];
 
   if (reduced) {
     const Plain = as as React.ElementType;
