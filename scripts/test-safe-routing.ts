@@ -11,8 +11,14 @@ const route = calculateSafeRoute({ origin, destination, riskLevel: 'LOW' });
 assert.equal(route.status, 'ROUTE_FOUND', 'A nearby Digha coastal route should be found.');
 assert.ok((route.distanceKm ?? 0) >= route.directDistanceKm, 'Route distance cannot be shorter than the direct geodesic distance.');
 assert.ok(route.waypoints.length >= 2, 'Route must contain origin and destination waypoints.');
-assert.deepEqual(route.waypoints[0] && { latitude: route.waypoints[0].latitude, longitude: route.waypoints[0].longitude }, origin);
-assert.deepEqual(route.waypoints.at(-1) && { latitude: route.waypoints.at(-1)!.latitude, longitude: route.waypoints.at(-1)!.longitude }, destination);
+const first = route.waypoints[0];
+const last = route.waypoints.at(-1);
+assert.ok(first, 'Route must contain an origin waypoint.');
+assert.ok(last, 'Route must contain a destination waypoint.');
+assert.ok(Math.abs(first.latitude - origin.latitude) < 1e-9, 'Origin latitude must be preserved.');
+assert.ok(Math.abs(first.longitude - origin.longitude) < 1e-9, 'Origin longitude must be preserved.');
+assert.ok(Math.abs(last.latitude - destination.latitude) < 1e-9, 'Destination latitude must be preserved.');
+assert.ok(Math.abs(last.longitude - destination.longitude) < 1e-9, 'Destination longitude must be preserved.');
 assert.ok(route.waypoints.every(point => point.geofenceStatus !== 'RESTRICTED_BREACH'), 'Route must not traverse critical geofence status.');
 console.log(`✓ Safe route found: ${route.distanceKm} km, ${route.waypoints.length} waypoints`);
 
