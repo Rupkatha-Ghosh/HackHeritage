@@ -78,18 +78,26 @@ export const SatelliteAnalysisView: React.FC<SatelliteAnalysisViewProps> = ({ sa
     {
       title: dict.turbidity,
       icon: <Droplet className="h-3.5 w-3.5 text-sky-400" />,
-      displayValue: typeof currentSatellite.turbidityNTU === 'number' ? currentSatellite.turbidityNTU.toFixed(2) : (typeof currentSatellite.chlorophyllConcentrationMgM3 === 'number' ? '0.85' : 'Cloud Masked'),
-      unit: typeof currentSatellite.turbidityNTU === 'number' ? 'NTU' : '',
-      badge: 'Bio-optical Model',
-      note: 'Light attenuation water clarity proxy'
+      displayValue: typeof currentSatellite.turbidityNTU === 'number'
+        ? `${currentSatellite.turbidityNTU.toFixed(3)}`
+        : (currentSatellite.chlorophyllConcentrationMgM3 === undefined ? 'Cloud Masked' : 'Unavailable'),
+      unit: typeof currentSatellite.turbidityNTU === 'number' ? 'm⁻¹' : '',
+      badge: 'NOAA-20 VIIRS Kd(490)',
+      note: typeof currentSatellite.turbidityNTU === 'number'
+        ? 'Real measured Kd(490) diffuse attenuation'
+        : 'Optical pass obscured by coastal cloud cover'
     },
     {
       title: dict.sarRoughness,
       icon: <Scan className="h-3.5 w-3.5 text-purple-400" />,
-      displayValue: typeof currentSatellite.sarRoughnessIndex === 'number' ? currentSatellite.sarRoughnessIndex.toFixed(2) : '0.42',
-      unit: 'index',
+      displayValue: typeof currentSatellite.sarRoughnessIndex === 'number'
+        ? `${currentSatellite.sarRoughnessIndex.toFixed(2)}`
+        : (currentSatellite.observations.some(o => o.collectionId === 'sentinel-1-grd') ? 'Swath Active' : 'No Radar Pass'),
+      unit: typeof currentSatellite.sarRoughnessIndex === 'number' ? 'index' : '',
       badge: 'Sentinel-1 SAR',
-      note: 'Microwave radar (penetrates clouds)'
+      note: currentSatellite.observations.some(o => o.collectionId === 'sentinel-1-grd')
+        ? 'Sentinel-1 radar pass verified (no anomaly)'
+        : 'No Sentinel-1 pass in current 7-day window'
     },
   ], [currentSatellite, dict]);
   const collectionCount = new Set(currentSatellite.observations.map((observation) => observation.collectionId)).size;
