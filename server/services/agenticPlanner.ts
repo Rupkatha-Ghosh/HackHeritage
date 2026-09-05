@@ -20,8 +20,8 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
     { id: 'ocean', label: 'Acquire ocean conditions', dependsOn: ['resolve_location_time'], required: true, enabled: true, status: 'pending', reason: 'Waves, swell, currents and sea state are core marine signals.' },
     { id: 'satellite', label: 'Acquire satellite / EO observations', dependsOn: ['resolve_location_time'], required: false, enabled: asksSatellite || isFishing, status: 'pending', reason: asksSatellite ? 'The query explicitly requests Earth-observation intelligence.' : 'Fishing queries may benefit from EO indicators.' },
     { id: 'risk', label: 'Evaluate marine risk', dependsOn: ['weather', 'ocean'], required: true, enabled: true, status: 'pending', reason: 'Risk is a mandatory ORCA-X decision-support signal.' },
-    { id: 'gis', label: 'Perform spatial / GIS reasoning', dependsOn: ['resolve_location_time'], required: asksGis, enabled: asksGis, status: 'pending', reason: 'Enabled for distance, zones, boundaries, routing and map-oriented questions.' },
-    { id: 'evidence', label: 'Retrieve authoritative evidence', dependsOn: ['resolve_location_time'], required: asksEvidence, enabled: asksEvidence, status: 'pending', reason: 'Official advisories and domain rules strengthen operational answers.' },
+    { id: 'gis', label: 'Perform spatial / GIS reasoning', dependsOn: ['resolve_location_time'], required: false, enabled: asksGis, status: 'pending', reason: 'Enabled for distance, zones, boundaries, routing and map-oriented questions.' },
+    { id: 'evidence', label: 'Retrieve authoritative evidence', dependsOn: ['resolve_location_time'], required: false, enabled: asksEvidence, status: 'pending', reason: 'Official advisories and domain rules strengthen operational answers but retrieval may degrade independently.' },
     { id: 'synthesis', label: `Synthesize grounded response (${language})`, dependsOn: [], required: true, enabled: true, status: 'pending', reason: 'Final synthesis consumes all selected branches.' }
   ];
   const satellite = tasks.find(t => t.id === 'satellite');
@@ -43,12 +43,8 @@ export function replanAfterFailure({ plan, failedTask, reason }: ReplanInput): O
   if (failed) { failed.status = 'failed'; failed.enabled = false; failed.reason = `${failed.reason} Connector failed: ${reason}`; }
   for (const task of tasks) {
     if (!task.enabled || task.id === failedTask || !task.dependsOn.includes(failedTask)) continue;
-    if (failed?.required) {
-      task.status = 'failed'; task.enabled = false; task.reason = `Blocked by required dependency ${failedTask}.`;
-    } else {
-      task.dependsOn = task.dependsOn.filter(dep => dep !== failedTask);
-      task.reason = `${task.reason} Optional dependency ${failedTask} unavailable; continuing in degraded mode.`;
-    }
+    if (failed?.required) { task.status = 'failed'; task.enabled = false; task.reason = `Blocked by required dependency ${failedTask}.`; }
+    else { task.dependsOn = task.dependsOn.filter(dep => dep !== failedTask); task.reason = `${task.reason} Optional dependency ${failedTask} unavailable; continuing in degraded mode.`; }
   }
   return { ...plan, planId: id('replan'), rationale: `${plan.rationale} Replanned after ${failedTask} failure; ${reason}`, tasks, generatedAt: new Date().toISOString() };
 }
