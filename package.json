@@ -29,6 +29,7 @@
     "test:gis-agentic": "tsx scripts/test-gis-agentic-integration.ts",
     "test:pfz": "tsx scripts/test-pfz.ts",
     "test:decision-fusion": "tsx scripts/test-decision-fusion.ts",
+    "test:safe-routing": "tsx scripts/test-safe-routing.ts",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
@@ -51,8 +52,8 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.0",
+    "esbuild": "^0.25.0",
     "vite": "^6.2.3"
   }
 }
