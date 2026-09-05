@@ -1,6 +1,6 @@
 /**
  * Real-World Oceanographic Satellite Data Service
- * 
+ *
  * 100% REAL-WORLD, PEER-REVIEWED SCIENTIFIC SATELLITE FEEDS (ZERO MOCK / ZERO HARDCODED VALUES):
  * 1. NOAA S-NPP VIIRS Science Quality Monthly/Daily Chlorophyll-a (4km Level-3 Satellite Ocean Color)
  * 2. NOAA-20 / VIIRS Science Quality Measured Diffuse Attenuation Kd(490) Water Turbidity
@@ -12,7 +12,7 @@ export interface RealOceanMetrics {
   chlorophyllConcentrationMgM3?: number;
   chlorophyllObservedAt?: string;
   chlorophyllSource?: string;
-  
+
   sstC?: number;
   sstAnomalyC?: number;
   sstObservedAt?: string;
@@ -23,10 +23,10 @@ export interface RealOceanMetrics {
 
   algalBloomDetected?: boolean;
   algalBloomReason?: string;
-  
+
   thermalFrontDetected?: boolean;
   thermalFrontReason?: string;
-  
+
   sourcesUsed: string[];
 }
 
@@ -39,7 +39,7 @@ function cacheKey(lat: number, lon: number): string {
 
 /**
  * Returns candidate ocean probe coordinates.
- * Shorelines are land-masked on 4km satellite grids, so near-offshore (15-30 km) 
+ * Shorelines are land-masked on 4km satellite grids, so near-offshore (15-30 km)
  * points within the local coastal fishing zone are probed.
  */
 function getMarineProbes(lat: number, lon: number): Array<{ lat: number; lon: number }> {
@@ -57,13 +57,8 @@ function getMarineProbes(lat: number, lon: number): Array<{ lat: number; lon: nu
 type ValueResult = { value?: number; observedAt?: string; source?: string };
 type SstResult = { sstC?: number; source?: string };
 
-/**
- * Fetches real satellite Chlorophyll-a from NOAA VIIRS
- * Dataset: nesdisVHNSQchlaMonthly (Global 4km Level-3)
- */
 async function fetchRealChlorophyll(lat: number, lon: number): Promise<ValueResult> {
   const probes = getMarineProbes(lat, lon);
-  
   for (const probe of probes) {
     try {
       const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQchlaMonthly.json?chlor_a[(last)][(0.0)][(${probe.lat})][(${probe.lon})]`;
@@ -76,24 +71,16 @@ async function fetchRealChlorophyll(lat: number, lon: number): Promise<ValueResu
         const row = json?.table?.rows?.[0];
         const val = row?.[4];
         if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
-          return {
-            value: parseFloat(val.toFixed(3)),
-            observedAt: row[0],
-            source: 'NOAA-20/S-NPP VIIRS 4km Science Quality Chlorophyll-a'
-          };
+          return { value: parseFloat(val.toFixed(3)), observedAt: row[0], source: 'NOAA-20/S-NPP VIIRS 4km Science Quality Chlorophyll-a' };
         }
       }
     } catch {
-      // Continue to next candidate point
+      // Continue to next candidate point.
     }
   }
   return {};
 }
 
-/**
- * Fetches real measured diffuse attenuation coefficient Kd(490) from NOAA VIIRS (Physical Water Clarity / Turbidity)
- * Dataset: nesdisVHNSQkd490Monthly (Global 4km Level-3)
- */
 async function fetchRealTurbidity(lat: number, lon: number): Promise<ValueResult> {
   const probes = getMarineProbes(lat, lon);
   for (const probe of probes) {
@@ -108,24 +95,16 @@ async function fetchRealTurbidity(lat: number, lon: number): Promise<ValueResult
         const row = json?.table?.rows?.[0];
         const val = row?.[4];
         if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
-          return {
-            value: parseFloat(val.toFixed(3)),
-            observedAt: row[0],
-            source: 'NOAA-20 VIIRS 4km Measured Kd(490) Water Clarity'
-          };
+          return { value: parseFloat(val.toFixed(3)), observedAt: row[0], source: 'NOAA-20 VIIRS 4km Measured Kd(490) Water Clarity' };
         }
       }
     } catch {
-      // Continue
+      // Continue.
     }
   }
   return {};
 }
 
-/**
- * Fetches real SST anomaly from NASA JPL MUR 1km Daily Global SST Anomaly Analysis
- * Dataset: jplMURSST41anom1day
- */
 async function fetchRealSstAnomaly(lat: number, lon: number): Promise<ValueResult> {
   const probes = getMarineProbes(lat, lon);
   for (const probe of probes) {
@@ -140,23 +119,16 @@ async function fetchRealSstAnomaly(lat: number, lon: number): Promise<ValueResul
         const row = json?.table?.rows?.[0];
         const val = row?.[3];
         if (typeof val === 'number' && Number.isFinite(val)) {
-          return {
-            value: parseFloat(val.toFixed(2)),
-            observedAt: row[0],
-            source: 'NASA JPL MUR 1km Global SST Anomaly'
-          };
+          return { value: parseFloat(val.toFixed(2)), observedAt: row[0], source: 'NASA JPL MUR 1km Global SST Anomaly' };
         }
       }
     } catch {
-      // Continue
+      // Continue.
     }
   }
   return {};
 }
 
-/**
- * Fetches real-time Sea Surface Temperature from Open-Meteo Marine / ECMWF Copernicus Reanalysis
- */
 async function fetchRealSst(lat: number, lon: number): Promise<SstResult> {
   try {
     const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=sea_surface_temperature`;
@@ -165,28 +137,20 @@ async function fetchRealSst(lat: number, lon: number): Promise<SstResult> {
       const data = await res.json() as { current?: { sea_surface_temperature?: number } };
       const sst = data?.current?.sea_surface_temperature;
       if (typeof sst === 'number' && Number.isFinite(sst)) {
-        return {
-          sstC: parseFloat(sst.toFixed(1)),
-          source: 'Copernicus Marine / ECMWF Reanalysis (Open-Meteo)'
-        };
+        return { sstC: parseFloat(sst.toFixed(1)), source: 'Copernicus Marine / ECMWF Reanalysis (Open-Meteo)' };
       }
     }
   } catch {
-    // Continue
+    // Continue.
   }
   return {};
 }
 
-/**
- * Coordinates all real-world oceanographic satellite queries in parallel (100% real measured values)
- */
 export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<RealOceanMetrics> {
   const key = cacheKey(lat, lon);
   const now = Date.now();
   const cached = oceanMetricsCache.get(key);
-  if (cached && cached.expiresAt > now) {
-    return cached.data;
-  }
+  if (cached && cached.expiresAt > now) return cached.data;
 
   const [chlaRes, turbRes, sstAnomRes, sstRes] = await Promise.all([
     fetchRealChlorophyll(lat, lon).catch((): ValueResult => ({})),
@@ -201,7 +165,6 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
   if (sstAnomRes.source) sourcesUsed.push(sstAnomRes.source);
   if (sstRes.source) sourcesUsed.push(sstRes.source);
 
-  // Derive Algal Bloom from real Chlorophyll-a
   let algalBloomDetected: boolean | undefined = undefined;
   let algalBloomReason: string | undefined = undefined;
   if (typeof chlaRes.value === 'number') {
@@ -217,7 +180,6 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
     }
   }
 
-  // Derive Thermal Front from real SST Anomaly
   let thermalFrontDetected: boolean | undefined = undefined;
   let thermalFrontReason: string | undefined = undefined;
   if (typeof sstAnomRes.value === 'number') {
@@ -234,24 +196,30 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
     chlorophyllConcentrationMgM3: chlaRes.value,
     chlorophyllObservedAt: chlaRes.observedAt,
     chlorophyllSource: chlaRes.source,
-    
     sstC: sstRes.sstC,
     sstAnomalyC: sstAnomRes.value,
     sstObservedAt: sstAnomRes.observedAt,
     sstSource: sstRes.source || sstAnomRes.source,
-
     turbidityNTU: turbRes.value,
     turbiditySource: turbRes.source,
-    
     algalBloomDetected,
     algalBloomReason,
-    
     thermalFrontDetected,
     thermalFrontReason,
-    
     sourcesUsed
   };
 
   oceanMetricsCache.set(key, { expiresAt: now + CACHE_TTL_MS, data });
   return data;
+}
+
+/**
+ * Fetch independently measured ocean observations for a spatial set of points.
+ * Each point is queried separately so PFZ ranking never pretends that one
+ * observation represents an entire candidate grid.
+ */
+export async function fetchRealOceanMetricsGrid(
+  points: Array<{ latitude: number; longitude: number }>,
+): Promise<RealOceanMetrics[]> {
+  return Promise.all(points.map(({ latitude, longitude }) => fetchRealOceanMetrics(latitude, longitude)));
 }
