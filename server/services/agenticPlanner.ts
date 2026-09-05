@@ -39,9 +39,8 @@ export interface ReplanInput {
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 /**
- * Lightweight deterministic planner. It intentionally does not call an LLM:
- * routing safety-critical data acquisition through explicit rules makes the
- * workflow reproducible and lets an LLM remain a synthesis/planning upgrade.
+ * Deterministic query planner. It builds a dependency graph without calling an
+ * LLM so safety-critical routing stays reproducible and testable.
  */
 export function createOrcaPlan(query: string, language: LanguageCode = 'en'): OrcaPlan {
   const q = query.toLowerCase();
@@ -82,14 +81,16 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
     },
     {
       id: 'synthesis', label: `Synthesize grounded response (${language})`, dependsOn: [], required: true,
-      enabled: true, status: 'pending', reason: 'Final synthesis consumes all completed or explicitly degraded branches.'
+      enabled: true, status: 'pending', reason: 'Final synthesis consumes all selected branches.'
     }
   ];
 
-  // Risk can safely consume satellite information when it is available, but it
-  // must never become blocked by a non-required satellite connector.
-  const risk = tasks.find(t => t.id === 'risk');
-  if (risk && asksSatellite) risk.dependsOn.push('satellite');
+  const synthesis = tasks.find(task => task.id === 'synthesis');
+  if (synthesis) {
+    synthesis.dependsOn = tasks.filter(task => task.id !== 'synthesis' && task.enabled).map(task => task.id);
+  }
+  const gis = tasks.find(task => task.id === 'gis');
+  if (gis && gis.enabled) gis.dependsOn = ['resolve_location_time', ...(tasks.find(t => t.id === 'risk')?.enabled ? ['risk'] : [])];
 
   const enabled = tasks.filter(t => t.enabled).map(t => t.label).join(' -> ');
   return {
@@ -102,8 +103,8 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
 }
 
 /**
- * Replan after a connector/agent failure. Failed optional tasks are disabled;
- * downstream tasks continue unless they explicitly require the failed task.
+ * Replan after a connector/agent failure. Optional failures are removed from
+ * dependency edges; required failures block only the branches that need them.
  */
 export function replanAfterFailure({ plan, failedTask, reason }: ReplanInput): OrcaPlan {
   const tasks = plan.tasks.map(task => ({ ...task, dependsOn: [...task.dependsOn] }));
@@ -117,7 +118,7 @@ export function replanAfterFailure({ plan, failedTask, reason }: ReplanInput): O
   for (const task of tasks) {
     if (!task.enabled || task.id === failedTask) continue;
     if (task.dependsOn.includes(failedTask)) {
-      if (task.required) {
+      if (failed?.required) {
         task.status = 'failed';
         task.enabled = false;
         task.reason = `Blocked by required dependency ${failedTask}.`;
