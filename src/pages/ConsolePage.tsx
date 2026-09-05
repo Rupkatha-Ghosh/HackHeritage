@@ -175,7 +175,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
               <div>
                 <p className="text-sm font-semibold text-red-300">
-                  Live marine data unavailable
+                  Live marine data {dict.unavailable ? dict.unavailable.toLowerCase() : 'unavailable'}
                 </p>
                 <p className="mt-1 text-xs text-slate-300">{errorMessage}</p>
                 <p className="mt-2 text-[11px] text-fathom">
