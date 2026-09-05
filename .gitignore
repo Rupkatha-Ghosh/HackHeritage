@@ -30,6 +30,7 @@ Thumbs.db
 ml/data/raw/
 ml/data/processed/*.csv
 ml/data/processed/*.parquet
+ml/evaluations/realtime_source_evidence_gate.json
 
 # Runtime telemetry and normalized satellite snapshots — persist on deployment storage, never commit live observations
 /data/realtime/*.jsonl
