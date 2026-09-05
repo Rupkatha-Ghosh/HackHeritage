@@ -18,7 +18,7 @@ export interface OrcaExecutionResult {
 function dependencyBlocked(plan: OrcaPlan, task: OrcaTask): boolean {
   return task.dependsOn.some(depId => {
     const dep = plan.tasks.find(candidate => candidate.id === depId);
-    return Boolean(dep && (dep.status === 'failed' || dep.status === 'skipped')) && dep.required);
+    return Boolean(dep && (dep.status === 'failed' || dep.status === 'skipped') && dep.required);
   });
 }
 
