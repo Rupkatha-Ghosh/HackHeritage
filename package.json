@@ -24,6 +24,7 @@
     "test:agentic": "tsx scripts/test-agentic-executor.ts",
     "test:agentic-workflow": "node scripts/test-agentic-workflow.mjs",
     "test:agentic-pfz": "tsx scripts/test-agentic-pfz.ts",
+    "test:agentic-safe-routing": "tsx scripts/test-agentic-safe-routing.ts",
     "test:geofence": "tsx scripts/test-geofence.ts",
     "test:gis": "tsx scripts/test-gis-intelligence.ts",
     "test:gis-agentic": "tsx scripts/test-gis-agentic-integration.ts",
