@@ -36,16 +36,17 @@ assert(appHealth.services.mlRiskApi, 'ML service metadata is missing');
 assert(appHealth.capabilities?.tomorrowMarineForecast === true, 'Tomorrow forecast capability is not enabled');
 
 const live = await request(`${baseUrl}/api/marine/conditions?lat=21.6266&lon=87.5074`);
-// Overall realtime fusion is DEGRADED when only one live source is configured. CI does
-// not provide private/approved INCOIS or MOSDAC endpoints, so this is expected and must
-// not be treated as a provider outage. The selected Open-Meteo weather/marine payloads
-// themselves must still be LIVE and usable.
+// Overall realtime fusion is DEGRADED when CI has only Open-Meteo configured. This is
+// expected. The fused weather/ocean payload must remain LIVE and its base source must be
+// Open-Meteo; additional Indian sources may override individual variables when configured.
 assert(['LIVE', 'DEGRADED'].includes(live.metadata?.dataQuality), 'Live marine fusion returned an invalid data-quality state');
 assert(live.metadata?.dataQuality !== 'UNAVAILABLE', 'Live marine/weather fusion is unavailable');
 assert(live.weather?.dataQuality === 'LIVE', 'Weather data is not marked LIVE');
 assert(live.ocean?.dataQuality === 'LIVE', 'Marine data is not marked LIVE');
-assert(live.weather?.source === 'Open-Meteo Weather API', 'Unexpected weather provider');
-assert(live.ocean?.source === 'Open-Meteo Marine API', 'Unexpected marine provider');
+assert(typeof live.weather?.source === 'string' && live.weather.source.startsWith('ORCA-X variable fusion'), 'Weather payload is not marked as fused');
+assert(typeof live.ocean?.source === 'string' && live.ocean.source.startsWith('ORCA-X variable fusion'), 'Marine payload is not marked as fused');
+assert(live.metadata?.selectedSources?.weather === 'OPEN_METEO', 'Unexpected weather base provider');
+assert(live.metadata?.selectedSources?.ocean === 'OPEN_METEO', 'Unexpected marine base provider');
 
 const forecast = await request(`${baseUrl}/api/marine/forecast?locationKey=digha`);
 assert(forecast.sourceType === 'FORECAST', 'Marine forecast is not explicitly marked as forecast data');
@@ -98,6 +99,7 @@ console.log('ORCA-X live + forecast smoke test passed:', JSON.stringify({
   liveWeather: live.weather.source,
   liveMarine: live.ocean.source,
   liveFusionQuality: live.metadata?.dataQuality || 'UNKNOWN',
+  featureSources: live.metadata?.featureSources || {},
   forecastDate: forecast.forecastDate,
   forecastHours: forecast.hourly.length,
   worstForecastRisk: forecast.summary.worstRiskLevel,
