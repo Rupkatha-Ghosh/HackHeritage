@@ -49,9 +49,10 @@ jobs:
           npm run test:gis
           npm run test:gis-agentic
           npm run test:pfz
+          npm run test:mosdac-cache
 
       - name: Python syntax validation
-        run: python -m compileall -q ml
+        run: python -m compileall -q ml scripts/mosdac-sync.py scripts/mosdac-normalize.py
 
       - name: ML regression tests
         run: |
