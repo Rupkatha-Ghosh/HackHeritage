@@ -14,6 +14,7 @@ async function testParallelReadyTasks() {
   const plan = createOrcaPlan('What is the weather in Goa tomorrow?');
   const starts: string[] = [];
   const completions: string[] = [];
+  const riskStarts: number[] = [];
   let active = 0;
   let maxActive = 0;
 
@@ -30,7 +31,9 @@ async function testParallelReadyTasks() {
     resolve_location_time: async () => undefined,
     weather: () => handler('weather'),
     ocean: () => handler('ocean'),
-    risk: async () => undefined,
+    risk: async () => {
+      riskStarts.push(completions.length);
+    },
     synthesis: async () => undefined,
   });
 
@@ -40,7 +43,7 @@ async function testParallelReadyTasks() {
   assert.equal(task(result.plan, 'ocean').status, 'completed');
   assert.equal(task(result.plan, 'risk').status, 'completed');
   assert.equal(task(result.plan, 'synthesis').status, 'completed');
-  assert.ok(completions.indexOf('weather') < completions.indexOf('risk') || completions.indexOf('ocean') < completions.indexOf('risk'));
+  assert.equal(riskStarts[0], 2, 'risk must start only after both weather and ocean complete');
 }
 
 async function testOptionalFailureReplans() {
