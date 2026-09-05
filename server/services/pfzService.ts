@@ -1,4 +1,4 @@
-import { fetchRealOceanMetrics, type RealOceanMetrics } from '../../src/services/satellite/realOceanColorService.ts';
+import { fetchRealOceanMetricsGrid, type RealOceanMetrics } from '../../src/services/satellite/realOceanColorService.ts';
 import type { LocationInfo, RiskPrediction } from '../../src/types.ts';
 
 export type PfzConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNAVAILABLE';
@@ -86,6 +86,16 @@ function scoreRisk(risk?: RiskPrediction): number {
   }
 }
 
+export function calculatePfzScore(metrics: RealOceanMetrics, risk?: RiskPrediction): number {
+  return Number(Math.min(100, Math.max(0,
+    scoreChlorophyll(metrics.chlorophyllConcentrationMgM3) +
+    scoreThermalFront(metrics) +
+    scoreSst(metrics) +
+    scoreSstAnomaly(metrics) +
+    scoreRisk(risk)
+  )).toFixed(1));
+}
+
 function buildZone(
   index: number,
   location: LocationInfo,
@@ -94,14 +104,7 @@ function buildZone(
   geofenceRestricted = false,
   geofenceCaution = false,
 ): PfzZone {
-  const score = Math.min(100, Math.max(0,
-    scoreChlorophyll(metrics.chlorophyllConcentrationMgM3) +
-    scoreThermalFront(metrics) +
-    scoreSst(metrics) +
-    scoreSstAnomaly(metrics) +
-    scoreRisk(risk)
-  ));
-
+  const score = calculatePfzScore(metrics, risk);
   const suitability: PfzSuitability = geofenceRestricted || risk?.riskLevel === 'EXTREME'
     ? 'LOW'
     : score >= 70 ? 'HIGH' : score >= 45 ? 'MODERATE' : 'LOW';
@@ -114,6 +117,7 @@ function buildZone(
   }
   if (metrics.thermalFrontDetected === true) explanations.push('A thermal-front signal is detected and is used as a productivity indicator.');
   if (typeof metrics.sstC === 'number') explanations.push(`Sea-surface temperature is ${metrics.sstC.toFixed(1)}°C and is included as a habitat-suitability signal.`);
+  if (typeof metrics.sstAnomalyC === 'number') explanations.push(`SST anomaly is ${metrics.sstAnomalyC >= 0 ? '+' : ''}${metrics.sstAnomalyC.toFixed(2)}°C and contributes to the PFZ score.`);
   if (risk) explanations.push(`Marine safety risk is ${risk.riskLevel}; navigation safety takes precedence over fishing potential.`);
   if (geofenceRestricted) explanations.push('This candidate intersects restricted maritime waters and is excluded from a positive fishing recommendation.');
   else if (geofenceCaution) explanations.push('This candidate is near a protected/restricted maritime feature; verify official charts before operating.');
@@ -137,7 +141,7 @@ function buildZone(
     rank: index + 1,
     latitude: Number(location.latitude.toFixed(4)),
     longitude: Number(location.longitude.toFixed(4)),
-    score: Number(score.toFixed(1)),
+    score,
     suitability,
     confidence,
     chlorophyllMgM3: metrics.chlorophyllConcentrationMgM3,
@@ -158,29 +162,40 @@ export async function analyzePfz(
   risk?: RiskPrediction,
   geofence?: { inRestrictedWaters?: boolean; activeAlerts?: Array<{ severity?: string }> },
 ): Promise<PfzAnalysis> {
-  const metrics = await fetchRealOceanMetrics(location.latitude, location.longitude);
   const candidates = [
     { latitude: location.latitude, longitude: location.longitude },
     ...PROBE_OFFSETS.map(([dLat, dLon]) => ({ latitude: location.latitude + dLat, longitude: location.longitude + dLon })),
   ];
+  const metricsGrid = await fetchRealOceanMetricsGrid(candidates);
 
-  // Until a gridded PFZ product is wired in, candidate cells inherit only the measured center metrics.
-  // This deliberately avoids fabricating spatial observations and marks the result degraded when signals are incomplete.
   const zones = candidates.map((candidate, index) => {
     const candidateLocation = { ...location, latitude: candidate.latitude, longitude: candidate.longitude };
     const restricted = Boolean(geofence?.inRestrictedWaters) && index === 0;
     const caution = Boolean(geofence?.activeAlerts?.some((alert) => alert.severity === 'ADVISORY' || alert.severity === 'PROXIMITY_WARNING'));
-    return buildZone(index, candidateLocation, metrics, risk, restricted, caution);
+    return buildZone(index, candidateLocation, metricsGrid[index], risk, restricted, caution);
   });
 
   zones.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
   zones.forEach((zone, index) => { zone.rank = index + 1; });
 
-  const signalCount = [metrics.chlorophyllConcentrationMgM3, metrics.sstC, metrics.sstAnomalyC, metrics.thermalFrontDetected]
-    .filter((value) => value !== undefined).length;
+  const signalCount = metricsGrid.reduce((max, metrics) => Math.max(max, [
+    metrics.chlorophyllConcentrationMgM3,
+    metrics.sstC,
+    metrics.sstAnomalyC,
+    metrics.thermalFrontDetected,
+  ].filter((value) => value !== undefined).length), 0);
+
+  const spatiallyResolved = new Set(metricsGrid.map((metrics) => JSON.stringify({
+    chla: metrics.chlorophyllConcentrationMgM3,
+    sst: metrics.sstC,
+    anomaly: metrics.sstAnomalyC,
+    front: metrics.thermalFrontDetected,
+  }))).size > 1;
+
   const warnings: string[] = [];
   if (signalCount === 0) warnings.push('No measured ocean-color or SST signals were available; PFZ ranking is unavailable rather than inferred from synthetic values.');
   else if (signalCount < 3) warnings.push('PFZ ranking is degraded because one or more oceanographic signals are unavailable.');
+  if (!spatiallyResolved) warnings.push('All spatial probes returned equivalent observations; treat the ranking as low-spatial-resolution until independent measurements are available.');
   warnings.push('PFZ suitability is decision support, not a fish-catch guarantee; official fisheries advisories and maritime safety rules take precedence.');
 
   return {
@@ -189,12 +204,12 @@ export async function analyzePfz(
     location,
     zones,
     bestZone: zones.find((zone) => zone.suitability !== 'LOW' && zone.geofenceStatus !== 'RESTRICTED') ?? zones[0],
-    methodology: 'PFZ ranking combines measured chlorophyll-a, SST, SST anomaly/thermal-front signal, ORCA-X marine risk, and maritime geofence constraints. Missing observations are never replaced with synthetic values.',
+    methodology: 'PFZ ranking combines independently measured chlorophyll-a, SST, SST anomaly/thermal-front signals, ORCA-X marine risk, and maritime geofence constraints. Missing observations are never replaced with synthetic values.',
     dataQuality: {
-      chlorophyll: metrics.chlorophyllConcentrationMgM3 !== undefined ? 'AVAILABLE' : 'MISSING',
-      sst: metrics.sstC !== undefined ? 'AVAILABLE' : 'MISSING',
-      sstAnomaly: metrics.sstAnomalyC !== undefined ? 'AVAILABLE' : 'MISSING',
-      thermalFront: metrics.thermalFrontDetected !== undefined ? 'AVAILABLE' : 'MISSING',
+      chlorophyll: metricsGrid.some((metrics) => metrics.chlorophyllConcentrationMgM3 !== undefined) ? 'AVAILABLE' : 'MISSING',
+      sst: metricsGrid.some((metrics) => metrics.sstC !== undefined) ? 'AVAILABLE' : 'MISSING',
+      sstAnomaly: metricsGrid.some((metrics) => metrics.sstAnomalyC !== undefined) ? 'AVAILABLE' : 'MISSING',
+      thermalFront: metricsGrid.some((metrics) => metrics.thermalFrontDetected !== undefined) ? 'AVAILABLE' : 'MISSING',
       risk: risk ? 'AVAILABLE' : 'MISSING',
       geofence: geofence ? 'AVAILABLE' : 'MISSING',
     },
