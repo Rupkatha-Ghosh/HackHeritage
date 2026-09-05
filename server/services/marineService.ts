@@ -6,7 +6,36 @@ import { COASTAL_LOCATIONS } from '../../src/data/coastalData.ts';
 import { fetchRealtimeMarineObservation, RealtimeMarineObservation } from './realtime/realtimeObservationService.ts';
 
 export function resolveLocation(query: string, locationOverride?: string): LocationInfo {
-  const q = (locationOverride || query).toLowerCase();
+  const target = locationOverride || query;
+  const q = target.toLowerCase();
+
+  // 1. Check if locationOverride or query contains coordinates (e.g. "20.1234, 86.5678" or "20.1234°N, 86.5678°E")
+  const coordMatch = target.match(/(-?\d+\.?\d*)\s*°?\s*([nNsS])?\s*,\s*(-?\d+\.?\d*)\s*°?\s*([eEwW])?/);
+  if (coordMatch) {
+    let lat = parseFloat(coordMatch[1]);
+    let lon = parseFloat(coordMatch[3]);
+    if (coordMatch[2]?.toUpperCase() === 'S') lat = -lat;
+    if (coordMatch[4]?.toUpperCase() === 'W') lon = -lon;
+    if (Number.isFinite(lat) && Number.isFinite(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+      let nearestPortName = 'Open Sea';
+      let minDist = Infinity;
+      for (const loc of Object.values(COASTAL_LOCATIONS)) {
+        const d = Math.hypot(loc.latitude - lat, loc.longitude - lon);
+        if (d < minDist) {
+          minDist = d;
+          nearestPortName = loc.name;
+        }
+      }
+      return {
+        name: `Vessel Point (${lat.toFixed(3)}°N, ${lon.toFixed(3)}°E)`,
+        country: 'India',
+        latitude: lat,
+        longitude: lon,
+        regionType: 'open_sea',
+        nearestPort: `Off ${nearestPortName}`
+      };
+    }
+  }
 
   for (const [key, loc] of Object.entries(COASTAL_LOCATIONS)) {
     if (

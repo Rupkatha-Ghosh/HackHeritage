@@ -53,8 +53,14 @@ export const RiskCard: React.FC<RiskCardProps> = ({
 
     window.speechSynthesis.cancel(); // Stop existing
 
-    // Determine speech text
-    const textToSpeak = `${location.name}. Marine Risk Level: ${risk.riskLevel}. Risk score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}. ${risk.safetySummary}`;
+    // Determine speech text including boundary proximity warnings
+    let geofenceSpeech = '';
+    if (geofenceAnalysis?.activeAlerts && geofenceAnalysis.activeAlerts.length > 0) {
+      geofenceSpeech = ` Warning: ${geofenceAnalysis.activeAlerts[0].warningMessage}`;
+    } else if (geofenceAnalysis?.nearestImbl) {
+      geofenceSpeech = ` Distance to nearest international maritime boundary is ${geofenceAnalysis.nearestImbl.distanceNm} nautical miles.`;
+    }
+    const textToSpeak = `${location.name}. Marine Risk Level: ${risk.riskLevel}.${geofenceSpeech} Risk score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}. ${risk.safetySummary}`;
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
 
     // Map language
@@ -278,33 +284,71 @@ export const RiskCard: React.FC<RiskCardProps> = ({
 
       {/* Geofencing & Boundary Security Alert Banner */}
       {geofenceAnalysis && (
-        <div className={`rounded-xl p-3 border flex items-start gap-2.5 text-xs transition-all ${
+        <div className={`rounded-xl p-3.5 border space-y-2.5 text-xs transition-all ${
           geofenceAnalysis.status === 'RESTRICTED_BREACH'
-            ? 'bg-red-950/60 border-red-600/80 text-red-200 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
+            ? 'bg-red-950/60 border-red-600/80 text-red-200 shadow-[0_0_18px_rgba(239,68,68,0.25)]'
             : geofenceAnalysis.status === 'CAUTION'
-            ? 'bg-amber-950/50 border-amber-500/60 text-amber-200'
+            ? 'bg-amber-950/50 border-amber-500/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
             : 'bg-slate-900/60 border-slate-800 text-slate-300'
         }`}>
-          <ShieldAlert className={`h-4 w-4 shrink-0 mt-0.5 ${
-            geofenceAnalysis.status === 'RESTRICTED_BREACH' ? 'text-red-400 animate-pulse' :
-            geofenceAnalysis.status === 'CAUTION' ? 'text-amber-400' : 'text-emerald-400'
-          }`} />
-          <div className="space-y-1 flex-1">
-            <div className="flex items-center justify-between font-bold">
-              <span className="uppercase tracking-wider font-mono text-[10px] flex items-center gap-1.5">
-                <span>{geofenceAnalysis.status === 'RESTRICTED_BREACH' ? '🚨 Sovereign Maritime Border Incursion Alert' :
-                       geofenceAnalysis.status === 'CAUTION' ? '⚠️ Maritime Border Proximity Advisory' :
-                       '🛡️ Sovereign Maritime Boundary Clearance'}</span>
-              </span>
-              <span className="font-mono text-[10px] opacity-80">
-                {geofenceAnalysis.nearestImbl ? `${geofenceAnalysis.nearestImbl.distanceNm} NM to IMBL` : ''}
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold">
+              <ShieldAlert className={`h-4 w-4 shrink-0 ${
+                geofenceAnalysis.status === 'RESTRICTED_BREACH' ? 'text-red-400 animate-pulse' :
+                geofenceAnalysis.status === 'CAUTION' ? 'text-amber-400' : 'text-emerald-400'
+              }`} />
+              <span className="uppercase tracking-wider font-mono text-[11px]">
+                {geofenceAnalysis.status === 'RESTRICTED_BREACH' ? '🚨 Sovereign Maritime Incursion Alert' :
+                 geofenceAnalysis.status === 'CAUTION' ? '⚠️ Border & Ecological Caution Active' :
+                 '🛡️ Sovereign Maritime Boundary Clearance'}
               </span>
             </div>
-            <p className="text-xs leading-relaxed">
-              {geofenceAnalysis.activeAlerts.length > 0 
-                ? geofenceAnalysis.activeAlerts[0].warningMessage 
-                : `Operating point is ${geofenceAnalysis.nearestImbl?.distanceNm ?? '>15'} NM from the nearest International Maritime Boundary Line (${geofenceAnalysis.nearestImbl?.boundaryName.split('(')[0] || 'IMBL'}). Vessel has clear operational waters.`}
-            </p>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black uppercase ${
+              geofenceAnalysis.status === 'RESTRICTED_BREACH' ? 'bg-red-600 text-white animate-pulse' :
+              geofenceAnalysis.status === 'CAUTION' ? 'bg-amber-500 text-slate-950' :
+              'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+            }`}>
+              {geofenceAnalysis.status}
+            </span>
+          </div>
+
+          <p className="text-xs leading-relaxed font-medium">
+            {geofenceAnalysis.activeAlerts.length > 0 
+              ? geofenceAnalysis.activeAlerts[0].warningMessage 
+              : `Vessel has clear operational waters. Operating point is ${geofenceAnalysis.nearestImbl?.distanceNm ?? '>15'} NM from the nearest International Maritime Boundary Line (${geofenceAnalysis.nearestImbl?.boundaryName.split('(')[0] || 'IMBL'}).`}
+          </p>
+
+          {/* Detailed Boundary Proximity Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-800/80 text-[11px] font-mono">
+            {geofenceAnalysis.nearestImbl && (
+              <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60 space-y-0.5">
+                <div className="flex items-center justify-between text-slate-300 font-bold">
+                  <span className="truncate max-w-[150px]">{geofenceAnalysis.nearestImbl.boundaryName.split('(')[0]}</span>
+                  <span className={geofenceAnalysis.nearestImbl.distanceNm <= 3.0 ? 'text-red-400 font-black' : geofenceAnalysis.nearestImbl.distanceNm <= 8.0 ? 'text-amber-400' : 'text-slate-300'}>
+                    {geofenceAnalysis.nearestImbl.distanceNm} NM
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>Bearing: {geofenceAnalysis.nearestImbl.bearingDeg ?? 0}°</span>
+                  <span className="text-cyan-400/80">{geofenceAnalysis.nearestImbl.severity.replace('_', ' ')}</span>
+                </div>
+              </div>
+            )}
+
+            {geofenceAnalysis.nearestMpa && (
+              <div className="bg-slate-950/60 p-2 rounded-lg border border-slate-800/60 space-y-0.5">
+                <div className="flex items-center justify-between text-slate-300 font-bold">
+                  <span className="truncate max-w-[150px]">{geofenceAnalysis.nearestMpa.boundaryName.split(' ')[0]} Sanctuary</span>
+                  <span className={geofenceAnalysis.nearestMpa.distanceNm === 0 ? 'text-red-400 font-black animate-pulse' : geofenceAnalysis.nearestMpa.distanceNm <= 3.0 ? 'text-amber-400' : 'text-emerald-400'}>
+                    {geofenceAnalysis.nearestMpa.distanceNm === 0 ? 'INSIDE RESERVE' : `${geofenceAnalysis.nearestMpa.distanceNm} NM`}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>Ecological Buffer</span>
+                  <span className="text-emerald-400/80">{geofenceAnalysis.nearestMpa.severity.replace('_', ' ')}</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

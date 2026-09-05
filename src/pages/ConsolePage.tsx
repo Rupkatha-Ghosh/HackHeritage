@@ -89,6 +89,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
   const handleMapCoordinateClick = (lat: number, lon: number) => {
     fetchAnalysis(
       `Analyze live marine conditions at coordinates ${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E`,
+      `${lat.toFixed(4)},${lon.toFixed(4)}`
     );
   };
 
