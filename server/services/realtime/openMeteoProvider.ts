@@ -2,7 +2,7 @@ import { OceanData, WeatherData } from '../../../src/types.ts';
 
 const WEATHER_API_URL = process.env.OPEN_METEO_WEATHER_API_URL || 'https://api.open-meteo.com/v1/forecast';
 const MARINE_API_URL = process.env.OPEN_METEO_MARINE_API_URL || 'https://marine-api.open-meteo.com/v1/marine';
-const REQUEST_TIMEOUT_MS = Number(process.env.REALTIME_DATA_TIMEOUT_MS || 8000);
+const REQUEST_TIMEOUT_MS = Number(process.env.REALTIME_DATA_TIMEOUT_MS || 15000);
 
 interface OpenMeteoCurrentWeather {
   time?: string;
