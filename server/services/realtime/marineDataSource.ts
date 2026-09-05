@@ -29,6 +29,7 @@ export interface FusedMarineObservation {
   ocean: OceanData;
   normalizedSources: MarineObservation[];
   selectedSources: Record<string, MarineSourceId>;
+  featureSources: Partial<Record<MarineObservationVariable, MarineSourceId>>;
   sourceScores: Record<MarineSourceId, number>;
   providers: MarineSourceId[];
   warnings: string[];
