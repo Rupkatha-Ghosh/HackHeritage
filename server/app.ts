@@ -5,6 +5,7 @@ import { createServer as createViteServer } from 'vite';
 import apiRouter from './routes/index.ts';
 import gisRouter from './routes/gis.ts';
 import pfzRouter from './routes/pfz.ts';
+import routingRouter from './routes/routing.ts';
 import { errorHandler, notFound } from './middleware/errorHandler.ts';
 import { startMarineTelemetryCollector } from './services/realtime/marineTelemetryCollector.ts';
 
@@ -17,6 +18,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use('/api', apiRouter);
 app.use('/api/gis', gisRouter);
 app.use('/api/pfz', pfzRouter);
+app.use('/api/routing', routingRouter);
 
 async function startServer() {
   if (!IS_PRODUCTION) {
