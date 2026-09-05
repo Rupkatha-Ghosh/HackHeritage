@@ -4,6 +4,8 @@
  * 100% REAL-WORLD, PEER-REVIEWED SCIENTIFIC SATELLITE FEEDS (ZERO MOCK / ZERO HARDCODED VALUES).
  */
 
+import { readFile } from 'node:fs/promises';
+
 export interface RealOceanMetrics {
   chlorophyllConcentrationMgM3?: number;
   chlorophyllObservedAt?: string;
@@ -25,9 +27,10 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const oceanMetricsCache = new Map<string, { expiresAt: number; data: RealOceanMetrics }>();
 
 type ValueResult = { value?: number; observedAt?: string; source?: string };
-type SstResult = { sstC?: number; source?: string };
+type SstResult = { sstC?: number; observedAt?: string; source?: string };
 type ErddapRow = [string, number, number, number, number | null];
 type ErddapResponse = { table?: { rows?: ErddapRow[] } };
+type MosdacSnapshot = { latitude?: unknown; longitude?: unknown; observedAt?: unknown; values?: Record<string, unknown> };
 
 function cacheKey(lat: number, lon: number): string {
   return `${lat.toFixed(2)},${lon.toFixed(2)}`;
@@ -102,15 +105,52 @@ async function fetchRealSstAnomaly(lat: number, lon: number): Promise<ValueResul
   return {};
 }
 
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+async function fetchMosdacSst(lat: number, lon: number): Promise<SstResult> {
+  const cacheFile = process.env.MOSDAC_REALTIME_CACHE_FILE || 'data/realtime/mosdac_latest.json';
+  try {
+    const payload = JSON.parse(await readFile(cacheFile, 'utf-8')) as MosdacSnapshot;
+    const value = payload.values?.seaSurfaceTemperatureC;
+    const observedAt = typeof payload.observedAt === 'string' ? payload.observedAt : undefined;
+    if (!finite(value) || !observedAt) return {};
+
+    const observedMillis = Date.parse(observedAt);
+    if (!Number.isFinite(observedMillis)) return {};
+    const maxAgeHours = Number(process.env.MOSDAC_MAX_CACHE_STALENESS_HOURS || 36);
+    const ageHours = (Date.now() - observedMillis) / 3600000;
+    if (!Number.isFinite(maxAgeHours) || ageHours < -1 || ageHours > maxAgeHours) return {};
+
+    const cacheLat = finite(payload.latitude) ? payload.latitude : lat;
+    const cacheLon = finite(payload.longitude) ? payload.longitude : lon;
+    const distance = Math.hypot(cacheLat - lat, cacheLon - lon);
+    const maxDistance = Number(process.env.MOSDAC_MAX_CACHE_DISTANCE_DEG || 2);
+    if (!Number.isFinite(maxDistance) || distance > maxDistance) return {};
+
+    return {
+      sstC: Number(value.toFixed(2)),
+      observedAt,
+      source: 'MOSDAC / ISRO INSAT-3DS 3SIMG_L3B_SST',
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function fetchRealSst(lat: number, lon: number): Promise<SstResult> {
+  const mosdac = await fetchMosdacSst(lat, lon);
+  if (mosdac.sstC !== undefined) return mosdac;
+
   try {
     const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&current=sea_surface_temperature`;
     const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
     if (!res.ok) return {};
-    const data = await res.json() as { current?: { sea_surface_temperature?: number } };
+    const data = await res.json() as { current?: { time?: string; sea_surface_temperature?: number } };
     const value = data.current?.sea_surface_temperature;
     return typeof value === 'number' && Number.isFinite(value)
-      ? { sstC: Number(value.toFixed(1)), source: 'Copernicus Marine / ECMWF Reanalysis (Open-Meteo)' }
+      ? { sstC: Number(value.toFixed(1)), observedAt: data.current?.time, source: 'Copernicus Marine / ECMWF Reanalysis (Open-Meteo)' }
       : {};
   } catch {
     return {};
@@ -152,7 +192,7 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
     chlorophyllSource: chla.source,
     sstC: sst.sstC,
     sstAnomalyC: anomaly.value,
-    sstObservedAt: anomaly.observedAt,
+    sstObservedAt: sst.observedAt || anomaly.observedAt,
     sstSource: sst.source || anomaly.source,
     turbidityNTU: turbidity.value,
     turbiditySource: turbidity.source,
