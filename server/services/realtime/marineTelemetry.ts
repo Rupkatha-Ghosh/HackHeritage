@@ -19,8 +19,11 @@ export interface MarineSourceTelemetry {
     values: Partial<Record<MarineObservationVariable, number>>;
     warningCount: number;
   }>;
+  fusedValues: Partial<Record<MarineObservationVariable, number>>;
+  featureSources: Partial<Record<MarineObservationVariable, MarineSourceId>>;
   selectedSources: Partial<Record<'weather' | 'ocean', MarineSourceId>>;
   sourceScores: Partial<Record<MarineSourceId, number>>;
+  dataQuality: 'LIVE' | 'DEGRADED' | 'UNAVAILABLE';
   disagreements: Array<{ variable: MarineObservationVariable; spread: number }>;
   warnings: string[];
 }
@@ -93,6 +96,8 @@ export function getMarineTelemetrySummary() {
     providerObservations: providerCounts,
     latestTimestamp: latest?.timestamp || null,
     latestSelectedSources: latest?.selectedSources || null,
+    latestFeatureSources: latest?.featureSources || null,
+    latestDataQuality: latest?.dataQuality || null,
   };
 }
 

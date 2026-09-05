@@ -1,7 +1,7 @@
 import { RealtimeObservationMetadata, WeatherData, OceanData } from '../../../src/types.ts';
 import { fetchFusedRealtimeMarineObservation } from './marineDataFusion.ts';
 import type { MarineSourceId } from './marineDataSource.ts';
-import type { MarineObservation } from './marineObservation.ts';
+import type { MarineObservation, MarineObservationVariable } from './marineObservation.ts';
 
 export interface RealtimeMarineObservation {
   weather: WeatherData;
@@ -9,6 +9,7 @@ export interface RealtimeMarineObservation {
   normalizedSources: MarineObservation[];
   metadata: RealtimeObservationMetadata & {
     selectedSources: Record<string, MarineSourceId>;
+    featureSources: Partial<Record<MarineObservationVariable, MarineSourceId>>;
     sourceScores: Record<MarineSourceId, number>;
   };
   degraded: boolean;
@@ -28,6 +29,7 @@ export async function fetchRealtimeMarineObservation(lat: number, lon: number): 
         'Marine observations are advisory decision-support data and not a navigation substitute.',
       ],
       selectedSources: result.selectedSources,
+      featureSources: result.featureSources,
       sourceScores: result.sourceScores,
     },
     degraded: result.dataQuality !== 'LIVE',
