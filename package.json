@@ -26,6 +26,7 @@
     "test:geofence": "tsx scripts/test-geofence.ts",
     "test:gis": "tsx scripts/test-gis-intelligence.ts",
     "test:gis-agentic": "tsx scripts/test-gis-agentic-integration.ts",
+    "test:pfz": "tsx scripts/test-pfz.ts",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
