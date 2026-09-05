@@ -30,6 +30,27 @@ function allowedValues(payload: MosdacCachePayload): NonNullable<MarineSourceObs
   return output as NonNullable<MarineSourceObservation['values']>;
 }
 
+function validateFreshness(observedAt: string | undefined): void {
+  if (!observedAt) throw new Error('MOSDAC payload has no observedAt timestamp.');
+  const observedMillis = Date.parse(observedAt);
+  if (!Number.isFinite(observedMillis)) throw new Error('MOSDAC payload has an invalid observedAt timestamp.');
+  const maxAgeHours = Number(process.env.MOSDAC_MAX_CACHE_STALENESS_HOURS || 36);
+  const ageHours = (Date.now() - observedMillis) / 3600000;
+  if (!Number.isFinite(maxAgeHours) || ageHours < -1 || ageHours > maxAgeHours) {
+    throw new Error(`MOSDAC observation is stale (${ageHours.toFixed(1)}h; max ${maxAgeHours}h).`);
+  }
+}
+
+function validateDistance(payload: MosdacCachePayload, lat: number, lon: number): void {
+  const cacheLat = finite(payload.latitude) ? payload.latitude : lat;
+  const cacheLon = finite(payload.longitude) ? payload.longitude : lon;
+  const distance = Math.hypot(cacheLat - lat, cacheLon - lon);
+  const maxDistance = Number(process.env.MOSDAC_MAX_CACHE_DISTANCE_DEG || 2);
+  if (!Number.isFinite(maxDistance) || distance > maxDistance) {
+    throw new Error(`MOSDAC cache point is too far from requested location (${distance.toFixed(2)}°).`);
+  }
+}
+
 export const mosdacCacheProvider: MarineObservationSource = {
   id: 'MOSDAC',
   displayName: 'MOSDAC / ISRO normalized satellite cache',
@@ -48,10 +69,11 @@ export const mosdacCacheProvider: MarineObservationSource = {
         });
         if (!response.ok) throw new Error(`MOSDAC normalized gateway HTTP ${response.status}`);
         const payload = await response.json() as MosdacCachePayload;
+        validateFreshness(payload.observedAt);
         const values = allowedValues(payload);
         if (!Object.keys(values).length) throw new Error('MOSDAC gateway returned no supported normalized values.');
         return {
-          source: 'MOSDAC', observedAt: payload.observedAt || retrievedAt,
+          source: 'MOSDAC', observedAt: payload.observedAt!,
           retrievedAt: payload.retrievedAt || retrievedAt, availability: 'LIVE',
           values, qualityScore: 1, warnings: payload.warnings || [],
         };
@@ -59,16 +81,12 @@ export const mosdacCacheProvider: MarineObservationSource = {
 
       const raw = await readFile(CACHE_FILE, 'utf-8');
       const payload = JSON.parse(raw) as MosdacCachePayload;
+      validateFreshness(payload.observedAt);
       const values = allowedValues(payload);
       if (!Object.keys(values).length) throw new Error('MOSDAC cache contains no supported normalized values.');
-      const cacheLat = finite(payload.latitude) ? payload.latitude : lat;
-      const cacheLon = finite(payload.longitude) ? payload.longitude : lon;
-      const distance = Math.hypot(cacheLat - lat, cacheLon - lon);
-      if (distance > Number(process.env.MOSDAC_MAX_CACHE_DISTANCE_DEG || 2)) {
-        throw new Error(`MOSDAC cache point is too far from requested location (${distance.toFixed(2)}°).`);
-      }
+      validateDistance(payload, lat, lon);
       return {
-        source: 'MOSDAC', observedAt: payload.observedAt || retrievedAt,
+        source: 'MOSDAC', observedAt: payload.observedAt!,
         retrievedAt: payload.retrievedAt || retrievedAt, availability: 'LIVE',
         values, qualityScore: 1,
         warnings: [
