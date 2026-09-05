@@ -39,6 +39,17 @@ const configuredProviders = (): MarineObservationSource[] => [
   { id: 'OPEN_METEO', displayName: 'Open-Meteo', priority: OPEN_METEO_PRIORITY, enabled: true, fetch: openMeteoSource },
 ];
 
+function unavailable(source: MarineObservationSource): MarineSourceObservation {
+  return {
+    source: source.id,
+    observedAt: new Date(0).toISOString(),
+    retrievedAt: new Date().toISOString(),
+    availability: 'UNAVAILABLE',
+    warnings: [`${source.displayName} is disabled; no network request was made.`],
+    qualityScore: 0,
+  };
+}
+
 function providerPriority(source: MarineSourceId): number {
   return configuredProviders().find((provider) => provider.id === source)?.priority || 0;
 }
@@ -50,13 +61,13 @@ function variableScore(source: ReturnType<typeof normalizeMarineObservation>): n
 
 function pickBaseSources(normalizedSources: ReturnType<typeof normalizeMarineObservation>[]) {
   const usable = normalizedSources.filter((source) => source.ageHours <= MAX_STALENESS_HOURS && source.availability === 'LIVE');
-  const withWeather = usable.filter((source) => source.weather);
-  const withOcean = usable.filter((source) => source.ocean);
+  const withWeather = [...usable.filter((source) => source.weather)].sort((a, b) => b.qualityScore - a.qualityScore);
+  const withOcean = [...usable.filter((source) => source.ocean)].sort((a, b) => b.qualityScore - a.qualityScore);
   return {
-    weather: withWeather.sort((a, b) => b.qualityScore - a.qualityScore)[0]?.weather,
-    weatherSource: withWeather.sort((a, b) => b.qualityScore - a.qualityScore)[0]?.source,
-    ocean: withOcean.sort((a, b) => b.qualityScore - a.qualityScore)[0]?.ocean,
-    oceanSource: withOcean.sort((a, b) => b.qualityScore - a.qualityScore)[0]?.source,
+    weather: withWeather[0]?.weather,
+    weatherSource: withWeather[0]?.source,
+    ocean: withOcean[0]?.ocean,
+    oceanSource: withOcean[0]?.source,
   };
 }
 
@@ -66,17 +77,13 @@ export function getRealtimeSourceReadiness() {
     displayName: provider.displayName,
     enabled: provider.enabled,
     priority: provider.priority,
-    configured: provider.id === 'OPEN_METEO'
-      ? true
-      : provider.id === 'INCOIS'
-        ? provider.enabled
-        : provider.enabled,
+    configured: provider.enabled,
   }));
 }
 
 export async function fetchFusedRealtimeMarineObservation(lat: number, lon: number): Promise<FusedMarineObservation> {
   const providers = configuredProviders();
-  const rawObservations = await Promise.all(providers.map((provider) => provider.fetch(lat, lon)));
+  const rawObservations = await Promise.all(providers.map((provider) => provider.enabled ? provider.fetch(lat, lon) : Promise.resolve(unavailable(provider))));
   const retrievedAt = new Date().toISOString();
   const normalizedSources = rawObservations.map((source) => normalizeMarineObservation(
     source.source, source.availability, lat, lon, source.observedAt,
@@ -86,22 +93,16 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
 
   const ranked = normalizedSources.map((source) => ({ source, score: variableScore(source) }));
   const base = pickBaseSources(normalizedSources);
-  if (!base.weather || !base.ocean) {
-    throw new Error('No complete real-time weather and ocean observation is available for ML inference.');
-  }
+  if (!base.weather || !base.ocean) throw new Error('No complete real-time weather and ocean observation is available for ML inference.');
 
   const featureSources: Partial<Record<MarineObservationVariable, MarineSourceId>> = {};
   const fusedWeather = { ...base.weather };
   const fusedOcean = { ...base.ocean };
 
   for (const variable of VARIABLE_NAMES) {
-    const candidates = ranked
+    const selected = ranked
       .filter((entry) => entry.score > 0 && Number.isFinite(entry.source.values[variable]))
-      .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return providerPriority(b.source.source) - providerPriority(a.source.source);
-      });
-    const selected = candidates[0];
+      .sort((a, b) => b.score - a.score || providerPriority(b.source.source) - providerPriority(a.source.source))[0];
     if (!selected) continue;
     const value = selected.source.values[variable]!;
     featureSources[variable] = selected.source.source;
@@ -125,7 +126,6 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
     }
   }
 
-  // Recompute display-only derived fields after variable-level replacement.
   const waveHeight = fusedOcean.waveHeightMeters;
   fusedOcean.seaStateIndex = waveHeight >= 4 ? 6 : waveHeight >= 2.5 ? 5 : waveHeight >= 1.25 ? 4 : waveHeight >= 0.5 ? 3 : 1;
   fusedOcean.seaStateDescription = waveHeight >= 4 ? 'Very Rough to High (> 4.0m)' : waveHeight >= 2.5 ? 'Rough (Wave 2.5 - 4.0m)' : waveHeight >= 1.25 ? 'Moderate (Wave 1.25 - 2.5m)' : waveHeight >= 0.5 ? 'Slight (Wave 0.5 - 1.25m)' : 'Calm to Smooth (< 0.5m)';
