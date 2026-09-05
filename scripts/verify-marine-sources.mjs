@@ -38,7 +38,7 @@ async function probe(name, url, options = {}) {
       contentType: null,
       bytes: 0,
       note: message,
-      errorType: error?.name || 'UNKNOWN_ERROR',
+      errorType: error instanceof Error ? error.name : 'UNKNOWN_ERROR',
     };
   }
 }
