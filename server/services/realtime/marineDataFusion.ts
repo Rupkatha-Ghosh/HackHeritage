@@ -145,6 +145,26 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
   const warnings = [...new Set([...normalizedSources.flatMap((source) => source.warnings), ...validationWarnings, ...disagreementWarnings])];
   const liveSources = [...new Set(ranked.filter((entry) => entry.score > 0).map((entry) => entry.source.source))];
   const dataQuality = liveSources.length >= 2 ? 'LIVE' : liveSources.length === 1 ? 'DEGRADED' : 'UNAVAILABLE';
+  const fusedValues: Partial<Record<MarineObservationVariable, number>> = {};
+  for (const variable of VARIABLE_NAMES) {
+    const value = variable === 'windSpeedKts' ? fusedWeather.windSpeedKts
+      : variable === 'windGustKts' ? fusedWeather.windGustKts
+      : variable === 'windDirectionDeg' ? fusedWeather.windDirectionDeg
+      : variable === 'airTemperatureC' ? fusedWeather.airTemperatureC
+      : variable === 'precipitationMm' ? fusedWeather.precipitationMm
+      : variable === 'pressureHpa' ? fusedWeather.pressureHpa
+      : variable === 'visibilityKm' ? fusedWeather.visibilityKm
+      : variable === 'waveHeightMeters' ? fusedOcean.waveHeightMeters
+      : variable === 'wavePeriodSec' ? fusedOcean.wavePeriodSec
+      : variable === 'waveDirectionDeg' ? fusedOcean.waveDirectionDeg
+      : variable === 'swellHeightMeters' ? fusedOcean.swellHeightMeters
+      : variable === 'swellPeriodSec' ? fusedOcean.swellPeriodSec
+      : variable === 'swellDirectionDeg' ? fusedOcean.swellDirectionDeg
+      : variable === 'seaSurfaceTemperatureC' ? fusedOcean.seaSurfaceTemperatureC
+      : variable === 'currentSpeedKts' ? fusedOcean.currentSpeedKts
+      : fusedOcean.currentDirectionDeg;
+    if (typeof value === 'number' && Number.isFinite(value)) fusedValues[variable] = value;
+  }
 
   recordMarineTelemetry({
     timestamp: retrievedAt, latitude: lat, longitude: lon,
@@ -155,8 +175,11 @@ export async function fetchFusedRealtimeMarineObservation(lat: number, lon: numb
       qualityScore: source.qualityScore, missingVariables: source.missingVariables,
       values: source.values, warningCount: source.warnings.length,
     })),
-    selectedSources: { ...selectedSources, ...Object.fromEntries(Object.entries(featureSources).map(([key, source]) => [`feature:${key}`, source])) },
+    fusedValues,
+    featureSources,
+    selectedSources,
     sourceScores,
+    dataQuality,
     disagreements: comparison.filter((metric) => metric.disagreement).map((metric) => ({ variable: metric.variable, spread: metric.spread || 0 })),
     warnings,
   });
