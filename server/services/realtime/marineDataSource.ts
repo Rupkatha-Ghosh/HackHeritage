@@ -1,5 +1,5 @@
 import type { OceanData, WeatherData } from '../../../src/types.ts';
-import type { MarineObservation } from './marineObservation.ts';
+import type { MarineObservation, MarineObservationVariable } from './marineObservation.ts';
 
 export type MarineSourceId = 'INCOIS' | 'MOSDAC' | 'OPEN_METEO';
 export type SourceAvailability = 'LIVE' | 'DEGRADED' | 'UNAVAILABLE';
@@ -16,6 +16,7 @@ export interface MarineSourceObservation {
   source: MarineSourceId;
   weather?: WeatherData;
   ocean?: OceanData;
+  values?: Partial<Record<MarineObservationVariable, number>>;
   observedAt: string;
   retrievedAt: string;
   availability: SourceAvailability;
