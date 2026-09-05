@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx server/app.ts",
     "dev:ml": "uvicorn ml.api:app --reload --host 0.0.0.0 --port 8000",
-    "dev:rag": "uvicorn ml.rag_api:app --reload --host 0.0.0.0 --port 8001",
+    "dev:rag": "uvicorn ml.rag_api --reload --host 0.0.0.0 --port 8001",
     "ingest:rag": "tsx scripts/ingest-rag.mjs",
     "analyze:realtime": "python ml/src/analyze_realtime_source_bias.py",
     "import:realtime-ml": "python ml/src/import_realtime_telemetry.py",
@@ -22,6 +22,7 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test:agentic": "tsx scripts/test-agentic-executor.ts",
+    "test:agentic-workflow": "node scripts/test-agentic-workflow.mjs",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
@@ -45,7 +46,7 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
-    "tailwindcss": "^4.1.14",
+    "tailwindcss": "^4.1.0",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
