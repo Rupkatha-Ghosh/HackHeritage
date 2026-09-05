@@ -18,7 +18,7 @@ function confidenceFor(risk: RiskPrediction, pfz?: PfzAnalysis): DecisionConfide
   if (!pfz) return risk.confidenceScore >= 80 ? 'HIGH' : risk.confidenceScore >= 60 ? 'MEDIUM' : 'LOW';
   if (pfz.status === 'UNAVAILABLE') return 'LOW';
   const pfzConfidence = pfz.bestZone?.confidence;
-  if (risk.confidenceScore >= 80 && pfzConfidence === 'HIGH') return 'HIGH';
+  if (risk.confidenceScore >= 80 && pfzConfidence === 'HIGH' && pfz.status === 'READY') return 'HIGH';
   if (risk.confidenceScore >= 60 && (pfzConfidence === 'HIGH' || pfzConfidence === 'MEDIUM')) return 'MEDIUM';
   return 'LOW';
 }
@@ -67,33 +67,39 @@ export function fuseMarineDecision(
   if (pfz) {
     if (pfz.status === 'UNAVAILABLE') {
       warnings.push('PFZ observations are unavailable; no positive fishing recommendation is inferred.');
+    } else if (selectedZone) {
+      const suitabilityWeight = selectedZone.suitability === 'HIGH' ? 20 : selectedZone.suitability === 'MODERATE' ? 10 : 0;
+      score = Math.min(100, Math.max(0, score * 0.8 + selectedZone.score * 0.2 + suitabilityWeight - (selectedZone.confidence === 'LOW' ? 10 : 0)));
+      factors.push(`PFZ candidate ${selectedZone.id}: ${selectedZone.score}/100, ${selectedZone.suitability} suitability, ${selectedZone.confidence} confidence.`);
+      if (selectedZone.confidence === 'LOW' || pfz.status === 'DEGRADED') warnings.push('PFZ evidence is degraded; treat environmental suitability as decision support rather than a strong recommendation.');
+      if (selectedZone.geofenceStatus === 'RESTRICTED') warnings.push(`${selectedZone.id} is restricted and cannot be selected as an accessible fishing zone.`);
     } else {
-      const zone = selectedZone;
-      if (zone) {
-        const suitabilityWeight = zone.suitability === 'HIGH' ? 20 : zone.suitability === 'MODERATE' ? 10 : 0;
-        score = Math.min(100, Math.max(0, score * 0.8 + zone.score * 0.2 + suitabilityWeight - (zone.confidence === 'LOW' ? 10 : 0)));
-        factors.push(`PFZ candidate ${zone.id}: ${zone.score}/100, ${zone.suitability} suitability, ${zone.confidence} confidence.`);
-        if (zone.confidence === 'LOW' || pfz.status === 'DEGRADED') warnings.push('PFZ evidence is degraded; treat environmental suitability as decision support rather than a strong recommendation.');
-        if (zone.geofenceStatus === 'RESTRICTED') warnings.push(`${zone.id} is restricted and cannot be selected as an accessible fishing zone.`);
-      } else {
-        warnings.push('No accessible PFZ candidate met the positive suitability criteria.');
-      }
+      warnings.push('No accessible PFZ candidate met the positive suitability criteria.');
     }
   }
 
   score = Number(Math.min(100, Math.max(0, score)).toFixed(1));
-  const decision: OperationalDecision = score >= 70 && risk.riskLevel === 'LOW' && !geofence?.inRestrictedWaters
-    ? 'PROCEED'
-    : score >= 40 && risk.riskLevel !== 'HIGH' && risk.riskLevel !== 'EXTREME' && !geofence?.inRestrictedWaters
-      ? 'CAUTION'
-      : 'AVOID';
+  let decision: OperationalDecision;
+  if (risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH' || geofence?.inRestrictedWaters || geofence?.status === 'RESTRICTED_BREACH') {
+    decision = 'AVOID';
+  } else if (pfz?.status === 'UNAVAILABLE' || !selectedZone || selectedZone.suitability === 'LOW' || pfz?.status === 'DEGRADED' || selectedZone.confidence === 'LOW') {
+    decision = 'CAUTION';
+  } else if (score >= 70 && risk.riskLevel === 'LOW') {
+    decision = 'PROCEED';
+  } else if (score >= 40 && risk.riskLevel !== 'HIGH' && risk.riskLevel !== 'EXTREME') {
+    decision = 'CAUTION';
+  } else {
+    decision = 'AVOID';
+  }
 
   const confidence = confidenceFor(risk, pfz);
   const rationale = decision === 'PROCEED'
     ? 'Environmental potential is favorable enough for decision support and no overriding safety or geofence constraint was detected.'
     : decision === 'CAUTION'
       ? 'Some conditions are usable, but safety, evidence quality, PFZ uncertainty, or spatial constraints limit confidence.'
-      : 'Safety or spatial constraints outweigh the environmental fishing potential.';
+      : decision === 'AVOID'
+        ? 'Safety or spatial constraints outweigh the environmental fishing potential.'
+        : 'An operational decision cannot be safely established from the available evidence.';
 
   return { decision, confidence, score, rationale, factors, warnings: [...new Set(warnings)], selectedZone: selectedZone?.id };
 }
