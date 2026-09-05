@@ -1,19 +1,10 @@
 import { LanguageCode } from '../../src/types.ts';
 
-export type OrcaTaskId =
-  | 'resolve_location_time'
-  | 'weather'
-  | 'ocean'
-  | 'satellite'
-  | 'risk'
-  | 'gis'
-  | 'evidence'
-  | 'synthesis';
+export type OrcaTaskId = 'resolve_location_time' | 'weather' | 'ocean' | 'satellite' | 'risk' | 'gis' | 'evidence' | 'synthesis';
 export type OrcaTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 export interface OrcaTask { id: OrcaTaskId; label: string; dependsOn: OrcaTaskId[]; required: boolean; enabled: boolean; status: OrcaTaskStatus; reason: string; }
 export interface OrcaPlan { planId: string; intent: string; rationale: string; tasks: OrcaTask[]; generatedAt: string; }
 export interface ReplanInput { plan: OrcaPlan; failedTask: OrcaTaskId; reason: string; }
-
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
 export function createOrcaPlan(query: string, language: LanguageCode = 'en'): OrcaPlan {
@@ -23,7 +14,6 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
   const asksSatellite = /(satellite|chlorophyll|sst|thermal front|remote sensing|sentinel|mosdac|earth observation)/.test(q);
   const asksGis = /(map|near|nearest|distance|boundary|restricted|geofence|zone|route|port|harbour|harbor)/.test(q);
   const asksEvidence = /(why|advisory|warning|regulation|rule|official|source|evidence|explain)/.test(q) || isFishing || asksSafety;
-
   const tasks: OrcaTask[] = [
     { id: 'resolve_location_time', label: 'Resolve location and time', dependsOn: [], required: true, enabled: true, status: 'pending', reason: 'Every marine query needs a spatial and temporal frame.' },
     { id: 'weather', label: 'Acquire weather conditions', dependsOn: ['resolve_location_time'], required: true, enabled: true, status: 'pending', reason: 'Weather affects operational exposure and route safety.' },
@@ -34,14 +24,15 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
     { id: 'evidence', label: 'Retrieve authoritative evidence', dependsOn: ['resolve_location_time'], required: asksEvidence, enabled: asksEvidence, status: 'pending', reason: 'Official advisories and domain rules strengthen operational answers.' },
     { id: 'synthesis', label: `Synthesize grounded response (${language})`, dependsOn: [], required: true, enabled: true, status: 'pending', reason: 'Final synthesis consumes all selected branches.' }
   ];
-
-  const synthesis = tasks.find(task => task.id === 'synthesis');
-  if (synthesis) synthesis.dependsOn = tasks.filter(task => task.id !== 'synthesis' && task.enabled).map(task => task.id);
-  const gis = tasks.find(task => task.id === 'gis');
+  const satellite = tasks.find(t => t.id === 'satellite');
+  const risk = tasks.find(t => t.id === 'risk');
+  if (satellite?.enabled && risk) risk.dependsOn.push('satellite');
+  const gis = tasks.find(t => t.id === 'gis');
   if (gis?.enabled) gis.dependsOn = ['resolve_location_time', 'risk'];
-  const evidence = tasks.find(task => task.id === 'evidence');
+  const evidence = tasks.find(t => t.id === 'evidence');
   if (evidence?.enabled) evidence.dependsOn = ['resolve_location_time', 'risk'];
-
+  const synthesis = tasks.find(t => t.id === 'synthesis');
+  if (synthesis) synthesis.dependsOn = tasks.filter(t => t.id !== 'synthesis' && t.enabled).map(t => t.id);
   const enabled = tasks.filter(t => t.enabled).map(t => t.label).join(' -> ');
   return { planId: id('plan'), intent: asksSatellite ? 'earth_observation_marine_intelligence' : asksSafety ? 'marine_safety_fishing_advisory' : 'marine_intelligence', rationale: `Dynamic route selected from query signals. Enabled branches: ${enabled}`, tasks, generatedAt: new Date().toISOString() };
 }
@@ -52,8 +43,12 @@ export function replanAfterFailure({ plan, failedTask, reason }: ReplanInput): O
   if (failed) { failed.status = 'failed'; failed.enabled = false; failed.reason = `${failed.reason} Connector failed: ${reason}`; }
   for (const task of tasks) {
     if (!task.enabled || task.id === failedTask || !task.dependsOn.includes(failedTask)) continue;
-    if (failed?.required) { task.status = 'failed'; task.enabled = false; task.reason = `Blocked by required dependency ${failedTask}.`; }
-    else { task.dependsOn = task.dependsOn.filter(dep => dep !== failedTask); task.reason = `${task.reason} Dependency ${failedTask} unavailable; continuing in degraded mode.`; }
+    if (failed?.required) {
+      task.status = 'failed'; task.enabled = false; task.reason = `Blocked by required dependency ${failedTask}.`;
+    } else {
+      task.dependsOn = task.dependsOn.filter(dep => dep !== failedTask);
+      task.reason = `${task.reason} Optional dependency ${failedTask} unavailable; continuing in degraded mode.`;
+    }
   }
   return { ...plan, planId: id('replan'), rationale: `${plan.rationale} Replanned after ${failedTask} failure; ${reason}`, tasks, generatedAt: new Date().toISOString() };
 }
