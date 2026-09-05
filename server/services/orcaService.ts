@@ -3,12 +3,13 @@ import { COASTAL_LOCATIONS, MARINE_EVIDENCE_CORPUS } from '../../src/data/coasta
 import { calculateMarineRisk, generateGisLayers } from '../../src/utils/marineRiskEngine.ts';
 import { predictMarineRiskWithMl } from '../../src/services/ml/riskService.ts';
 import { fetchSatelliteData } from '../../src/services/satellite/satelliteService.ts';
-import { AgentStepTrace, LanguageCode, OrcaAnalysisResponse, SatelliteData, RiskPrediction, LocationInfo, TimeWindow, GisLayerData, EvidenceItem } from '../../src/types.ts';
+import { AgentStepTrace, LanguageCode, OrcaAnalysisResponse, SatelliteData, RiskPrediction, LocationInfo, TimeWindow, GisLayerData, EvidenceItem, GeofenceSpatialAnalysis } from '../../src/types.ts';
 import { fetchMarineAndWeatherData, resolveLocation, resolveSatelliteObservationWindow, resolveTimeWindow } from './marineService.ts';
 import { retrieveRagEvidence } from './ragService.ts';
 import { buildLocalizedGroundedSummary, localizeRiskPrediction } from '../../src/utils/marineRiskLocalization.ts';
 import { createOrcaPlan } from './agenticPlanner.ts';
 import { executeOrcaPlan } from './agenticExecutor.ts';
+import { analyzeMaritimeGeofencing } from './geofenceService.ts';
 
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
@@ -41,6 +42,7 @@ export async function runOrcaAgentWorkflow(query: string, locationOverride?: str
   let satellite: SatelliteData = unavailableSatellite(resolveLocation(query, locationOverride));
   let risk: RiskPrediction | undefined;
   let gisLayers: GisLayerData = { type: 'FeatureCollection', features: [] };
+  let geofenceAnalysis: GeofenceSpatialAnalysis | undefined;
   let evidence: EvidenceItem[] = [];
   let ragProvider = 'not-run';
   let ragModel = 'not-run';
@@ -91,7 +93,21 @@ export async function runOrcaAgentWorkflow(query: string, locationOverride?: str
     },
     gis: async () => {
       if (!location || !realtime || !risk) throw new Error('Required context for GIS reasoning is unavailable.');
-      const trace = startTrace('GisAgent', 'Generate GeoJSON hazard and navigation layers', 'gis', ['resolve_location_time', 'risk']); gisLayers = generateGisLayers(location, risk, realtime.ocean); finishTrace(trace, `${gisLayers.features.length} GeoJSON features generated.`);
+      const trace = startTrace('GisAgent', 'Generate GeoJSON hazard and navigation layers with authentic IMBL and MPA geofences', 'gis', ['resolve_location_time', 'risk']);
+      gisLayers = generateGisLayers(location, risk, realtime.ocean);
+      geofenceAnalysis = analyzeMaritimeGeofencing(location.latitude, location.longitude);
+      gisLayers.geofenceAnalysis = geofenceAnalysis;
+      trace.logs.push(`Geofence Status: ${geofenceAnalysis.status}`);
+      if (geofenceAnalysis.nearestImbl) {
+        trace.logs.push(`Nearest IMBL: ${geofenceAnalysis.nearestImbl.boundaryName} — ${geofenceAnalysis.nearestImbl.distanceNm} NM (bearing ${geofenceAnalysis.nearestImbl.bearingDeg ?? 0}°, ${geofenceAnalysis.nearestImbl.severity})`);
+      }
+      if (geofenceAnalysis.nearestMpa) {
+        trace.logs.push(`Nearest MPA: ${geofenceAnalysis.nearestMpa.boundaryName} — ${geofenceAnalysis.nearestMpa.distanceNm} NM (${geofenceAnalysis.nearestMpa.severity})`);
+      }
+      for (const alert of geofenceAnalysis.activeAlerts) {
+        trace.logs.push(`[GEOFENCE WARNING] ${alert.warningMessage}`);
+      }
+      finishTrace(trace, `${gisLayers.features.length} GeoJSON features generated; Geofence status: ${geofenceAnalysis.status} (Nearest IMBL: ${geofenceAnalysis.nearestImbl?.distanceNm ?? 'N/A'} NM)`);
     },
     evidence: async () => {
       if (!location || !risk) throw new Error('Required context for evidence retrieval is unavailable.');
@@ -104,7 +120,11 @@ export async function runOrcaAgentWorkflow(query: string, locationOverride?: str
       if (!location || !timeWindow || !realtime || !risk) throw new Error('Required execution outputs are unavailable for synthesis.');
       const trace = startTrace('ResponseGrounding', 'Generate grounded marine intelligence briefing', 'synthesis', task.dependsOn); const genAI = getGenAI();
       if (genAI) {
-        const prompt = `You are ORCA-X (Ocean Reasoning & Collaborative AI), an authoritative marine intelligence assistant.\nUser Query: "${query}"\nLocation: ${location.name}, ${location.state || ''}, ${location.country}\nTime Window: ${timeWindow.requestedText}\nPlanner intent: ${plan.intent}\nPlanner rationale: ${plan.rationale}\n\nLIVE ENVIRONMENTAL DATA:\nWeather source: ${realtime.weather.source}; observed: ${realtime.weather.observedAt}; retrieved: ${realtime.weather.retrievedAt || realtime.metadata.retrievedAt}\nMarine source: ${realtime.ocean.source}; observed: ${realtime.ocean.observedAt}; retrieved: ${realtime.ocean.retrievedAt || realtime.metadata.retrievedAt}\nWave Height: ${realtime.ocean.waveHeightMeters}m; Max Wave Today: ${realtime.ocean.maxWaveHeightMeters}m\nSwell: ${realtime.ocean.swellHeightMeters}m / ${realtime.ocean.swellPeriodSec}s\nWind: ${realtime.weather.windSpeedKts} kts; Gusts: ${realtime.weather.windGustKts} kts; Direction: ${realtime.weather.windDirectionCompass}\nCurrent: ${realtime.ocean.currentSpeedKts} kts\nSea State: ${realtime.ocean.seaStateIndex} (${realtime.ocean.seaStateDescription})\nSST: ${realtime.ocean.seaSurfaceTemperatureC}°C\nVisibility: ${realtime.weather.visibilityKm} km\nRisk: ${risk.riskScore}/100 ${risk.riskLevel}; Confidence: ${risk.confidenceScore}%\nRecommendation: ${risk.primaryRecommendation}\nAdvisories: ${risk.actionableAdvisories.join('; ')}\nSatellite: ${satellite.status}; observations: ${satellite.observations.length}\nRetrieved Evidence (${ragProvider}, ${ragModel}):\n${evidence.map(e => `- ${e.title} | ${e.sourceAuthority} | ${e.excerpt} | ${e.complianceRule}`).join('\n')}\n\nRespond in ${language}. Never invent measurements. Clearly distinguish live/modelled observations from authoritative evidence, give a concise verdict, key physical drivers, operational advisories, cite the retrieved evidence authorities by name, and state that official INCOIS/IMD/MRCC warnings supersede this system.`;
+        const geofenceSummary = geofenceAnalysis
+          ? `GEOFENCING & MARITIME BOUNDARIES (IMBL & MPAs):\nStatus: ${geofenceAnalysis.status}\nNearest IMBL: ${geofenceAnalysis.nearestImbl?.boundaryName} at ${geofenceAnalysis.nearestImbl?.distanceNm} NM (${geofenceAnalysis.nearestImbl?.severity})\nNearest Marine Sanctuary: ${geofenceAnalysis.nearestMpa?.boundaryName} at ${geofenceAnalysis.nearestMpa?.distanceNm} NM (${geofenceAnalysis.nearestMpa?.severity})\n${geofenceAnalysis.activeAlerts.length ? `Active Warnings:\n${geofenceAnalysis.activeAlerts.map(a => `- ${a.warningMessage}`).join('\n')}` : 'All clear of international and restricted waters.'}`
+          : 'Geofence evaluation clear.';
+
+        const prompt = `You are ORCA-X (Ocean Reasoning & Collaborative AI), an authoritative marine intelligence assistant.\nUser Query: "${query}"\nLocation: ${location.name}, ${location.state || ''}, ${location.country}\nTime Window: ${timeWindow.requestedText}\nPlanner intent: ${plan.intent}\nPlanner rationale: ${plan.rationale}\n\nLIVE ENVIRONMENTAL DATA:\nWeather source: ${realtime.weather.source}; observed: ${realtime.weather.observedAt}; retrieved: ${realtime.weather.retrievedAt || realtime.metadata.retrievedAt}\nMarine source: ${realtime.ocean.source}; observed: ${realtime.ocean.observedAt}; retrieved: ${realtime.ocean.retrievedAt || realtime.metadata.retrievedAt}\nWave Height: ${realtime.ocean.waveHeightMeters}m; Max Wave Today: ${realtime.ocean.maxWaveHeightMeters}m\nSwell: ${realtime.ocean.swellHeightMeters}m / ${realtime.ocean.swellPeriodSec}s\nWind: ${realtime.weather.windSpeedKts} kts; Gusts: ${realtime.weather.windGustKts} kts; Direction: ${realtime.weather.windDirectionCompass}\nCurrent: ${realtime.ocean.currentSpeedKts} kts\nSea State: ${realtime.ocean.seaStateIndex} (${realtime.ocean.seaStateDescription})\nSST: ${realtime.ocean.seaSurfaceTemperatureC}°C\nVisibility: ${realtime.weather.visibilityKm} km\nRisk: ${risk.riskScore}/100 ${risk.riskLevel}; Confidence: ${risk.confidenceScore}%\nRecommendation: ${risk.primaryRecommendation}\nAdvisories: ${risk.actionableAdvisories.join('; ')}\nSatellite: ${satellite.status}; observations: ${satellite.observations.length}\n${geofenceSummary}\nRetrieved Evidence (${ragProvider}, ${ragModel}):\n${evidence.map(e => `- ${e.title} | ${e.sourceAuthority} | ${e.excerpt} | ${e.complianceRule}`).join('\n')}\n\nRespond in ${language}. Never invent measurements. Clearly distinguish live/modelled observations from authoritative evidence, give a concise verdict, key physical drivers, operational advisories, highlight any boundary/geofence alerts, cite the retrieved evidence authorities by name, and state that official INCOIS/IMD/MRCC warnings supersede this system.`;
         for (const model of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.7-flash']) {
           try { const response = await genAI.models.generateContent({ model, contents: prompt, config: { temperature: 0.2, topP: 0.85 } }); if (response.text) { groundedSummary = response.text; break; } } catch { trace.logs.push(`Model ${model} unavailable; trying next model.`); }
         }
@@ -127,9 +147,16 @@ export async function runOrcaAgentWorkflow(query: string, locationOverride?: str
   const evidenceTask = result.plan.tasks.find(t => t.id === 'evidence');
   const ragDegraded = Boolean(evidenceTask?.enabled && evidenceTask.status !== 'completed');
   const finalWarnings = [...realtime.metadata.warnings, ...satellite.warnings];
+  if (geofenceAnalysis?.activeAlerts) {
+    for (const alert of geofenceAnalysis.activeAlerts) {
+      if (alert.severity === 'CRITICAL_BREACH' || alert.severity === 'PROXIMITY_WARNING') {
+        finalWarnings.push(alert.warningMessage);
+      }
+    }
+  }
   if (ragDegraded) finalWarnings.push('Evidence retrieval did not complete; response was synthesized with available grounded data.');
   if (result.replans > 0) finalWarnings.push(`Execution replanned ${result.replans} time${result.replans === 1 ? '' : 's'} after an optional branch failure.`);
-  return { queryId, originalQuery: query, language, detectedIntent: result.plan.intent, location, timeWindow, weather: realtime.weather, ocean: realtime.ocean, satellite, risk, gisLayers, evidence, agentTraces: traces, groundedSummary, executionPlan: { planId: result.plan.planId, intent: result.plan.intent, rationale: result.plan.rationale, tasks: result.plan.tasks, generatedAt: result.plan.generatedAt }, isDataDegraded: realtime.degraded || satelliteDegraded || ragDegraded, warnings: finalWarnings, freshnessTimestamp, officialDisclaimer: 'ORCA-X is an AI decision-support platform for marine intelligence. It does NOT supersede statutory warnings from INCOIS, IMD, or Maritime Rescue Coordination Centres (MRCC). Open-Meteo modelled marine currents/tides are advisory and do not replace nautical navigation information.' };
+  return { queryId, originalQuery: query, language, detectedIntent: result.plan.intent, location, timeWindow, weather: realtime.weather, ocean: realtime.ocean, satellite, risk, gisLayers, geofenceAnalysis, evidence, agentTraces: traces, groundedSummary, executionPlan: { planId: result.plan.planId, intent: result.plan.intent, rationale: result.plan.rationale, tasks: result.plan.tasks, generatedAt: result.plan.generatedAt }, isDataDegraded: realtime.degraded || satelliteDegraded || ragDegraded, warnings: finalWarnings, freshnessTimestamp, officialDisclaimer: 'ORCA-X is an AI decision-support platform for marine intelligence. It does NOT supersede statutory warnings from INCOIS, IMD, or Maritime Rescue Coordination Centres (MRCC). Open-Meteo modelled marine currents/tides are advisory and do not replace nautical navigation information.' };
 }
 export function getSupportedLocationCount(): number { return Object.keys(COASTAL_LOCATIONS).length; }
 export function getEvidenceCorpusSize(): number { return MARINE_EVIDENCE_CORPUS.length; }

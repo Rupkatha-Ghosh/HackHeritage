@@ -15,7 +15,7 @@ import {
   FileText,
   Printer
 } from 'lucide-react';
-import { RiskPrediction, LanguageCode, LocationInfo, TimeWindow } from '../types';
+import { RiskPrediction, LanguageCode, LocationInfo, TimeWindow, GeofenceSpatialAnalysis } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 
 interface RiskCardProps {
@@ -24,6 +24,7 @@ interface RiskCardProps {
   timeWindow: TimeWindow;
   language: LanguageCode;
   groundedSummary: string;
+  geofenceAnalysis?: GeofenceSpatialAnalysis;
 }
 
 export const RiskCard: React.FC<RiskCardProps> = ({
@@ -31,7 +32,8 @@ export const RiskCard: React.FC<RiskCardProps> = ({
   location,
   timeWindow,
   language,
-  groundedSummary
+  groundedSummary,
+  geofenceAnalysis
 }) => {
   const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
@@ -273,6 +275,39 @@ export const RiskCard: React.FC<RiskCardProps> = ({
         </div>
 
       </div>
+
+      {/* Geofencing & Boundary Security Alert Banner */}
+      {geofenceAnalysis && (
+        <div className={`rounded-xl p-3 border flex items-start gap-2.5 text-xs transition-all ${
+          geofenceAnalysis.status === 'RESTRICTED_BREACH'
+            ? 'bg-red-950/60 border-red-600/80 text-red-200 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
+            : geofenceAnalysis.status === 'CAUTION'
+            ? 'bg-amber-950/50 border-amber-500/60 text-amber-200'
+            : 'bg-slate-900/60 border-slate-800 text-slate-300'
+        }`}>
+          <ShieldAlert className={`h-4 w-4 shrink-0 mt-0.5 ${
+            geofenceAnalysis.status === 'RESTRICTED_BREACH' ? 'text-red-400 animate-pulse' :
+            geofenceAnalysis.status === 'CAUTION' ? 'text-amber-400' : 'text-emerald-400'
+          }`} />
+          <div className="space-y-1 flex-1">
+            <div className="flex items-center justify-between font-bold">
+              <span className="uppercase tracking-wider font-mono text-[10px] flex items-center gap-1.5">
+                <span>{geofenceAnalysis.status === 'RESTRICTED_BREACH' ? '🚨 Sovereign Maritime Border Incursion Alert' :
+                       geofenceAnalysis.status === 'CAUTION' ? '⚠️ Maritime Border Proximity Advisory' :
+                       '🛡️ Sovereign Maritime Boundary Clearance'}</span>
+              </span>
+              <span className="font-mono text-[10px] opacity-80">
+                {geofenceAnalysis.nearestImbl ? `${geofenceAnalysis.nearestImbl.distanceNm} NM to IMBL` : ''}
+              </span>
+            </div>
+            <p className="text-xs leading-relaxed">
+              {geofenceAnalysis.activeAlerts.length > 0 
+                ? geofenceAnalysis.activeAlerts[0].warningMessage 
+                : `Operating point is ${geofenceAnalysis.nearestImbl?.distanceNm ?? '>15'} NM from the nearest International Maritime Boundary Line (${geofenceAnalysis.nearestImbl?.boundaryName.split('(')[0] || 'IMBL'}). Vessel has clear operational waters.`}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Craft Restrictions & Safe Vessel Matrix */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">

@@ -23,6 +23,7 @@
     "lint": "tsc --noEmit",
     "test:agentic": "tsx scripts/test-agentic-executor.ts",
     "test:agentic-workflow": "node scripts/test-agentic-workflow.mjs",
+    "test:geofence": "tsx scripts/test-geofence.ts",
     "smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {

@@ -11,6 +11,8 @@ import { getMarineTelemetry, getMarineTelemetryAnalysis, getMarineTelemetrySumma
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 import { localizeRiskPrediction } from '../../src/utils/marineRiskLocalization.ts';
+import { analyzeMaritimeGeofencing } from '../services/geofenceService.ts';
+import { generateMaritimeGeoJsonFeatures } from '../../src/data/maritimeBoundaries.ts';
 
 function resolveLocationFromRequest(req: Request) {
   const locationKey = typeof req.query.locationKey === 'string' ? req.query.locationKey : undefined;
@@ -134,6 +136,26 @@ export function marineTelemetryAnalysis(_req: Request, res: Response) {
   res.json(getMarineTelemetryAnalysis());
 }
 
+export function gisSpatialAnalysis(req: Request, res: Response) {
+  try {
+    const lat = Number(req.query.lat ?? req.body?.latitude ?? 21.6266);
+    const lon = Number(req.query.lon ?? req.body?.longitude ?? 87.5074);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+    }
+    const geofence = analyzeMaritimeGeofencing(lat, lon);
+    const geoFeatures = generateMaritimeGeoJsonFeatures();
+    res.json({
+      coordinates: { latitude: lat, longitude: lon },
+      geofence,
+      featuresCount: geoFeatures.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'GIS spatial analysis failed.' });
+  }
+}
+
 export function health(_req: Request, res: Response) {
   res.json({
     status: 'healthy',
@@ -152,6 +174,7 @@ export function health(_req: Request, res: Response) {
       ragApi: process.env.ORCA_RAG_API_URL || 'http://127.0.0.1:8001',
       agentOrchestrator: 'server_workflow',
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
+      geofenceSurveillance: 'authentic_unclos_pca_treaty_engine',
     },
     realtimeSources: getRealtimeSourceReadiness(),
     telemetry: getMarineTelemetrySummary(),
@@ -164,6 +187,9 @@ export function health(_req: Request, res: Response) {
       latestSatelliteCatalogueSearch: true,
       satelliteImageProcessing: false,
       mlDeploymentDomainValidated: false,
+      geofencingBoundarySurveillance: true,
+      authenticImblCoverage: true,
+      marineProtectedAreasCoverage: true,
     },
     supportedLocations: getSupportedLocationCount(),
   });

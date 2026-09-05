@@ -210,10 +210,12 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         timeWindow={analysisData.timeWindow}
                         language={language}
                         groundedSummary={analysisData.groundedSummary}
+                        geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                       />
                       <InteractiveMap
                         location={analysisData.location}
                         gisLayers={analysisData.gisLayers}
+                        geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                         ocean={analysisData.ocean}
                         riskLevel={analysisData.risk.riskLevel}
                         onSelectLocation={handleLocationSelect}
@@ -252,6 +254,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     timeWindow={analysisData.timeWindow}
                     language={language}
                     groundedSummary={analysisData.groundedSummary}
+                    geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                   />
                   <FeatureContributions risk={analysisData.risk} language={language} />
                   <MarineTelemetry
@@ -273,6 +276,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <InteractiveMap
                     location={analysisData.location}
                     gisLayers={analysisData.gisLayers}
+                    geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                     ocean={analysisData.ocean}
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
@@ -309,6 +313,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <InteractiveMap
                     location={analysisData.location}
                     gisLayers={analysisData.gisLayers}
+                    geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                     ocean={analysisData.ocean}
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
