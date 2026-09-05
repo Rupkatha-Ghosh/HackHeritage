@@ -9,39 +9,13 @@ export type OrcaTaskId =
   | 'gis'
   | 'evidence'
   | 'synthesis';
-
 export type OrcaTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-
-export interface OrcaTask {
-  id: OrcaTaskId;
-  label: string;
-  dependsOn: OrcaTaskId[];
-  required: boolean;
-  enabled: boolean;
-  status: OrcaTaskStatus;
-  reason: string;
-}
-
-export interface OrcaPlan {
-  planId: string;
-  intent: string;
-  rationale: string;
-  tasks: OrcaTask[];
-  generatedAt: string;
-}
-
-export interface ReplanInput {
-  plan: OrcaPlan;
-  failedTask: OrcaTaskId;
-  reason: string;
-}
+export interface OrcaTask { id: OrcaTaskId; label: string; dependsOn: OrcaTaskId[]; required: boolean; enabled: boolean; status: OrcaTaskStatus; reason: string; }
+export interface OrcaPlan { planId: string; intent: string; rationale: string; tasks: OrcaTask[]; generatedAt: string; }
+export interface ReplanInput { plan: OrcaPlan; failedTask: OrcaTaskId; reason: string; }
 
 const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-/**
- * Deterministic query planner. It builds a dependency graph without calling an
- * LLM so safety-critical routing stays reproducible and testable.
- */
 export function createOrcaPlan(query: string, language: LanguageCode = 'en'): OrcaPlan {
   const q = query.toLowerCase();
   const isFishing = /(fish|fishing|pfz|catch|marine|boat|vessel)/.test(q);
@@ -51,91 +25,37 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
   const asksEvidence = /(why|advisory|warning|regulation|rule|official|source|evidence|explain)/.test(q) || isFishing || asksSafety;
 
   const tasks: OrcaTask[] = [
-    {
-      id: 'resolve_location_time', label: 'Resolve location and time', dependsOn: [], required: true,
-      enabled: true, status: 'pending', reason: 'Every marine query needs a spatial and temporal frame.'
-    },
-    {
-      id: 'weather', label: 'Acquire weather conditions', dependsOn: ['resolve_location_time'], required: true,
-      enabled: true, status: 'pending', reason: 'Weather affects operational exposure and route safety.'
-    },
-    {
-      id: 'ocean', label: 'Acquire ocean conditions', dependsOn: ['resolve_location_time'], required: true,
-      enabled: true, status: 'pending', reason: 'Waves, swell, currents and sea state are core marine signals.'
-    },
-    {
-      id: 'satellite', label: 'Acquire satellite / EO observations', dependsOn: ['resolve_location_time'], required: false,
-      enabled: asksSatellite || isFishing, status: 'pending', reason: asksSatellite ? 'The query explicitly requests Earth-observation intelligence.' : 'Fishing queries may benefit from EO indicators.'
-    },
-    {
-      id: 'risk', label: 'Evaluate marine risk', dependsOn: ['weather', 'ocean'], required: asksSafety || isFishing,
-      enabled: asksSafety || isFishing, status: 'pending', reason: 'Enabled when the user asks about safety, risk or fishing operations.'
-    },
-    {
-      id: 'gis', label: 'Perform spatial / GIS reasoning', dependsOn: ['resolve_location_time'], required: asksGis,
-      enabled: asksGis, status: 'pending', reason: 'Enabled for distance, zones, boundaries, routing and map-oriented questions.'
-    },
-    {
-      id: 'evidence', label: 'Retrieve authoritative evidence', dependsOn: ['resolve_location_time'], required: asksEvidence,
-      enabled: asksEvidence, status: 'pending', reason: 'Official advisories and domain rules strengthen operational answers.'
-    },
-    {
-      id: 'synthesis', label: `Synthesize grounded response (${language})`, dependsOn: [], required: true,
-      enabled: true, status: 'pending', reason: 'Final synthesis consumes all selected branches.'
-    }
+    { id: 'resolve_location_time', label: 'Resolve location and time', dependsOn: [], required: true, enabled: true, status: 'pending', reason: 'Every marine query needs a spatial and temporal frame.' },
+    { id: 'weather', label: 'Acquire weather conditions', dependsOn: ['resolve_location_time'], required: true, enabled: true, status: 'pending', reason: 'Weather affects operational exposure and route safety.' },
+    { id: 'ocean', label: 'Acquire ocean conditions', dependsOn: ['resolve_location_time'], required: true, enabled: true, status: 'pending', reason: 'Waves, swell, currents and sea state are core marine signals.' },
+    { id: 'satellite', label: 'Acquire satellite / EO observations', dependsOn: ['resolve_location_time'], required: false, enabled: asksSatellite || isFishing, status: 'pending', reason: asksSatellite ? 'The query explicitly requests Earth-observation intelligence.' : 'Fishing queries may benefit from EO indicators.' },
+    { id: 'risk', label: 'Evaluate marine risk', dependsOn: ['weather', 'ocean'], required: true, enabled: true, status: 'pending', reason: 'Risk is a mandatory ORCA-X decision-support signal.' },
+    { id: 'gis', label: 'Perform spatial / GIS reasoning', dependsOn: ['resolve_location_time'], required: asksGis, enabled: asksGis, status: 'pending', reason: 'Enabled for distance, zones, boundaries, routing and map-oriented questions.' },
+    { id: 'evidence', label: 'Retrieve authoritative evidence', dependsOn: ['resolve_location_time'], required: asksEvidence, enabled: asksEvidence, status: 'pending', reason: 'Official advisories and domain rules strengthen operational answers.' },
+    { id: 'synthesis', label: `Synthesize grounded response (${language})`, dependsOn: [], required: true, enabled: true, status: 'pending', reason: 'Final synthesis consumes all selected branches.' }
   ];
 
   const synthesis = tasks.find(task => task.id === 'synthesis');
-  if (synthesis) {
-    synthesis.dependsOn = tasks.filter(task => task.id !== 'synthesis' && task.enabled).map(task => task.id);
-  }
+  if (synthesis) synthesis.dependsOn = tasks.filter(task => task.id !== 'synthesis' && task.enabled).map(task => task.id);
   const gis = tasks.find(task => task.id === 'gis');
-  if (gis && gis.enabled) gis.dependsOn = ['resolve_location_time', ...(tasks.find(t => t.id === 'risk')?.enabled ? ['risk'] : [])];
+  if (gis?.enabled) gis.dependsOn = ['resolve_location_time', 'risk'];
+  const evidence = tasks.find(task => task.id === 'evidence');
+  if (evidence?.enabled) evidence.dependsOn = ['resolve_location_time', 'risk'];
 
   const enabled = tasks.filter(t => t.enabled).map(t => t.label).join(' -> ');
-  return {
-    planId: id('plan'),
-    intent: asksSatellite ? 'earth_observation_marine_intelligence' : asksSafety ? 'marine_safety_fishing_advisory' : 'marine_intelligence',
-    rationale: `Dynamic route selected from query signals. Enabled branches: ${enabled}`,
-    tasks,
-    generatedAt: new Date().toISOString()
-  };
+  return { planId: id('plan'), intent: asksSatellite ? 'earth_observation_marine_intelligence' : asksSafety ? 'marine_safety_fishing_advisory' : 'marine_intelligence', rationale: `Dynamic route selected from query signals. Enabled branches: ${enabled}`, tasks, generatedAt: new Date().toISOString() };
 }
 
-/**
- * Replan after a connector/agent failure. Optional failures are removed from
- * dependency edges; required failures block only the branches that need them.
- */
 export function replanAfterFailure({ plan, failedTask, reason }: ReplanInput): OrcaPlan {
   const tasks = plan.tasks.map(task => ({ ...task, dependsOn: [...task.dependsOn] }));
   const failed = tasks.find(t => t.id === failedTask);
-  if (failed) {
-    failed.status = 'failed';
-    failed.enabled = false;
-    failed.reason = `${failed.reason} Connector failed: ${reason}`;
-  }
-
+  if (failed) { failed.status = 'failed'; failed.enabled = false; failed.reason = `${failed.reason} Connector failed: ${reason}`; }
   for (const task of tasks) {
-    if (!task.enabled || task.id === failedTask) continue;
-    if (task.dependsOn.includes(failedTask)) {
-      if (failed?.required) {
-        task.status = 'failed';
-        task.enabled = false;
-        task.reason = `Blocked by required dependency ${failedTask}.`;
-      } else {
-        task.dependsOn = task.dependsOn.filter(dep => dep !== failedTask);
-        task.reason = `${task.reason} Dependency ${failedTask} unavailable; continuing in degraded mode.`;
-      }
-    }
+    if (!task.enabled || task.id === failedTask || !task.dependsOn.includes(failedTask)) continue;
+    if (failed?.required) { task.status = 'failed'; task.enabled = false; task.reason = `Blocked by required dependency ${failedTask}.`; }
+    else { task.dependsOn = task.dependsOn.filter(dep => dep !== failedTask); task.reason = `${task.reason} Dependency ${failedTask} unavailable; continuing in degraded mode.`; }
   }
-
-  return {
-    ...plan,
-    planId: id('replan'),
-    rationale: `${plan.rationale} Replanned after ${failedTask} failure; ${reason}`,
-    tasks,
-    generatedAt: new Date().toISOString()
-  };
+  return { ...plan, planId: id('replan'), rationale: `${plan.rationale} Replanned after ${failedTask} failure; ${reason}`, tasks, generatedAt: new Date().toISOString() };
 }
 
 export function getRunnableTasks(plan: OrcaPlan): OrcaTask[] {
