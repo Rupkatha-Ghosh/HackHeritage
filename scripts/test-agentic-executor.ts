@@ -58,6 +58,8 @@ async function testOptionalFailureReplans() {
       throw new Error('satellite connector unavailable');
     },
     risk: async () => undefined,
+    gis: async () => undefined,
+    pfz: async () => undefined,
     evidence: async () => undefined,
     synthesis: async () => undefined,
   });
@@ -67,6 +69,9 @@ async function testOptionalFailureReplans() {
   assert.equal(task(result.plan, 'satellite').status, 'failed');
   assert.equal(task(result.plan, 'satellite').enabled, false);
   assert.equal(task(result.plan, 'risk').status, 'completed');
+  assert.equal(task(result.plan, 'gis').status, 'completed');
+  assert.equal(task(result.plan, 'pfz').status, 'completed');
+  assert.equal(task(result.plan, 'evidence').status, 'completed');
   assert.equal(task(result.plan, 'synthesis').status, 'completed');
   assert.equal(task(result.plan, 'risk').dependsOn.includes('satellite'), false);
   assert.equal(task(result.plan, 'synthesis').dependsOn.includes('satellite'), false);
