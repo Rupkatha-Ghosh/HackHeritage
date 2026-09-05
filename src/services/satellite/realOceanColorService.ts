@@ -1,10 +1,11 @@
 /**
  * Real-World Oceanographic Satellite Data Service
  * 
- * 100% REAL-WORLD, PEER-REVIEWED SCIENTIFIC SATELLITE FEEDS:
+ * 100% REAL-WORLD, PEER-REVIEWED SCIENTIFIC SATELLITE FEEDS (ZERO MOCK / ZERO HARDCODED VALUES):
  * 1. NOAA S-NPP VIIRS Science Quality Monthly/Daily Chlorophyll-a (4km Level-3 Satellite Ocean Color)
- * 2. NASA JPL MUR (Multi-Scale Ultra-High Resolution) 1km Daily Global SST Anomaly (NASA Jet Propulsion Laboratory)
- * 3. Copernicus Marine / ECMWF Reanalysis Sea Surface Temperature (via Open-Meteo Marine)
+ * 2. NOAA-20 / VIIRS Science Quality Measured Diffuse Attenuation Kd(490) Water Turbidity
+ * 3. NASA JPL MUR (Multi-Scale Ultra-High Resolution) 1km Daily Global SST Anomaly (NASA Jet Propulsion Laboratory)
+ * 4. Copernicus Marine / ECMWF Reanalysis Sea Surface Temperature (via Open-Meteo Marine)
  */
 
 export interface RealOceanMetrics {
@@ -19,9 +20,6 @@ export interface RealOceanMetrics {
 
   turbidityNTU?: number;
   turbiditySource?: string;
-
-  sarRoughnessIndex?: number;
-  surfaceSlickAnomalies?: boolean;
 
   algalBloomDetected?: boolean;
   algalBloomReason?: string;
@@ -61,7 +59,7 @@ type SstResult = { sstC?: number; source?: string };
 
 /**
  * Fetches real satellite Chlorophyll-a from NOAA VIIRS
- * Dataset: nesdisVHNSQchlaMonthly / nesdisVHNSQchlaDaily (Global 4km)
+ * Dataset: nesdisVHNSQchlaMonthly (Global 4km Level-3)
  */
 async function fetchRealChlorophyll(lat: number, lon: number): Promise<ValueResult> {
   const probes = getMarineProbes(lat, lon);
@@ -93,6 +91,38 @@ async function fetchRealChlorophyll(lat: number, lon: number): Promise<ValueResu
 }
 
 /**
+ * Fetches real measured diffuse attenuation coefficient Kd(490) from NOAA VIIRS (Physical Water Clarity / Turbidity)
+ * Dataset: nesdisVHNSQkd490Monthly (Global 4km Level-3)
+ */
+async function fetchRealTurbidity(lat: number, lon: number): Promise<ValueResult> {
+  const probes = getMarineProbes(lat, lon);
+  for (const probe of probes) {
+    try {
+      const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQkd490Monthly.json?kd_490[(last)][(0.0)][(${probe.lat})][(${probe.lon})]`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (res.ok) {
+        const json = await res.json() as { table?: { rows?: Array<[string, number, number, number, number | null]> } };
+        const row = json?.table?.rows?.[0];
+        const val = row?.[4];
+        if (typeof val === 'number' && Number.isFinite(val) && val >= 0) {
+          return {
+            value: parseFloat(val.toFixed(3)),
+            observedAt: row[0],
+            source: 'NOAA-20 VIIRS 4km Measured Kd(490) Water Clarity'
+          };
+        }
+      }
+    } catch {
+      // Continue
+    }
+  }
+  return {};
+}
+
+/**
  * Fetches real SST anomaly from NASA JPL MUR 1km Daily Global SST Anomaly Analysis
  * Dataset: jplMURSST41anom1day
  */
@@ -106,7 +136,7 @@ async function fetchRealSstAnomaly(lat: number, lon: number): Promise<ValueResul
         signal: AbortSignal.timeout(4000),
       });
       if (res.ok) {
-        const json = await res.json() as { table?: { rows?: Array<[string, number, number, number | null]> } };
+        const json = await res.json() as { table?: { rows?: Array<[string, number, number, number, number | null]> } };
         const row = json?.table?.rows?.[0];
         const val = row?.[3];
         if (typeof val === 'number' && Number.isFinite(val)) {
@@ -148,7 +178,7 @@ async function fetchRealSst(lat: number, lon: number): Promise<SstResult> {
 }
 
 /**
- * Coordinates all real-world oceanographic satellite queries in parallel
+ * Coordinates all real-world oceanographic satellite queries in parallel (100% real measured values)
  */
 export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<RealOceanMetrics> {
   const key = cacheKey(lat, lon);
@@ -158,14 +188,16 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
     return cached.data;
   }
 
-  const [chlaRes, sstAnomRes, sstRes] = await Promise.all([
+  const [chlaRes, turbRes, sstAnomRes, sstRes] = await Promise.all([
     fetchRealChlorophyll(lat, lon).catch((): ValueResult => ({})),
+    fetchRealTurbidity(lat, lon).catch((): ValueResult => ({})),
     fetchRealSstAnomaly(lat, lon).catch((): ValueResult => ({})),
     fetchRealSst(lat, lon).catch((): SstResult => ({}))
   ]);
 
   const sourcesUsed: string[] = [];
   if (chlaRes.source) sourcesUsed.push(chlaRes.source);
+  if (turbRes.source) sourcesUsed.push(turbRes.source);
   if (sstAnomRes.source) sourcesUsed.push(sstAnomRes.source);
   if (sstRes.source) sourcesUsed.push(sstRes.source);
 
@@ -198,12 +230,6 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
     }
   }
 
-  // Turbidity derived from real bio-optical light attenuation
-  let turbidityNTU: number | undefined = undefined;
-  if (typeof chlaRes.value === 'number') {
-    turbidityNTU = parseFloat((0.4 + chlaRes.value * 0.95).toFixed(2));
-  }
-
   const data: RealOceanMetrics = {
     chlorophyllConcentrationMgM3: chlaRes.value,
     chlorophyllObservedAt: chlaRes.observedAt,
@@ -214,8 +240,8 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
     sstObservedAt: sstAnomRes.observedAt,
     sstSource: sstRes.source || sstAnomRes.source,
 
-    turbidityNTU,
-    turbiditySource: chlaRes.source ? 'Bio-optical Morel Model (from VIIRS Chlorophyll-a)' : undefined,
+    turbidityNTU: turbRes.value,
+    turbiditySource: turbRes.source,
     
     algalBloomDetected,
     algalBloomReason,

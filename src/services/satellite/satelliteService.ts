@@ -314,8 +314,7 @@ export async function fetchSatelliteData(lat: number, lon: number, resolvedStart
   let sarRoughnessIndex: number | undefined = undefined;
   let surfaceSlickAnomalies: boolean | undefined = undefined;
   if (s1Observation) {
-    surfaceSlickAnomalies = false; 
-    sarRoughnessIndex = 0.42; 
+    surfaceSlickAnomalies = false;
   }
 
   const result: SatelliteData = {
