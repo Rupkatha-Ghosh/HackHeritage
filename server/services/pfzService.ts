@@ -1,5 +1,6 @@
 import { fetchRealOceanMetricsGrid, type RealOceanMetrics } from '../../src/services/satellite/realOceanColorService.ts';
 import type { LocationInfo, RiskPrediction } from '../../src/types.ts';
+import { fuseMarineDecision, type DecisionFusionResult } from './decisionFusion.ts';
 
 export type PfzConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNAVAILABLE';
 export type PfzSuitability = 'HIGH' | 'MODERATE' | 'LOW';
@@ -40,6 +41,7 @@ export interface PfzAnalysis {
     geofence: 'AVAILABLE' | 'MISSING';
   };
   warnings: string[];
+  decision: DecisionFusionResult;
 }
 
 const PROBE_OFFSETS: Array<[number, number]> = [
@@ -198,21 +200,35 @@ export async function analyzePfz(
   if (!spatiallyResolved) warnings.push('All spatial probes returned equivalent observations; treat the ranking as low-spatial-resolution until independent measurements are available.');
   warnings.push('PFZ suitability is decision support, not a fish-catch guarantee; official fisheries advisories and maritime safety rules take precedence.');
 
-  return {
-    status: signalCount === 0 ? 'UNAVAILABLE' : signalCount < 3 ? 'DEGRADED' : 'READY',
+  const status: PfzAnalysis['status'] = signalCount === 0 ? 'UNAVAILABLE' : signalCount < 3 ? 'DEGRADED' : 'READY';
+  const provisionalAnalysis = {
+    status,
     generatedAt: new Date().toISOString(),
     location,
     zones,
     bestZone: zones.find((zone) => zone.suitability !== 'LOW' && zone.geofenceStatus !== 'RESTRICTED') ?? zones[0],
     methodology: 'PFZ ranking combines independently measured chlorophyll-a, SST, SST anomaly/thermal-front signals, ORCA-X marine risk, and maritime geofence constraints. Missing observations are never replaced with synthetic values.',
     dataQuality: {
-      chlorophyll: metricsGrid.some((metrics) => metrics.chlorophyllConcentrationMgM3 !== undefined) ? 'AVAILABLE' : 'MISSING',
-      sst: metricsGrid.some((metrics) => metrics.sstC !== undefined) ? 'AVAILABLE' : 'MISSING',
-      sstAnomaly: metricsGrid.some((metrics) => metrics.sstAnomalyC !== undefined) ? 'AVAILABLE' : 'MISSING',
-      thermalFront: metricsGrid.some((metrics) => metrics.thermalFrontDetected !== undefined) ? 'AVAILABLE' : 'MISSING',
-      risk: risk ? 'AVAILABLE' : 'MISSING',
-      geofence: geofence ? 'AVAILABLE' : 'MISSING',
+      chlorophyll: metricsGrid.some((metrics) => metrics.chlorophyllConcentrationMgM3 !== undefined) ? 'AVAILABLE' as const : 'MISSING' as const,
+      sst: metricsGrid.some((metrics) => metrics.sstC !== undefined) ? 'AVAILABLE' as const : 'MISSING' as const,
+      sstAnomaly: metricsGrid.some((metrics) => metrics.sstAnomalyC !== undefined) ? 'AVAILABLE' as const : 'MISSING' as const,
+      thermalFront: metricsGrid.some((metrics) => metrics.thermalFrontDetected !== undefined) ? 'AVAILABLE' as const : 'MISSING' as const,
+      risk: risk ? 'AVAILABLE' as const : 'MISSING' as const,
+      geofence: geofence ? 'AVAILABLE' as const : 'MISSING' as const,
     },
     warnings,
   };
+
+  const decision = risk
+    ? fuseMarineDecision(risk, geofence as Parameters<typeof fuseMarineDecision>[1], provisionalAnalysis as PfzAnalysis)
+    : {
+        decision: 'UNAVAILABLE' as const,
+        confidence: 'UNAVAILABLE' as const,
+        score: 0,
+        rationale: 'Marine risk is unavailable, so an operational fishing decision cannot be safely fused.',
+        factors: ['Marine safety risk is unavailable.'],
+        warnings: ['No operational fishing recommendation is inferred without marine risk.'],
+      };
+
+  return { ...provisionalAnalysis, decision };
 }
