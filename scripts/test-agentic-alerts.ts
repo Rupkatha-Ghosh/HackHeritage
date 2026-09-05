@@ -23,7 +23,7 @@ const risk: RiskPrediction = {
 const explicit = createOrcaPlan('Are there any lightning warnings or severe weather alerts near Goa?');
 const explicitAlerts = explicit.tasks.find(task => task.id === 'alerts');
 assert.equal(explicitAlerts?.enabled, true);
-assert.deepEqual(explicitAlerts?.dependsOn, ['weather', 'ocean', 'risk']);
+assert.deepEqual(explicitAlerts?.dependsOn, ['weather', 'ocean', 'risk', 'gis']);
 assert.equal(explicit.intent, 'marine_alert_intelligence');
 
 const fishing = createOrcaPlan('Is it safe for fishing tomorrow near Goa?');
@@ -51,6 +51,7 @@ assert.ok(evaluation.nextActions.length > 0);
 
 console.log('ORCA-X agentic alert tests passed:', {
   explicitAlertsEnabled: explicitAlerts?.enabled,
+  explicitAlertDependencies: explicitAlerts?.dependsOn,
   fishingAlertDependencies: fishingAlerts?.dependsOn,
   neutralAlertsEnabled: neutral.tasks.find(task => task.id === 'alerts')?.enabled,
   firstRunnableWave: firstWave.map(task => task.id),

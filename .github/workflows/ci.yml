@@ -40,8 +40,15 @@ jobs:
         run: |
           npm run test:agentic
           npm run test:agentic-pfz
+          npm run test:agentic-safe-routing
           npm run test:decision-fusion
           npm run test:safe-routing
+          npm run test:alerts
+          npm run test:agentic-alerts
+          npm run test:geofence
+          npm run test:gis
+          npm run test:gis-agentic
+          npm run test:pfz
 
       - name: Python syntax validation
         run: python -m compileall -q ml
@@ -116,6 +123,8 @@ jobs:
           PY
 
       - name: Start ORCA-X server
+        env:
+          ORCA_REALTIME_TEST_MODE: fixture
         run: nohup npm start > /tmp/orca-server.log 2>&1 &
 
       - name: Wait for ORCA-X server
