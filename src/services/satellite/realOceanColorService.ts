@@ -24,6 +24,11 @@ export interface RealOceanMetrics {
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const oceanMetricsCache = new Map<string, { expiresAt: number; data: RealOceanMetrics }>();
 
+type ValueResult = { value?: number; observedAt?: string; source?: string };
+type SstResult = { sstC?: number; source?: string };
+type ErddapRow = [string, number, number, number, number | null];
+type ErddapResponse = { table?: { rows?: ErddapRow[] } };
+
 function cacheKey(lat: number, lon: number): string {
   return `${lat.toFixed(2)},${lon.toFixed(2)}`;
 }
@@ -40,19 +45,16 @@ function getMarineProbes(lat: number, lon: number): Array<{ lat: number; lon: nu
   ];
 }
 
-type ValueResult = { value?: number; observedAt?: string; source?: string };
-type SstResult = { sstC?: number; source?: string };
-
 async function fetchRealChlorophyll(lat: number, lon: number): Promise<ValueResult> {
   for (const probe of getMarineProbes(lat, lon)) {
     try {
       const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQchlaMonthly.json?chlor_a[(last)][(0.0)][(${probe.lat})][(${probe.lon})]`;
       const res = await fetch(url, { headers: { 'User-Agent': 'ORCA-X/1.0' }, signal: AbortSignal.timeout(4000) });
       if (!res.ok) continue;
-      const json = await res.json() as { table?: { rows?: Array<[string, number, number, number, number | null]> } };
+      const json = await res.json() as ErddapResponse;
       const row = json.table?.rows?.[0];
       const value = row?.[4];
-      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      if (row && typeof value === 'number' && Number.isFinite(value) && value >= 0) {
         return { value: Number(value.toFixed(3)), observedAt: row[0], source: 'NOAA VIIRS 4km Science Quality Chlorophyll-a' };
       }
     } catch {
@@ -68,10 +70,10 @@ async function fetchRealTurbidity(lat: number, lon: number): Promise<ValueResult
       const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/nesdisVHNSQkd490Monthly.json?kd_490[(last)][(0.0)][(${probe.lat})][(${probe.lon})]`;
       const res = await fetch(url, { headers: { 'User-Agent': 'ORCA-X/1.0' }, signal: AbortSignal.timeout(4000) });
       if (!res.ok) continue;
-      const json = await res.json() as { table?: { rows?: Array<[string, number, number, number, number | null]> } };
+      const json = await res.json() as ErddapResponse;
       const row = json.table?.rows?.[0];
       const value = row?.[4];
-      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+      if (row && typeof value === 'number' && Number.isFinite(value) && value >= 0) {
         return { value: Number(value.toFixed(3)), observedAt: row[0], source: 'NOAA VIIRS 4km Measured Kd(490) Water Clarity' };
       }
     } catch {
@@ -87,10 +89,10 @@ async function fetchRealSstAnomaly(lat: number, lon: number): Promise<ValueResul
       const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41anom1day.json?sstAnom[(last)][(${probe.lat})][(${probe.lon})]`;
       const res = await fetch(url, { headers: { 'User-Agent': 'ORCA-X/1.0' }, signal: AbortSignal.timeout(4000) });
       if (!res.ok) continue;
-      const json = await res.json() as { table?: { rows?: Array<[string, number, number, number, number | null]> } };
+      const json = await res.json() as ErddapResponse;
       const row = json.table?.rows?.[0];
       const value = row?.[3];
-      if (typeof value === 'number' && Number.isFinite(value)) {
+      if (row && typeof value === 'number' && Number.isFinite(value)) {
         return { value: Number(value.toFixed(2)), observedAt: row[0], source: 'NASA JPL MUR 1km Global SST Anomaly' };
       }
     } catch {
@@ -131,14 +133,12 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
   const sourcesUsed = [chla.source, turbidity.source, anomaly.source, sst.source].filter(
     (source): source is string => Boolean(source),
   );
-
   const algalBloomDetected = typeof chla.value === 'number' ? chla.value >= 2.0 : undefined;
   const algalBloomReason = typeof chla.value === 'number'
     ? algalBloomDetected
       ? `Chlorophyll-a elevated (${chla.value} mg/m³ >= 2.0 mg/m³ threshold).`
       : `Chlorophyll-a is ${chla.value} mg/m³; no elevated-bloom threshold was crossed.`
     : undefined;
-
   const thermalFrontDetected = typeof anomaly.value === 'number' ? Math.abs(anomaly.value) >= 1.0 : undefined;
   const thermalFrontReason = typeof anomaly.value === 'number'
     ? thermalFrontDetected
@@ -166,7 +166,6 @@ export async function fetchRealOceanMetrics(lat: number, lon: number): Promise<R
   return data;
 }
 
-/** Fetch the same real-world ocean signals for every PFZ candidate in parallel. */
 export async function fetchRealOceanMetricsGrid(
   candidates: Array<{ latitude: number; longitude: number }>,
 ): Promise<RealOceanMetrics[]> {
