@@ -35,13 +35,14 @@ export function fuseMarineDecision(
 ): DecisionFusionResult {
   const warnings: string[] = [];
   const factors: string[] = [];
+  const restricted = Boolean(geofence?.inRestrictedWaters || geofence?.status === 'RESTRICTED_BREACH');
   const accessibleZone = bestAccessibleZone(pfz);
   const selectedZone = accessibleZone ?? pfz?.bestZone;
   let score = 100 - risk.riskScore;
 
   factors.push(`Marine safety risk: ${risk.riskLevel} (${risk.riskScore}/100).`);
 
-  if (geofence?.inRestrictedWaters || geofence?.status === 'RESTRICTED_BREACH') {
+  if (restricted) {
     score = 0;
     factors.push('Authoritative geofence indicates restricted or breached waters.');
     warnings.push('Do not operate in restricted waters; authoritative maritime boundaries take precedence over environmental suitability.');
@@ -64,7 +65,7 @@ export function fuseMarineDecision(
     factors.push('Moderate risk limits the operational recommendation.');
   }
 
-  if (pfz) {
+  if (pfz && !restricted) {
     if (pfz.status === 'UNAVAILABLE') {
       warnings.push('PFZ observations are unavailable; no positive fishing recommendation is inferred.');
     } else if (selectedZone) {
@@ -78,20 +79,21 @@ export function fuseMarineDecision(
     }
   }
 
-  score = Number(Math.min(100, Math.max(0, score)).toFixed(1));
-  let decision: OperationalDecision;
-  if (risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH' || geofence?.inRestrictedWaters || geofence?.status === 'RESTRICTED_BREACH') {
-    decision = 'AVOID';
-  } else if (pfz?.status === 'UNAVAILABLE' || !selectedZone || selectedZone.suitability === 'LOW' || pfz?.status === 'DEGRADED' || selectedZone.confidence === 'LOW') {
-    decision = 'CAUTION';
-  } else if (score >= 70 && risk.riskLevel === 'LOW') {
-    decision = 'PROCEED';
-  } else if (score >= 40 && risk.riskLevel !== 'HIGH' && risk.riskLevel !== 'EXTREME') {
-    decision = 'CAUTION';
-  } else {
-    decision = 'AVOID';
-  }
+  const decision: OperationalDecision = restricted || risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH'
+    ? 'AVOID'
+    : pfz?.status === 'UNAVAILABLE' || !selectedZone || selectedZone.suitability === 'LOW' || pfz?.status === 'DEGRADED' || selectedZone.confidence === 'LOW'
+      ? 'CAUTION'
+      : score >= 70 && risk.riskLevel === 'LOW'
+        ? 'PROCEED'
+        : score >= 40
+          ? 'CAUTION'
+          : 'AVOID';
 
+  // Hard safety overrides must remain numerically zero as well as AVOID.
+  if (restricted || risk.riskLevel === 'EXTREME') score = 0;
+  else if (risk.riskLevel === 'HIGH') score = Math.min(score, 35);
+
+  score = Number(Math.min(100, Math.max(0, score)).toFixed(1));
   const confidence = confidenceFor(risk, pfz);
   const rationale = decision === 'PROCEED'
     ? 'Environmental potential is favorable enough for decision support and no overriding safety or geofence constraint was detected.'
