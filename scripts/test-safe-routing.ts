@@ -30,11 +30,10 @@ assert.equal(blocked.status, 'ROUTE_UNAVAILABLE');
 assert.equal(blocked.waypoints.length, 0);
 console.log('✓ Authoritative restricted destination is hard-blocked.');
 
-const invalid = assert.throws(
+assert.throws(
   () => calculateSafeRoute({ origin: { latitude: 999, longitude: 0 }, destination, riskLevel: 'LOW' }),
   /valid bounds/,
 );
-assert.ok(invalid);
 console.log('✓ Invalid coordinates are rejected.');
 
 console.log('--- ALL SAFE ROUTING TESTS PASSED ---');
