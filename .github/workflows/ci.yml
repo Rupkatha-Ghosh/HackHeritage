@@ -123,6 +123,8 @@ jobs:
           PY
 
       - name: Start ORCA-X server
+        env:
+          ORCA_REALTIME_TEST_MODE: fixture
         run: nohup npm start > /tmp/orca-server.log 2>&1 &
 
       - name: Wait for ORCA-X server
