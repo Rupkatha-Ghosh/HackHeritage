@@ -84,7 +84,10 @@ export async function executeOrcaPlan(
       }
     }));
 
-    const failedOptional = plan.tasks.find(task => task.status === 'failed' && !task.required);
+    // Only inspect failures from the wave that just executed. Replanned
+    // optional failures are disabled by replanAfterFailure, so scanning the
+    // whole plan here would repeatedly replan the same failed task.
+    const failedOptional = runnable.find(task => task.status === 'failed' && !task.required);
     if (failedOptional && replans < maxReplans) {
       const failure = failures.find(entry => entry.taskId === failedOptional.id);
       plan = replanAfterFailure({
