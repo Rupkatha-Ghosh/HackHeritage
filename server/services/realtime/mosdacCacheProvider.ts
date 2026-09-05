@@ -16,7 +16,7 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function allowedValues(payload: MosdacCachePayload): MarineSourceObservation['values'] {
+function allowedValues(payload: MosdacCachePayload): NonNullable<MarineSourceObservation['values']> {
   const source = payload.values || {};
   const output: Record<string, number> = {};
   const supported = [
@@ -27,7 +27,7 @@ function allowedValues(payload: MosdacCachePayload): MarineSourceObservation['va
     'airTemperatureC', 'precipitationMm', 'pressureHpa', 'visibilityKm',
   ];
   for (const name of supported) if (finite(source[name])) output[name] = Number(source[name]);
-  return output as MarineSourceObservation['values'];
+  return output as NonNullable<MarineSourceObservation['values']>;
 }
 
 export const mosdacCacheProvider: MarineObservationSource = {
