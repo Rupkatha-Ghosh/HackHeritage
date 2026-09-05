@@ -12,7 +12,7 @@ export function createOrcaPlan(query: string, language: LanguageCode = 'en'): Or
   const isFishing = /(fish|fishing|pfz|catch|marine|boat|vessel)/.test(q);
   const asksSafety = /(safe|safety|risk|danger|venture|route|navigate|navigation)/.test(q);
   const asksSatellite = /(satellite|chlorophyll|sst|thermal front|remote sensing|sentinel|mosdac|earth observation)/.test(q);
-  const asksGis = /(map|near|nearest|distance|boundary|border|imbl|restricted|geofence|sanctuary|protected|zone|route|port|harbour|harbor|avoid|corridor)/.test(q);
+  const asksGis = /(map|near|nearest|distance|boundary|border|imbl|restricted|geofence|sanctuary|protected|zone|route|port|harbour|harbor|avoid|corridor|coordinate|lat|lon|gps)/.test(q);
   const asksEvidence = /(why|advisory|warning|regulation|rule|official|source|evidence|explain)/.test(q) || isFishing || asksSafety;
   const tasks: OrcaTask[] = [
     { id: 'resolve_location_time', label: 'Resolve location and time', dependsOn: [], required: true, enabled: true, status: 'pending', reason: 'Every marine query needs a spatial and temporal frame.' },

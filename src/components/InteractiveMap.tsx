@@ -49,6 +49,48 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const geojsonLayerRef = useRef<L.GeoJSON | null>(null);
   const targetMarkerRef = useRef<L.Marker | null>(null);
+  const clickMarkerRef = useRef<L.Marker | null>(null);
+  const onCoordinateClickRef = useRef(onCoordinateClick);
+  useEffect(() => {
+    onCoordinateClickRef.current = onCoordinateClick;
+  }, [onCoordinateClick]);
+
+  const [isLocating, setIsLocating] = useState<boolean>(false);
+
+  // Global callback for leaflet popups to relocate boat
+  useEffect(() => {
+    (window as any).__orcaSetBoatLocation = (lat: number, lon: number) => {
+      if (onCoordinateClickRef.current) {
+        onCoordinateClickRef.current(lat, lon);
+      }
+    };
+    return () => {
+      delete (window as any).__orcaSetBoatLocation;
+    };
+  }, []);
+
+  const handleLocateBoat = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your device browser.');
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocating(false);
+        const lat = Number(pos.coords.latitude.toFixed(4));
+        const lon = Number(pos.coords.longitude.toFixed(4));
+        if (onCoordinateClickRef.current) {
+          onCoordinateClickRef.current(lat, lon);
+        }
+      },
+      (err) => {
+        setIsLocating(false);
+        alert(`Could not acquire GPS position: ${err.message}. Please enable location permissions.`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
   /* Leaflet drives its camera in JS, so no CSS media query can quiet it. */
   const reducedMotion = usePrefersReducedMotion();
 
@@ -120,10 +162,46 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       // Custom Zoom control in bottom right
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // Click event for custom coordinate selection
+      // Click event for custom coordinate selection with immediate marker feedback
       map.on('click', (e: L.LeafletMouseEvent) => {
-        if (onCoordinateClick) {
-          onCoordinateClick(Number(e.latlng.lat.toFixed(4)), Number(e.latlng.lng.toFixed(4)));
+        const lat = Number(e.latlng.lat.toFixed(4));
+        const lon = Number(e.latlng.lng.toFixed(4));
+
+        if (clickMarkerRef.current) {
+          map.removeLayer(clickMarkerRef.current);
+        }
+
+        const clickIcon = L.divIcon({
+          className: 'custom-click-marker',
+          html: `
+            <div class="relative flex items-center justify-center">
+              <div class="absolute w-8 h-8 rounded-full bg-cyan-400/50 animate-ping"></div>
+              <div class="w-7 h-7 rounded-full bg-cyan-500 flex items-center justify-center shadow-lg border-2 border-white text-white font-bold text-xs">
+                ⚓
+              </div>
+            </div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const newMarker = L.marker([lat, lon], { icon: clickIcon })
+          .addTo(map)
+          .bindPopup(`
+            <div class="p-2 space-y-1">
+              <div class="font-bold text-cyan-300 text-xs flex items-center gap-1">
+                <span>📍 Boat Position Selected</span>
+              </div>
+              <div class="text-[11px] font-mono text-slate-200">${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E</div>
+              <p class="text-[10px] text-amber-300 animate-pulse">Calculating live distance to IMBL & zones...</p>
+            </div>
+          `)
+          .openPopup();
+
+        clickMarkerRef.current = newMarker;
+
+        if (onCoordinateClickRef.current) {
+          onCoordinateClickRef.current(lat, lon);
         }
       });
 
@@ -134,6 +212,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       // The console now unmounts whenever the operator returns to the brief, so
       // this teardown is load-bearing: without it every visit leaks a live map,
       // its tile layer and its DOM listeners.
+      if (clickMarkerRef.current) {
+        mapInstanceRef.current?.removeLayer(clickMarkerRef.current);
+        clickMarkerRef.current = null;
+      }
       mapInstanceRef.current?.remove();
       mapInstanceRef.current = null;
       geojsonLayerRef.current = null;
@@ -320,20 +402,34 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           const p = feature.properties;
           const isBorder = p.category === 'international_boundary';
           const isMpa = p.category === 'marine_protected_area';
-          layer.bindPopup(`
-            <div class="p-2.5 space-y-2 max-w-[290px]">
-              <div class="font-bold ${isBorder ? 'text-rose-400' : isMpa ? 'text-emerald-400' : 'text-slate-100'} text-xs border-b border-slate-700 pb-1 flex items-center gap-1.5">
-                <span>${isBorder ? '🛡️' : isMpa ? '🌿' : '⚓'}</span>
-                <span>${p.name}</span>
-              </div>
-              <p class="text-xs text-slate-300 leading-relaxed">${p.description}</p>
-              ${p.details ? `
-                <div class="text-[11px] font-mono ${isBorder ? 'text-rose-300 bg-rose-950/50 border border-rose-800/60' : isMpa ? 'text-emerald-300 bg-emerald-950/50 border border-emerald-800/60' : 'text-cyan-300 bg-slate-800/80'} p-2 rounded space-y-1">
-                  ${Object.entries(p.details).map(([k, v]) => `<div><span class="opacity-75">${k}:</span> <span class="text-slate-100 font-semibold">${Array.isArray(v) ? v.join('; ') : v}</span></div>`).join('')}
+
+          layer.on('click', (e: L.LeafletMouseEvent) => {
+            const clickLat = Number(e.latlng.lat.toFixed(4));
+            const clickLon = Number(e.latlng.lng.toFixed(4));
+            layer.bindPopup(`
+              <div class="p-2.5 space-y-2 max-w-[290px]">
+                <div class="font-bold ${isBorder ? 'text-rose-400' : isMpa ? 'text-emerald-400' : 'text-slate-100'} text-xs border-b border-slate-700 pb-1 flex items-center gap-1.5">
+                  <span>${isBorder ? '🛡️' : isMpa ? '🌿' : '⚓'}</span>
+                  <span>${p.name}</span>
                 </div>
-              ` : ''}
-            </div>
-          `);
+                <p class="text-xs text-slate-300 leading-relaxed">${p.description}</p>
+                ${p.details ? `
+                  <div class="text-[11px] font-mono ${isBorder ? 'text-rose-300 bg-rose-950/50 border border-rose-800/60' : isMpa ? 'text-emerald-300 bg-emerald-950/50 border border-emerald-800/60' : 'text-cyan-300 bg-slate-800/80'} p-2 rounded space-y-1">
+                    ${Object.entries(p.details).map(([k, v]) => `<div><span class="opacity-75">${k}:</span> <span class="text-slate-100 font-semibold">${Array.isArray(v) ? v.join('; ') : v}</span></div>`).join('')}
+                  </div>
+                ` : ''}
+                <div class="pt-2 border-t border-slate-700/60 space-y-1">
+                  <div class="text-[10px] text-slate-400 font-mono">Tapped: ${clickLat}°N, ${clickLon}°E</div>
+                  <button 
+                    onclick="window.__orcaSetBoatLocation && window.__orcaSetBoatLocation(${clickLat}, ${clickLon})"
+                    class="w-full py-1.5 px-2 rounded bg-cyan-600 hover:bg-cyan-500 active:bg-cyan-700 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow cursor-pointer transition-all"
+                  >
+                    ⚓ Set Boat Here & Check Distance
+                  </button>
+                </div>
+              </div>
+            `).openPopup(e.latlng);
+          });
         }
       });
 
@@ -368,10 +464,18 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             <Compass className="h-3 w-3 text-cyan-400" />
             <span className="hidden sm:inline">{dict.coastalHubs}:</span>
           </span>
+          {location.regionType === 'open_sea' && (
+            <span className="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(34,211,238,0.7)] flex items-center gap-1 shrink-0">
+              ⚓ Custom Boat Pin
+            </span>
+          )}
           {Object.keys(COASTAL_LOCATIONS).map((key) => {
             const loc = COASTAL_LOCATIONS[key];
             if (!loc) return null;
-            const isSelected = loc.name.toLowerCase() === location.name.toLowerCase() || location.name.toLowerCase().includes(key);
+            const isSelected = location.regionType !== 'open_sea' && (
+              loc.name.toLowerCase() === location.name.toLowerCase() || 
+              location.name.toLowerCase().includes(key)
+            );
             const shortName = loc.name.split(' ')[0].replace('/', '');
             return (
               <button
@@ -450,18 +554,34 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       </div>
 
-      {/* Fullscreen Toggle */}
-      <button
-        onClick={toggleFullscreen}
-        className="orca-glass-panel absolute top-3 right-3 z-[400] p-2 text-slate-300 hover:bg-slate-800/60 transition-all"
-        title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Map'}
-      >
-        {isFullscreen ? <Minimize2 className="h-4 w-4 text-cyan-400" /> : <Maximize2 className="h-4 w-4 text-cyan-400" />}
-      </button>
+      {/* Top Right Controls: GPS Boat & Fullscreen Toggle */}
+      <div className="absolute top-3 right-3 z-[400] flex items-center gap-1.5">
+        <button
+          onClick={handleLocateBoat}
+          disabled={isLocating}
+          className={`orca-glass-panel px-2.5 py-1.5 flex items-center gap-1.5 text-xs font-semibold rounded-lg transition-all shadow-lg ${
+            isLocating 
+              ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-400 animate-pulse' 
+              : 'text-cyan-300 hover:text-white hover:bg-slate-800/80 border border-slate-700/60'
+          }`}
+          title="Detect live GPS coordinates from this device / boat"
+        >
+          <Navigation className={`h-3.5 w-3.5 ${isLocating ? 'animate-spin' : 'text-cyan-400'}`} />
+          <span className="hidden sm:inline">{isLocating ? 'Locating...' : '📍 My Boat GPS'}</span>
+        </button>
+
+        <button
+          onClick={toggleFullscreen}
+          className="orca-glass-panel p-2 text-slate-300 hover:bg-slate-800/60 transition-all rounded-lg"
+          title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Map'}
+        >
+          {isFullscreen ? <Minimize2 className="h-4 w-4 text-cyan-400" /> : <Maximize2 className="h-4 w-4 text-cyan-400" />}
+        </button>
+      </div>
 
       {/* Real-Time Geofence & Border Proximity HUD (Top Right Under Fullscreen) */}
       {(geofenceAnalysis || (gisLayers as any)?.geofenceAnalysis) && (
-        <div className="orca-glass-panel absolute top-14 right-3 z-[400] p-2.5 max-w-[270px] text-xs space-y-1.5 shadow-2xl border border-slate-700/80 hidden sm:block">
+        <div className="orca-glass-panel absolute top-14 right-3 z-[400] p-2.5 max-w-[280px] text-xs space-y-2 shadow-2xl border border-slate-700/80 hidden sm:block">
           {(() => {
             const geo = geofenceAnalysis || (gisLayers as any).geofenceAnalysis;
             const isBreach = geo.status === 'RESTRICTED_BREACH';
@@ -482,8 +602,28 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   </span>
                 </div>
 
+                {/* Vessel Position Anchor Indicator */}
+                <div className="py-1.5 px-2 bg-slate-950/80 rounded border border-cyan-500/40 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-cyan-400 font-bold flex items-center gap-1">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+                      </span>
+                      <span>Boat Position:</span>
+                    </span>
+                    <span className="font-mono text-white font-bold bg-cyan-950/80 border border-cyan-800/80 px-1.5 py-0.5 rounded text-[10px]">
+                      {location.latitude.toFixed(4)}°N, {location.longitude.toFixed(4)}°E
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-300 font-mono flex items-center justify-between pt-0.5 border-t border-slate-800">
+                    <span className="text-slate-400">Nearest Coast/Base:</span>
+                    <span className="text-cyan-300 font-semibold">{location.nearestPort || location.name}</span>
+                  </div>
+                </div>
+
                 {geo.nearestImbl && (
-                  <div className="space-y-0.5">
+                  <div className="space-y-0.5 pt-0.5">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-slate-300 truncate max-w-[170px]" title={geo.nearestImbl.boundaryName}>
                         {geo.nearestImbl.boundaryName.split('(')[0].replace('International Maritime Boundary Line', 'IMBL')}
@@ -532,7 +672,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       )}
 
       {/* Map Floating Legend (Bottom Left) */}
-      <div className="orca-glass-panel absolute bottom-3 left-3 z-[400] p-2.5 text-xs space-y-1.5 max-w-[230px] hidden sm:block">
+      <div className="orca-glass-panel absolute bottom-3 left-3 z-[400] p-2.5 text-xs space-y-1.5 max-w-[240px] hidden sm:block">
         <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase border-b border-slate-700/60 pb-1">
           <span className="flex items-center gap-1">
             <Layers className="h-3 w-3 text-cyan-400" />
@@ -569,8 +709,8 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             <span className="text-slate-300">{dict.buoyStation}</span>
           </div>
         </div>
-        <div className="text-[10px] text-slate-500 pt-0.5 font-mono">
-          Click any ocean point to analyze
+        <div className="text-[10px] text-cyan-300/90 pt-0.5 font-mono">
+          💡 Tap map or &apos;My Boat GPS&apos; to measure border distance
         </div>
       </div>
 

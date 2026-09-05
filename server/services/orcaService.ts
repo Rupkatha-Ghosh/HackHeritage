@@ -143,6 +143,14 @@ export async function runOrcaAgentWorkflow(query: string, locationOverride?: str
   }
   if (!location || !timeWindow || !realtime || !risk) { const failure = result.failures.map(f => `${f.taskId}: ${f.reason}`).join('; '); throw new Error(`ORCA-X agent execution could not complete required tasks.${failure ? ` ${failure}` : ''}`); }
 
+  if (!geofenceAnalysis && location) {
+    geofenceAnalysis = analyzeMaritimeGeofencing(location.latitude, location.longitude);
+    if (!gisLayers || gisLayers.features.length === 0) {
+      gisLayers = generateGisLayers(location, risk, realtime.ocean);
+    }
+    gisLayers.geofenceAnalysis = geofenceAnalysis;
+  }
+
   const satelliteDegraded = satellite.status !== 'LIVE';
   const evidenceTask = result.plan.tasks.find(t => t.id === 'evidence');
   const ragDegraded = Boolean(evidenceTask?.enabled && evidenceTask.status !== 'completed');
