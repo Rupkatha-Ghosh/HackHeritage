@@ -43,6 +43,7 @@ OBS_PATH = LIVE_DIR / "live_observations.parquet"
 LABELED_PATH = LIVE_DIR / "live_matured_training.parquet"
 CANDIDATE_PATH = MODELS_DIR / "orca_xgb_risk_live_candidate.json"
 CANDIDATE_METADATA_PATH = MODELS_DIR / "orca_xgb_risk_live_candidate_metadata.json"
+EVIDENCE_REPORT_PATH = Path(os.getenv("REALTIME_EVIDENCE_REPORT_PATH", "ml/evaluations/realtime_source_evidence_gate.json"))
 
 
 def _get_json(endpoint: str, params: dict) -> dict:
@@ -80,7 +81,6 @@ def collect_once() -> None:
         mt = marine.get("hourly", {}).get("time", [])
         if not wt or not mt:
             raise RuntimeError(f"No hourly live data returned for {location['id']}")
-        # Choose the latest common hour not later than now.
         common = sorted(set(wt) & set(mt))
         now_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:00")
         eligible = [t for t in common if t <= now_hour]
@@ -202,12 +202,44 @@ def mature_labels() -> None:
     print(f"Matured store: {LABELED_PATH}")
 
 
+def require_realtime_evidence_gate() -> dict:
+    if not EVIDENCE_REPORT_PATH.exists():
+        raise RuntimeError(
+            f"V2.7 training blocked: evidence report not found at {EVIDENCE_REPORT_PATH}. "
+            "Run `npm run analyze:realtime` after collecting parallel source telemetry."
+        )
+    try:
+        report = json.loads(EVIDENCE_REPORT_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"V2.7 training blocked: evidence report is invalid JSON: {exc}") from exc
+
+    gate = report.get("gate", {})
+    criteria = gate.get("criteria", {})
+    required_checks = ("minimum_events", "minimum_live_sources", "source_live_rate", "pairwise_evidence")
+    failed = [name for name in required_checks if not bool(criteria.get(name, {}).get("pass"))]
+    approval = os.getenv("ORCA_V27_DISTRIBUTION_SHIFT_APPROVED", "false").strip().lower() == "true"
+    if failed or not approval:
+        reasons = []
+        if failed:
+            reasons.append(f"evidence criteria failed: {', '.join(failed)}")
+        if not approval:
+            reasons.append("explicit distribution-shift approval is missing")
+        raise RuntimeError(
+            "V2.7 training BLOCKED — " + "; ".join(reasons) + ". "
+            "Review `ml/evaluations/realtime_source_evidence_gate.json` and set "
+            "ORCA_V27_DISTRIBUTION_SHIFT_APPROVED=true only after engineering/domain review."
+        )
+    return report
+
+
 def train_live_candidate() -> None:
     if not LABELED_PATH.exists():
         print("LIVE CANDIDATE: WAITING — no matured +6h live labels are available yet.")
         print(f"Run `python ml/src/realtime_training.py collect` hourly, then `python ml/src/realtime_training.py mature` after the {RISK_HORIZON_HOURS}h horizon matures.")
         print("No model artifact was created or modified.")
         return
+
+    evidence_report = require_realtime_evidence_gate()
     historical = load_dataset()
     live = pd.read_parquet(LABELED_PATH)
     required = {"location_id", "timestamp", *FEATURE_COLUMNS, "risk_class"}
@@ -228,8 +260,6 @@ def train_live_candidate() -> None:
     if live_features != feature_columns:
         raise RuntimeError("Historical and live feature contracts differ.")
 
-    # The candidate is fit on the approved historical production period plus
-    # matured 2026+ live labels. Digha remains spatially excluded.
     production = historical[
         (historical["location_id"] != "digha_wb") &
         (historical["timestamp"] < pd.Timestamp("2025-01-01", tz="UTC"))
@@ -278,6 +308,9 @@ def train_live_candidate() -> None:
         "training_rows": int(len(production)),
         "digha_excluded_from_training": True,
         "label_source": "Open-Meteo observed +6h conditions transformed by ORCA operational risk policy",
+        "realtime_evidence_report": str(EVIDENCE_REPORT_PATH),
+        "realtime_evidence_event_count": int(evidence_report.get("event_count", 0)),
+        "distribution_shift_approval": True,
         "device": device,
         "n_jobs": jobs,
         "feature_importance": {name: float(value) for name, value in importance},

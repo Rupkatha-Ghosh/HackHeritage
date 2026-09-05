@@ -49,7 +49,11 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function valuesFromPayload(weather?: WeatherData, ocean?: OceanData): Partial<Record<MarineObservationVariable, number>> {
+function valuesFromPayload(
+  weather?: WeatherData,
+  ocean?: OceanData,
+  providerValues: Partial<Record<MarineObservationVariable, number>> = {},
+): Partial<Record<MarineObservationVariable, number>> {
   const values: Partial<Record<MarineObservationVariable, number>> = {};
   const weatherValues: Partial<Record<MarineObservationVariable, number>> = weather ? {
     windSpeedKts: weather.windSpeedKts,
@@ -71,7 +75,7 @@ function valuesFromPayload(weather?: WeatherData, ocean?: OceanData): Partial<Re
     currentSpeedKts: ocean.currentSpeedKts,
     currentDirectionDeg: ocean.currentDirectionDeg,
   } : {};
-  for (const [key, value] of Object.entries({ ...weatherValues, ...oceanValues })) {
+  for (const [key, value] of Object.entries({ ...weatherValues, ...oceanValues, ...providerValues })) {
     if (finite(value)) values[key as MarineObservationVariable] = value;
   }
   return values;
@@ -87,13 +91,14 @@ export function normalizeMarineObservation(
   weather?: WeatherData,
   ocean?: OceanData,
   warnings: string[] = [],
+  providerValues: Partial<Record<MarineObservationVariable, number>> = {},
 ): MarineObservation {
   const now = Date.parse(retrievedAt);
   const observed = Date.parse(observedAt);
   const ageHours = Number.isFinite(now) && Number.isFinite(observed)
     ? Math.max(0, (now - observed) / 3_600_000)
     : Number.POSITIVE_INFINITY;
-  const values = valuesFromPayload(weather, ocean);
+  const values = valuesFromPayload(weather, ocean, providerValues);
   const present = Object.keys(values).length;
   const completenessScore = present / VARIABLES.length;
   const freshnessScore = Number.isFinite(ageHours) ? Math.max(0, 1 - Math.min(ageHours, 3) / 3) : 0;

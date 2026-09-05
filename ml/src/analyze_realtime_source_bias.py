@@ -14,16 +14,12 @@ from pathlib import Path
 from statistics import mean
 
 VARIABLES = [
-    "windSpeedKts",
-    "windGustKts",
-    "waveHeightMeters",
-    "wavePeriodSec",
-    "swellHeightMeters",
-    "swellPeriodSec",
-    "seaSurfaceTemperatureC",
+    "windSpeedKts", "windGustKts", "waveHeightMeters", "wavePeriodSec",
+    "swellHeightMeters", "swellPeriodSec", "seaSurfaceTemperatureC",
 ]
 
 DEFAULT_PATH = Path("data/realtime/marine_telemetry.jsonl")
+REPORT_PATH = Path(os.getenv("REALTIME_EVIDENCE_REPORT_PATH", "ml/evaluations/realtime_source_evidence_gate.json"))
 MIN_EVENTS = max(1, int(os.getenv("REALTIME_ANALYSIS_MIN_EVENTS", "100")))
 MIN_LIVE_SOURCES = max(2, int(os.getenv("REALTIME_ANALYSIS_MIN_LIVE_SOURCES", "2")))
 MIN_SOURCE_LIVE_RATE = min(1.0, max(0.0, float(os.getenv("REALTIME_ANALYSIS_MIN_LIVE_RATE", "0.80"))))
@@ -45,9 +41,7 @@ def load_events(path: Path) -> list[dict]:
     return events
 
 
-def main() -> None:
-    path = Path(os.getenv("ORCA_TELEMETRY_PATH", str(DEFAULT_PATH)))
-    events = load_events(path)
+def build_report(events: list[dict]) -> dict:
     source_rows: dict[str, list[dict]] = defaultdict(list)
     pair_rows: dict[tuple[str, str, str], list[float]] = defaultdict(list)
     signed_rows: dict[tuple[str, str, str], list[float]] = defaultdict(list)
@@ -57,13 +51,11 @@ def main() -> None:
         for source in sources:
             source_rows[source.get("source", "UNKNOWN")].append(source)
         for left_idx, left in enumerate(sources):
-            for right in sources[left_idx + 1 :]:
+            for right in sources[left_idx + 1:]:
                 left_name, right_name = sorted((left.get("source", "UNKNOWN"), right.get("source", "UNKNOWN")))
-                left_by_var = left.get("values", {})
-                right_by_var = right.get("values", {})
+                left_by_var, right_by_var = left.get("values", {}), right.get("values", {})
                 for variable in VARIABLES:
-                    a = left_by_var.get(variable)
-                    b = right_by_var.get(variable)
+                    a, b = left_by_var.get(variable), right_by_var.get(variable)
                     if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
                         continue
                     denominator = max(abs(float(b)), 0.1)
@@ -80,13 +72,9 @@ def main() -> None:
         }
         for source, rows in sorted(source_rows.items())
     }
-
-    live_sources = [
-        source for source, values in source_report.items()
-        if source != "UNKNOWN"
-        and values["live_rate"] >= MIN_SOURCE_LIVE_RATE
-        and values["mean_quality"] >= MIN_SOURCE_QUALITY
-    ]
+    live_sources = [source for source, values in source_report.items()
+                    if source != "UNKNOWN" and values["live_rate"] >= MIN_SOURCE_LIVE_RATE
+                    and values["mean_quality"] >= MIN_SOURCE_QUALITY]
     pairwise_pairs = {
         f"{left}__{right}": {
             "samples": sum(len(values) for (a, b, _), values in pair_rows.items() if (a, b) == (left, right)),
@@ -95,16 +83,16 @@ def main() -> None:
         for left, right in sorted({(a, b) for a, b, _ in pair_rows})
     }
     pairwise_evidence = [key for key, value in pairwise_pairs.items() if value["samples"] >= MIN_PAIRWISE_SAMPLES]
-
     criteria = {
         "minimum_events": {"required": MIN_EVENTS, "actual": len(events), "pass": len(events) >= MIN_EVENTS},
         "minimum_live_sources": {"required": MIN_LIVE_SOURCES, "actual": len(live_sources), "pass": len(live_sources) >= MIN_LIVE_SOURCES},
         "source_live_rate": {"required": MIN_SOURCE_LIVE_RATE, "sources": live_sources, "pass": len(live_sources) >= MIN_LIVE_SOURCES},
         "pairwise_evidence": {"required_samples_per_pair": MIN_PAIRWISE_SAMPLES, "pairs_with_evidence": pairwise_evidence, "pass": len(pairwise_evidence) >= 1},
-        "distribution_shift_review": {"pass": False, "reason": "Requires domain review of parallel-source distributions before v2.7 training."},
+        "distribution_shift_review": {"pass": False, "reason": "Requires explicit domain/engineering review before v2.7 training."},
     }
-
-    report = {
+    return {
+        "schema_version": 1,
+        "generated_at": pd_timestamp_now(),
         "event_count": len(events),
         "sources": source_report,
         "pairwise_bias": {
@@ -118,13 +106,23 @@ def main() -> None:
         "gate": {
             "ready_for_retraining": False,
             "criteria": criteria,
-            "reason": "Multi-source evidence and distribution-shift review are required before XGBoost v2.7 retraining.",
+            "reason": "Multi-source evidence and explicit distribution-shift review are required before XGBoost v2.7 retraining.",
         },
     }
 
-    # Deliberately conservative: even if coverage criteria pass, distribution-shift
-    # review remains a human/engineering gate and must be explicitly documented.
+
+def pd_timestamp_now() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def main() -> None:
+    path = Path(os.getenv("ORCA_TELEMETRY_PATH", str(DEFAULT_PATH)))
+    report = build_report(load_events(path))
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_PATH.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
+    print(f"Evidence report written: {REPORT_PATH}")
 
 
 if __name__ == "__main__":

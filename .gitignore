@@ -30,9 +30,13 @@ Thumbs.db
 ml/data/raw/
 ml/data/processed/*.csv
 ml/data/processed/*.parquet
+ml/evaluations/realtime_source_evidence_gate.json
 
-# Runtime telemetry — persist on deployment storage, never commit live observations
+# Runtime telemetry and normalized satellite snapshots — persist on deployment storage, never commit live observations
 /data/realtime/*.jsonl
+/data/realtime/*.json
+/data/realtime/*.h5
+/data/realtime/*.hdf5
 
 # Kaggle-generated user-specific metadata / local credentials
 ml/kaggle/kernel-metadata.json

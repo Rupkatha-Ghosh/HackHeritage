@@ -9,6 +9,7 @@ import {
   marineTelemetryAnalysis,
   orcaQuery,
   satelliteAnalysis,
+  gisSpatialAnalysis,
 } from '../controllers/apiController.ts';
 
 const router = Router();
@@ -21,6 +22,8 @@ router.get('/marine/telemetry/analysis', marineTelemetryAnalysis);
 router.post('/marine/risk', marineRisk);
 router.post('/satellite/analysis', satelliteAnalysis);
 router.post('/evidence/search', evidenceSearch);
+router.get('/gis/spatial-analysis', gisSpatialAnalysis);
+router.post('/gis/spatial-analysis', gisSpatialAnalysis);
 router.get('/health', health);
 
 export default router;

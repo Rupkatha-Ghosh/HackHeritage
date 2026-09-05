@@ -324,7 +324,7 @@ export const MarineTelemetry: React.FC<MarineTelemetryProps> = ({
               <span className="text-xs font-bold text-slate-400">°C</span>
             </div>
             <span className="text-[10px] font-mono text-cyan-300 font-bold bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-700/50 shrink-0">
-              {typeof satellite.sstAnomalyC === 'number' ? `+${satellite.sstAnomalyC.toFixed(1)}°C` : (dict.sstAnomaly || 'SST Live')}
+              {typeof satellite.sstAnomalyC === 'number' ? `${satellite.sstAnomalyC > 0 ? '+' : ''}${satellite.sstAnomalyC.toFixed(1)}°C` : (dict.sstAnomaly || 'SST Live')}
             </span>
           </div>
         </div>

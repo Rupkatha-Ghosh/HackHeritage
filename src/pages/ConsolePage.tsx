@@ -89,6 +89,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
   const handleMapCoordinateClick = (lat: number, lon: number) => {
     fetchAnalysis(
       `Analyze live marine conditions at coordinates ${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E`,
+      `${lat.toFixed(4)},${lon.toFixed(4)}`
     );
   };
 
@@ -174,7 +175,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
               <div>
                 <p className="text-sm font-semibold text-red-300">
-                  Live marine data unavailable
+                  Live marine data {dict.unavailable ? dict.unavailable.toLowerCase() : 'unavailable'}
                 </p>
                 <p className="mt-1 text-xs text-slate-300">{errorMessage}</p>
                 <p className="mt-2 text-[11px] text-fathom">
@@ -210,10 +211,12 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         timeWindow={analysisData.timeWindow}
                         language={language}
                         groundedSummary={analysisData.groundedSummary}
+                        geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                       />
                       <InteractiveMap
                         location={analysisData.location}
                         gisLayers={analysisData.gisLayers}
+                        geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                         ocean={analysisData.ocean}
                         riskLevel={analysisData.risk.riskLevel}
                         onSelectLocation={handleLocationSelect}
@@ -252,6 +255,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     timeWindow={analysisData.timeWindow}
                     language={language}
                     groundedSummary={analysisData.groundedSummary}
+                    geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                   />
                   <FeatureContributions risk={analysisData.risk} language={language} />
                   <MarineTelemetry
@@ -273,6 +277,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <InteractiveMap
                     location={analysisData.location}
                     gisLayers={analysisData.gisLayers}
+                    geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                     ocean={analysisData.ocean}
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}
@@ -309,6 +314,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                   <InteractiveMap
                     location={analysisData.location}
                     gisLayers={analysisData.gisLayers}
+                    geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                     ocean={analysisData.ocean}
                     riskLevel={analysisData.risk.riskLevel}
                     onSelectLocation={handleLocationSelect}

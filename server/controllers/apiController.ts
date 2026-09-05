@@ -11,6 +11,8 @@ import { getMarineTelemetry, getMarineTelemetryAnalysis, getMarineTelemetrySumma
 import { retrieveRagEvidence } from '../services/ragService.ts';
 import { getEvidenceCorpusSize, getSupportedLocationCount, runOrcaAgentWorkflow } from '../services/orcaService.ts';
 import { localizeRiskPrediction } from '../../src/utils/marineRiskLocalization.ts';
+import { analyzeMaritimeGeofencing } from '../services/geofenceService.ts';
+import { generateMaritimeGeoJsonFeatures } from '../../src/data/maritimeBoundaries.ts';
 
 function resolveLocationFromRequest(req: Request) {
   const locationKey = typeof req.query.locationKey === 'string' ? req.query.locationKey : undefined;
@@ -29,11 +31,13 @@ function resolveLocationFromRequest(req: Request) {
   };
 }
 
+const SUPPORTED_LANGUAGES: LanguageCode[] = ['en', 'bn', 'hi', 'ta', 'or', 'te', 'ml', 'gu', 'mr', 'kn'];
+
 export async function orcaQuery(req: Request, res: Response) {
   try {
     const { query, locationOverride, timeOverride, language = 'en' } = req.body;
     if (!query || typeof query !== 'string') return res.status(400).json({ error: 'Query string is required.' });
-    if (!['en', 'bn', 'hi', 'ta', 'or', 'te'].includes(language)) return res.status(400).json({ error: 'Unsupported language code.' });
+    if (!SUPPORTED_LANGUAGES.includes(language as LanguageCode)) return res.status(400).json({ error: 'Unsupported language code.' });
     res.json(await runOrcaAgentWorkflow(query, locationOverride, timeOverride, language as LanguageCode));
   } catch (error) {
     console.error('ORCA query error:', error);
@@ -76,16 +80,23 @@ export async function marineRisk(req: Request, res: Response) {
     } as SatelliteData;
     const mlRisk = await predictMarineRiskWithMl(weather, ocean, defaultSat, location);
     const rawRisk = mlRisk || calculateMarineRisk(weather, ocean, defaultSat, location);
-    res.json(localizeRiskPrediction(rawRisk, weather, ocean, ['en', 'bn', 'hi', 'ta', 'or', 'te'].includes(language) ? language : 'en'));
+    res.json(localizeRiskPrediction(rawRisk, weather, ocean, SUPPORTED_LANGUAGES.includes(language as LanguageCode) ? (language as LanguageCode) : 'en'));
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Risk calculation failed.' });
   }
+}
+
+function parseBoolean(value: unknown, defaultValue = false): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return defaultValue;
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
 export async function satelliteAnalysis(req: Request, res: Response) {
   try {
     const lat = Number(req.body.latitude);
     const lon = Number(req.body.longitude);
+    const forceRefresh = parseBoolean(req.body.forceRefresh);
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
     }
@@ -95,7 +106,7 @@ export async function satelliteAnalysis(req: Request, res: Response) {
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return res.status(400).json({ error: 'startTime and endTime must be valid ISO timestamps.' });
     if (start > now) { start = new Date(now.getTime() - 7 * 24 * 3600000); end = now; }
     else { if (end > now) end = now; if (start >= end) start = new Date(end.getTime() - 24 * 3600000); }
-    res.json(await fetchSatelliteData(lat, lon, start.toISOString(), end.toISOString()));
+    res.json(await fetchSatelliteData(lat, lon, start.toISOString(), end.toISOString(), forceRefresh));
   } catch (error) {
     console.error('Satellite analysis error:', error);
     res.status(502).json({ error: error instanceof Error ? error.message : 'Satellite observation search failed.' });
@@ -127,6 +138,26 @@ export function marineTelemetryAnalysis(_req: Request, res: Response) {
   res.json(getMarineTelemetryAnalysis());
 }
 
+export function gisSpatialAnalysis(req: Request, res: Response) {
+  try {
+    const lat = Number(req.query.lat ?? req.body?.latitude ?? 21.6266);
+    const lon = Number(req.query.lon ?? req.body?.longitude ?? 87.5074);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+    }
+    const geofence = analyzeMaritimeGeofencing(lat, lon);
+    const geoFeatures = generateMaritimeGeoJsonFeatures();
+    res.json({
+      coordinates: { latitude: lat, longitude: lon },
+      geofence,
+      featuresCount: geoFeatures.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'GIS spatial analysis failed.' });
+  }
+}
+
 export function health(_req: Request, res: Response) {
   res.json({
     status: 'healthy',
@@ -145,6 +176,7 @@ export function health(_req: Request, res: Response) {
       ragApi: process.env.ORCA_RAG_API_URL || 'http://127.0.0.1:8001',
       agentOrchestrator: 'server_workflow',
       geminiGroundingAgent: process.env.GEMINI_API_KEY ? 'configured' : 'standby_deterministic',
+      geofenceSurveillance: 'authentic_unclos_pca_treaty_engine',
     },
     realtimeSources: getRealtimeSourceReadiness(),
     telemetry: getMarineTelemetrySummary(),
@@ -157,6 +189,9 @@ export function health(_req: Request, res: Response) {
       latestSatelliteCatalogueSearch: true,
       satelliteImageProcessing: false,
       mlDeploymentDomainValidated: false,
+      geofencingBoundarySurveillance: true,
+      authenticImblCoverage: true,
+      marineProtectedAreasCoverage: true,
     },
     supportedLocations: getSupportedLocationCount(),
   });
