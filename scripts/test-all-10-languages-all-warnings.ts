@@ -40,11 +40,12 @@ const SAMPLE_RISK: RiskPrediction = {
 };
 
 const SAMPLE_LOCATION: LocationInfo = {
-  id: 'loc-paradip',
   name: 'Paradip Coastal Waters',
   state: 'Odisha',
-  coordinates: [86.7, 20.3],
-  regionType: 'coastal',
+  country: 'India',
+  latitude: 20.3,
+  longitude: 86.7,
+  regionType: 'coastal_harbor',
   nearestPort: 'Paradeep Major Port',
 };
 
