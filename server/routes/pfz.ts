@@ -24,7 +24,7 @@ router.post('/analyze', async (req, res) => {
         : resolveLocation(query || 'Goa');
 
     const geofence = analyzeMaritimeGeofencing(location.latitude, location.longitude);
-    const realtime = await fetchRealtimeMarineObservation(location).catch(() => undefined);
+    const realtime = await fetchRealtimeMarineObservation(location.latitude, location.longitude).catch(() => undefined);
     
     const now = new Date();
     const past = new Date(now.getTime() - 7 * 86400 * 1000);
