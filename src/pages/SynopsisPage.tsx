@@ -36,6 +36,7 @@ import { Marquee } from "../components/ui/Marquee";
 import { BentoGrid, BentoCell } from "../components/ui/BentoGrid";
 import { TrackLine, TrackStep } from "../components/ui/TrackLine";
 import { COASTAL_LOCATIONS } from "../data/coastalData";
+import { IndianCoastalMap } from "../components/IndianCoastalMap";
 import { createTimeline, stagger, withMotion } from "../lib/anime";
 /* ---------------------------------------------------------------------------
    Content. Every threshold and authority below is drawn from the evidence
@@ -470,11 +471,16 @@ export const SynopsisPage: React.FC<SynopsisPageProps> = ({ onEnterConsole }) =>
             ))}
           </div>
 
-          <p className="mt-4 max-w-2xl text-[12px] leading-relaxed text-fathom">
+          <p className="mt-4 max-w-2xl text-[12px] leading-relaxed text-fathom mb-12">
             These are the published limits, not our estimates. The work is
             getting them to the person standing on the sand at four in the
             morning.
           </p>
+
+          {/* ---- Interactive Coastal Hub Surveillance Map (Option 2) ---- */}
+          <div className="my-12">
+            <IndianCoastalMap onSelectPort={() => onEnterConsole()} />
+          </div>
         </section>
 
         {/* ---- Station rail ---------------------------------------------- */}

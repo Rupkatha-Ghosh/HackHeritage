@@ -128,8 +128,8 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
             Project brief
           </button>
 
-          {/* Multi-Port Coastal Hubs Live Status Bar */}
-          <div className="flex items-center space-x-2 overflow-x-auto py-2 px-3 bg-slate-950/90 border border-slate-800 rounded-xl text-xs font-mono no-scrollbar shadow-inner">
+          {/* Multi-Port Coastal Hubs Live Status Bar (Section 2C: Touch-Snap Carousel) */}
+          <div className="flex items-center space-x-2 horizontal-snap-carousel py-2.5 px-4 orca-glass-panel rounded-xl text-xs font-mono shadow-lg">
             <span className="text-[11px] text-cyan-400 font-bold uppercase tracking-wider shrink-0 flex items-center gap-1.5 px-1">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
               <span>Coastal Ports:</span>
@@ -156,15 +156,14 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
           </div>
 
           {isLoading && (
-            <div className="flex items-center gap-3 rounded-sm border border-shoal/25 bg-shoal/8 p-3.5">
-              <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-shoal" />
+            <div className="flex items-center gap-3 rounded-xl border border-cyan-500/30 orca-glass-panel p-3.5 shadow-md">
+              <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-cyan-400" />
               <div className="text-xs">
-                <span className="font-mono font-bold tracking-wide text-shoal">
+                <span className="font-mono font-bold tracking-wider text-cyan-400 uppercase">
                   PIPELINE RUNNING&nbsp;
                 </span>
                 <span className="text-slate-300">
-                  {dict.processing} — live weather and marine observations,
-                  Copernicus catalogue, BGE-M3 retrieval, risk engine.
+                  {dict.processing} — live weather and marine observations, Copernicus catalogue, BGE-M3 retrieval, risk engine.
                 </span>
               </div>
             </div>
