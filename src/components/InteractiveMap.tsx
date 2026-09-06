@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   AlertTriangle
 } from 'lucide-react';
-import { LocationInfo, GisLayerData, RiskLevel, OceanData, LanguageCode, GeofenceSpatialAnalysis } from '../types';
+import { LocationInfo, GisLayerData, RiskLevel, RiskPrediction, OceanData, LanguageCode, GeofenceSpatialAnalysis } from '../types';
 import { COASTAL_LOCATIONS, MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion';
 import { maritimeSiren } from '../services/audio/maritimeSirenService';
@@ -29,6 +29,7 @@ interface InteractiveMapProps {
   geofenceAnalysis?: GeofenceSpatialAnalysis;
   ocean: OceanData;
   riskLevel: RiskLevel;
+  risk?: RiskPrediction;
   onSelectLocation: (locKey: string) => void;
   onCoordinateClick?: (lat: number, lon: number) => void;
   language: LanguageCode;
@@ -40,6 +41,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   geofenceAnalysis,
   ocean,
   riskLevel,
+  risk,
   onSelectLocation,
   onCoordinateClick,
   language
@@ -1013,7 +1015,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     await maritimeSiren.unlock();
                     const alert = geo.activeAlerts?.[0] || geo.nearestImbl || geo.nearestMpa;
                     if (alert) {
-                      voiceWarning.evaluateAndAnnounce(alert, { riskLevel, riskScore: 75 } as any, language);
+                      voiceWarning.evaluateAndAnnounce(alert, risk, language);
                     } else {
                       const phrase = voiceWarning.generateTestPhrase(language);
                       voiceWarning.speak(phrase, language, { playSirenFirst: false, isCritical: false, force: true });

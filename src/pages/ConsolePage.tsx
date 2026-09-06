@@ -227,6 +227,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                         geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                         ocean={analysisData.ocean}
                         riskLevel={analysisData.risk.riskLevel}
+                        risk={analysisData.risk}
                         onSelectLocation={handleLocationSelect}
                         onCoordinateClick={handleMapCoordinateClick}
                         language={language}
@@ -288,6 +289,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                     ocean={analysisData.ocean}
                     riskLevel={analysisData.risk.riskLevel}
+                    risk={analysisData.risk}
                     onSelectLocation={handleLocationSelect}
                     onCoordinateClick={handleMapCoordinateClick}
                     language={language}
@@ -325,6 +327,7 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
                     geofenceAnalysis={analysisData.geofenceAnalysis || analysisData.gisLayers?.geofenceAnalysis}
                     ocean={analysisData.ocean}
                     riskLevel={analysisData.risk.riskLevel}
+                    risk={analysisData.risk}
                     onSelectLocation={handleLocationSelect}
                     onCoordinateClick={handleMapCoordinateClick}
                     language={language}
