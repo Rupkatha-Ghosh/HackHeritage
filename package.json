@@ -35,6 +35,7 @@
     "test:alerts": "tsx scripts/test-alert-engine.ts",
     "test:agentic-alerts": "tsx scripts/test-agentic-alerts.ts",
     "test:maritime-audio": "tsx scripts/test-maritime-audio.ts",
+    "test:hybrid-types": "tsx scripts/test-all-hybrid-types.ts",
     "test:mosdac-cache": "tsx scripts/test-mosdac-cache.ts",
     "smoke": "node scripts/smoke-test.mjs"
   },
