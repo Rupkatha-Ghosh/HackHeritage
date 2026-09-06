@@ -379,43 +379,46 @@ export const LeftNavbar: React.FC<LeftNavbarProps> = ({
         </div>
       )}
 
-      {/* ---- Mobile Sticky Bottom Thumb Navigation Bar ------------------- */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-slate-700 bg-slate-950/95 py-2 px-1 backdrop-blur-lg lg:hidden shadow-2xl">
-        {navItems.slice(0, 4).map((item) => {
+      {/* ---- Mobile Sticky Bottom Thumb Navigation Dock (Section 2A) ---- */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between border-t border-cyan-500/30 bg-slate-950/90 px-2 py-1.5 backdrop-blur-xl lg:hidden shadow-[0_-8px_30px_rgba(0,0,0,0.7)]">
+        {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setCurrentTab(item.id)}
-              className={`flex flex-col items-center justify-center min-h-[52px] min-w-[64px] py-1 px-2 rounded-xl transition-all ${
+              className={`relative flex flex-col items-center justify-center min-h-[52px] flex-1 py-1 px-1 rounded-xl transition-all btn-micro-interactive ${
                 isActive
-                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
+                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-400/40 shadow-md shadow-cyan-500/20'
                   : 'text-slate-400 hover:text-slate-200 active:scale-95'
               }`}
             >
-              <Icon className={`h-5 w-5 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
-              <span className="text-[10px] tracking-tight mt-1 truncate max-w-[70px]">
+              {isActive && (
+                <span className="absolute -top-1 h-1 w-5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]" />
+              )}
+              <Icon className={`h-5 w-5 ${isActive ? 'text-cyan-300' : 'text-slate-400'}`} />
+              <span className="text-[9.5px] tracking-tight mt-1 font-mono truncate max-w-[62px]">
                 {item.label.split(' ')[0]}
               </span>
             </button>
           );
         })}
-        {/* Mobile Language Selector Button */}
+        {/* Mobile Compact Language Selector */}
         <div className="flex flex-col items-center justify-center min-h-[52px] px-1">
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value as LanguageCode)}
-            className="bg-slate-900 text-cyan-300 font-bold border border-cyan-500/40 text-[11px] rounded-xl px-2 py-2 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-400"
+            className="bg-slate-900/90 text-cyan-300 font-mono font-bold border border-cyan-500/40 text-[10px] rounded-xl px-2 py-2.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-400 shadow-sm"
           >
             {languages.map((l) => (
               <option key={l.code} value={l.code} className="bg-slate-900 text-slate-200">
-                {l.native}
+                {l.code.toUpperCase()}
               </option>
             ))}
           </select>
         </div>
-      </div>
+      </nav>
 
       {/* ---- Desktop sidebar -------------------------------------------- */}
       <aside
