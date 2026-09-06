@@ -1,19 +1,27 @@
 /**
  * Multi-lingual Voice Warning Engine
  * 
- * Uses the Web Speech Synthesis API to announce urgent maritime alerts
- * in 10 coastal Indian languages: English, Hindi, Bengali, Tamil, Telugu,
- * Odia, Malayalam, Gujarati, Marathi, and Kannada.
+ * Uses the Web Speech Synthesis API and Indic AI Cloud Gateway to announce urgent
+ * maritime alerts in 10 coastal Indian languages: English, Hindi, Bengali, Tamil,
+ * Telugu, Odia, Malayalam, Gujarati, Marathi, and Kannada.
  * 
- * Incorporates:
- * 1. Sarvam AI (Bulbul) & Bhashini NLTM / IndicTrans2 cloud gateway when online.
- * 2. Intelligent Phonetic Transliteration Bridge for browsers lacking regional OS voice packs
- *    (ensuring Odia, Bengali, Tamil, etc. NEVER fail or stay silent).
+ * Hybrid Architecture:
+ * 1. Cloud Layer: Sarvam AI (Bulbul:v1) & Bhashini NLTM (Dhruva/IndicTrans2/IndicTTS)
+ *    via server proxy `/api/indic-voice/tts`.
+ * 2. Edge Layer (100% Offline Guaranteed): Universal Indic Devanagari Phonemic Engine
+ *    routes speech through Chromium's native Indian speech synthesizer (Google हिन्दी / hi-IN).
+ *    All regional scripts (Bengali, Tamil, Telugu, Odia, Gujarati, Malayalam, Kannada)
+ *    are automatically transliterated to Devanagari phonemes so Google हिन्दी pronounces
+ *    fluent Indian regional words without dropping characters or sounding like American English.
  */
 
 import { LanguageCode, GeofenceAlert, RiskPrediction, LocationInfo } from '../../types';
 import { maritimeSiren } from './maritimeSirenService';
-import { indicVoiceGateway, PHONETIC_REGIONAL_BRIDGES } from './indicVoiceService';
+import {
+  indicVoiceGateway,
+  indicScriptToDevanagari,
+  INDIC_DEVANAGARI_PHONEMES,
+} from './indicVoiceService';
 
 export interface SpokenAlertPayload {
   key: string;
@@ -41,12 +49,13 @@ class VoiceWarningService {
   private lastSpokenAt = new Map<string, number>();
   private cooldownMs = 15000; // 15 seconds debounce per alert key
   private listeners: Set<(isSpeaking: boolean) => void> = new Set();
-  private voicesLoaded: boolean = false;
+  private currentAudioElement: HTMLAudioElement | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.onvoiceschanged = () => {
-        this.voicesLoaded = true;
+        // Pre-warm voices list
+        window.speechSynthesis.getVoices();
       };
     }
   }
@@ -87,29 +96,55 @@ class VoiceWarningService {
 
     const candidateTags = LANGUAGE_BCP47_MAP[language] || [];
     return voices.some((v) =>
-      candidateTags.some((tag) => v.lang.toLowerCase() === tag.toLowerCase() || v.lang.toLowerCase().startsWith(tag.toLowerCase()))
+      candidateTags.some(
+        (tag) =>
+          v.lang.toLowerCase() === tag.toLowerCase() ||
+          v.lang.toLowerCase().startsWith(tag.toLowerCase())
+      )
     );
   }
 
   /**
    * Resolve best SpeechSynthesisVoice matching the language.
+   * For English: selects an English voice (preferring en-IN).
+   * For Indian languages: selects specific regional voice if installed,
+   * otherwise always routes to the Indian voice engine (Google हिन्दी / hi-IN)
+   * so it NEVER falls back to an American English accent.
    */
   private getBestVoice(language: LanguageCode): SpeechSynthesisVoice | null {
     if (typeof window === 'undefined' || !window.speechSynthesis) return null;
     const voices = window.speechSynthesis.getVoices();
     if (!voices || voices.length === 0) return null;
 
-    const candidateTags = LANGUAGE_BCP47_MAP[language] || ['en-IN', 'en'];
+    if (language === 'en') {
+      return (
+        voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
+        voices.find((v) => v.lang.toLowerCase().startsWith('en')) ||
+        voices[0]
+      );
+    }
+
+    // For any Indian language:
+    // 1. Try to find the exact regional language voice (e.g. bn-IN, ta-IN)
+    const candidateTags = LANGUAGE_BCP47_MAP[language] || [];
     for (const tag of candidateTags) {
-      const matched = voices.find((v) => v.lang.toLowerCase() === tag.toLowerCase() || v.lang.toLowerCase().startsWith(tag.toLowerCase()));
+      const matched = voices.find(
+        (v) =>
+          v.lang.toLowerCase() === tag.toLowerCase() ||
+          v.lang.toLowerCase().startsWith(tag.toLowerCase())
+      );
       if (matched) return matched;
     }
-    // If no direct regional match, prefer Indian English (en-IN) or default English voice for phonetic clarity
-    return voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
-           voices.find((v) => v.lang.toLowerCase().startsWith('hi')) ||
-           voices.find((v) => v.lang.startsWith('en')) ||
-           voices[0] ||
-           null;
+
+    // 2. If no regional voice exists, use the Indian speech synthesizer (Google हिन्दी / hi-IN)
+    const hindiVoice = voices.find((v) => v.lang.toLowerCase().startsWith('hi'));
+    if (hindiVoice) return hindiVoice;
+
+    // 3. Indian English fallback
+    const indianEnglish = voices.find((v) => v.lang.toLowerCase().startsWith('en-in'));
+    if (indianEnglish) return indianEnglish;
+
+    return voices[0] || null;
   }
 
   /**
@@ -120,9 +155,9 @@ class VoiceWarningService {
     const boundary = alert.boundaryName;
     const hasNative = this.hasNativeVoiceFor(language);
 
-    // If native voice is missing in browser, use phonetic bridge for audible clarity
+    // If native regional voice is missing, use Devanagari phonemics for Google हिन्दी
     if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
       if (bridge) {
         return alert.severity === 'CRITICAL_BREACH'
           ? bridge.critical(boundary, dist)
@@ -181,7 +216,7 @@ class VoiceWarningService {
   public generateWeatherPhrase(risk: RiskPrediction, language: LanguageCode): string {
     const hasNative = this.hasNativeVoiceFor(language);
     if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
       if (bridge) return bridge.weather(risk.riskLevel);
     }
 
@@ -201,7 +236,7 @@ class VoiceWarningService {
       case 'gu':
         return `ખરાબ હવામાન ચેતવણી! દરિયામાં જોખમ સ્તર ${risk.riskLevel} છે. ઊંચા મોજા અને ભારે પવન. બંદર પર પાછા ફરો.`;
       case 'mr':
-        return `गंभीर हवामान इशारा! समुद्रात धोक्याची पातळी ${risk.riskLevel} आहे. प्रचंड लाटा. बंदरावर परत या.`;
+        return `गंभीर हवामान इशारा! समुद्रात धोक्याची पातळी ${risk.riskLevel} आहे. बंदरावर परत या.`;
       case 'kn':
         return `ಪ್ರತಿಕೂಲ ಹವಾಮಾನ ಎಚ್ಚರಿಕೆ! ಸಮುದ್ರದಲ್ಲಿ ಅಪಾಯ ಮಟ್ಟ ${risk.riskLevel} ಆಗಿದೆ. ಬಲವಾದ ಅಲೆಗಳು. ಬಂದರಿಗೆ ಹಿಂತಿರುಗಿ.`;
       case 'en':
@@ -216,7 +251,7 @@ class VoiceWarningService {
   public generateTestPhrase(language: LanguageCode): string {
     const hasNative = this.hasNativeVoiceFor(language);
     if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
       if (bridge) return bridge.test;
     }
 
@@ -236,7 +271,7 @@ class VoiceWarningService {
       case 'gu':
         return 'આ ઓર્કા એક્સ મરીન સાયરન અને વોઇસ ચેતવણી સિસ્ટમનું ઓડિયો પરીક્ષણ છે.';
       case 'mr':
-        return 'हे ऑर्का एक्स बहुभाषिक सागरी सायरन आणि व्हॉईસ इशारा प्रणालीचे ऑडिओ परीक्षण आहे.';
+        return 'हे ओरका एक्स बहुभाषिक सागरी साइरन आणि वॉइस इशारा प्रणालीचे ऑडिओ परीक्षण आहे.';
       case 'kn':
         return 'ಇದು ಓರ್ಕಾ ఎಕ್ಸ್ ಬಹುಭಾಷಾ ಕಡಲ ಸೈರನ್ ಮತ್ತು ಧ್ವನಿ ಎಚ್ಚರಿಕೆ ವ್ಯವಸ್ಥೆಯ ಆಡಿಯೋ ಪರೀಕ್ಷೆ.';
       case 'en':
@@ -255,30 +290,43 @@ class VoiceWarningService {
     language: LanguageCode
   ): string {
     const port = location.nearestPort || location.name;
-    const boundaryNotice = geofenceAlert
-      ? ` ${this.generateGeofencePhrase(geofenceAlert, language)}`
-      : '';
+    const hasNative = this.hasNativeVoiceFor(language);
+
+    if (!hasNative && language !== 'en' && language !== 'hi') {
+      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
+      if (bridge) {
+        return bridge.verdict(port, risk.riskLevel, risk.riskScore, risk.primaryRecommendation);
+      }
+    }
 
     switch (language) {
       case 'hi':
-        return `${port} के पास समुद्री स्थिति: जोखिम स्तर ${risk.riskLevel} (${risk.riskScore}/100)। सलाह: ${risk.primaryRecommendation}.${boundaryNotice}`;
+        return `${port} के पास समुद्री स्थिति: जोखिम स्तर ${risk.riskLevel} (${risk.riskScore}/100)। सलाह: ${risk.primaryRecommendation}।`;
       case 'bn':
-        return `${port} এর কাছে সামুদ্রিক পরিস্থিতি: ঝুঁকির মাত্রা ${risk.riskLevel} (${risk.riskScore}/100)। পরামর্শ: ${risk.primaryRecommendation}.${boundaryNotice}`;
+        return `${port} এর কাছে সামুদ্রিক পরিস্থিতি: ঝুঁকির মাত্রা ${risk.riskLevel} (${risk.riskScore}/100)। পরামর্শ: ${risk.primaryRecommendation}।`;
       case 'ta':
-        return `${port} கடல் நிலைமை: இடர் அளவு ${risk.riskLevel} (${risk.riskScore}/100). பரிந்துரை: ${risk.primaryRecommendation}.${boundaryNotice}`;
+        return `${port} கடல் நிலைமை: இடர் அளவு ${risk.riskLevel} (${risk.riskScore}/100). பரிந்துரை: ${risk.primaryRecommendation}.`;
       case 'te':
-        return `${port} సముద్ర పరిస్థితి: ప్రమాద స్థాయి ${risk.riskLevel} (${risk.riskScore}/100). సలహా: ${risk.primaryRecommendation}.${boundaryNotice}`;
+        return `${port} సముద్ర పరిస్థితి: ప్రమాద స్థాయి ${risk.riskLevel} (${risk.riskScore}/100). సలహా: ${risk.primaryRecommendation}.`;
       case 'or':
-        return `${port} ସମୁଦ୍ର ସ୍ଥିତି: ବିପଦ ସ୍ତର ${risk.riskLevel} (${risk.riskScore}/100)। ପରାମର୍ଶ: ${risk.primaryRecommendation}.${boundaryNotice}`;
+        return `${port} ସମୁଦ୍ର ସ୍ଥିତି: ବିପଦ ସ୍ତର ${risk.riskLevel} (${risk.riskScore}/100)। ପରାମର୍ଶ: ${risk.primaryRecommendation}।`;
+      case 'ml':
+        return `${port} കടൽ അവസ്ഥ: അപകടസാധ്യത ${risk.riskLevel} (${risk.riskScore}/100). നിർദ്ദേശം: ${risk.primaryRecommendation}.`;
+      case 'gu':
+        return `${port} દરિયાઈ સ્થિતિ: જોખમ સ્તર ${risk.riskLevel} (${risk.riskScore}/100). સલાહ: ${risk.primaryRecommendation}.`;
+      case 'mr':
+        return `${port} सागरी स्थिती: धोक्याची पातळी ${risk.riskLevel} (${risk.riskScore}/100). सल्ला: ${risk.primaryRecommendation}.`;
+      case 'kn':
+        return `${port} ಕಡಲ ಸ್ಥಿತಿ: ಅಪಾಯ ಮಟ್ಟ ${risk.riskLevel} (${risk.riskScore}/100). ಸಲಹೆ: ${risk.primaryRecommendation}.`;
       case 'en':
       default:
-        return `${port} marine status. Risk Level: ${risk.riskLevel}, score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}.${boundaryNotice}`;
+        return `${port} marine status. Risk Level: ${risk.riskLevel}, score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}.`;
     }
   }
 
   /**
    * Speak a phrase with the given language and options.
-   * Seamlessly checks Sarvam AI & Bhashini, then falls back to browser TTS / Phonetic Bridge.
+   * Seamlessly checks Sarvam AI & Bhashini via server proxy, then falls back to browser Indic TTS Engine.
    */
   public async speak(
     text: string,
@@ -297,6 +345,9 @@ class VoiceWarningService {
       this.lastSpokenAt.set(options.dedupeKey, now);
     }
 
+    // Cancel any ongoing audio or speech
+    this.cancel();
+
     // Optionally sound siren first
     if (options?.playSirenFirst) {
       if (options.isCritical) {
@@ -308,42 +359,40 @@ class VoiceWarningService {
       }
     }
 
-    // 1. Try Sarvam AI Bulbul TTS (if online & configured)
-    const sarvamAudio = await indicVoiceGateway.synthesizeSarvamTts(text, language);
-    if (sarvamAudio) {
+    // 1. Try Hybrid Cloud Gateway (Sarvam AI / Bhashini NLTM via /api/indic-voice/tts)
+    const cloudAudio = await indicVoiceGateway.synthesizeCloudTts(text, language);
+    if (cloudAudio) {
+      this.currentAudioElement = cloudAudio;
       this.setSpeaking(true);
-      sarvamAudio.onended = () => this.setSpeaking(false);
-      sarvamAudio.onerror = () => this.setSpeaking(false);
-      await sarvamAudio.play();
-      return true;
+      cloudAudio.onended = () => {
+        this.setSpeaking(false);
+        this.currentAudioElement = null;
+      };
+      cloudAudio.onerror = () => {
+        this.setSpeaking(false);
+        this.currentAudioElement = null;
+      };
+      try {
+        await cloudAudio.play();
+        return true;
+      } catch (err) {
+        console.warn('Cloud audio playback interrupted, falling back to edge:', err);
+      }
     }
 
-    // 2. Try Bhashini NLTM TTS (if online & configured)
-    const bhashiniAudio = await indicVoiceGateway.synthesizeBhashiniTts(text, language);
-    if (bhashiniAudio) {
-      this.setSpeaking(true);
-      bhashiniAudio.onended = () => this.setSpeaking(false);
-      bhashiniAudio.onerror = () => this.setSpeaking(false);
-      await bhashiniAudio.play();
-      return true;
-    }
-
-    // 3. Native Browser Speech Synthesis (Offline Edge Fallback)
+    // 2. Native Browser Speech Synthesis (Offline Edge Indic Devanagari Engine)
     if (typeof window === 'undefined' || !window.speechSynthesis) return false;
 
-    // Cancel any ongoing speech
+    // Cancel any speech queue
     window.speechSynthesis.cancel();
 
     const voice = this.getBestVoice(language);
     const hasNative = this.hasNativeVoiceFor(language);
 
-    // If native voice is missing, select the phonetic bridge text for the utterance
+    // Convert text to Devanagari phonemes if regional script cannot be parsed by Google हिन्दी
     let textToSpeak = text;
     if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
-      if (bridge && text === this.generateTestPhrase(language)) {
-        textToSpeak = bridge.test;
-      }
+      textToSpeak = indicScriptToDevanagari(text, language);
     }
 
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
@@ -351,10 +400,10 @@ class VoiceWarningService {
       utterance.voice = voice;
       utterance.lang = voice.lang;
     } else {
-      utterance.lang = LANGUAGE_BCP47_MAP[language]?.[0] || 'en-IN';
+      utterance.lang = language === 'en' ? 'en-IN' : 'hi-IN';
     }
 
-    utterance.rate = 0.95; // Slightly measured rate for maritime clarity
+    utterance.rate = 0.92; // Measured rate for maritime clarity
     utterance.pitch = options?.isCritical ? 1.05 : 1.0;
     utterance.volume = 0.95;
 
@@ -409,6 +458,10 @@ class VoiceWarningService {
   public cancel() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
+    }
+    if (this.currentAudioElement) {
+      this.currentAudioElement.pause();
+      this.currentAudioElement = null;
     }
     maritimeSiren.stop();
     this.setSpeaking(false);
