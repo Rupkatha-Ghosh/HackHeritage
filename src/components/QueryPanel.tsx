@@ -269,22 +269,24 @@ export const QueryPanel: React.FC<QueryPanelProps> = ({
 
       </form>
 
-      {/* Suggested Prompt Chips */}
+      {/* Suggested Prompt Chips (Section 2C: Touch-Snap Carousel) */}
       <div className="space-y-1.5 pt-1">
         <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between">
           <span>{dict.benchmarkScenarios}</span>
-          <span className="text-[10px] text-cyan-400">{dict.clickToRun}</span>
+          <span className="text-[10px] text-cyan-400 font-mono flex items-center gap-1">
+            <span>← Swipe →</span>
+          </span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="horizontal-snap-carousel gap-2 py-1">
           {samplePrompts.map((p, idx) => (
             <button
               key={idx}
               id={`preset-btn-${idx}`}
               onClick={() => handleSelectPreset(p.text, p.loc)}
-              className="px-2.5 py-1 rounded-lg bg-slate-950/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 text-xs font-medium transition-all text-left flex items-center space-x-1.5 shadow-sm"
+              className="px-3 py-2 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-300 text-xs font-medium transition-all text-left flex items-center space-x-2 shadow-sm btn-micro-interactive"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400"></span>
-              <span>{p.tag}</span>
+              <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0"></span>
+              <span className="whitespace-nowrap">{p.tag}</span>
             </button>
           ))}
         </div>

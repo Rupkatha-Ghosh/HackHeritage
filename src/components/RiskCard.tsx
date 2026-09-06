@@ -92,7 +92,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       case 'LOW':
         return {
           bg: 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300',
-          badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
+          badgeBg: 'badge-neon-low',
           icon: <ShieldCheck className="h-6 w-6 text-emerald-400" />,
           gaugeColor: '#6fd6ae',
           shadow: 'shadow-emerald-500/10'
@@ -100,7 +100,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       case 'MODERATE':
         return {
           bg: 'bg-amber-950/40 border-amber-500/40 text-amber-300',
-          badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/50',
+          badgeBg: 'badge-neon-moderate',
           icon: <AlertTriangle className="h-6 w-6 text-amber-400" />,
           gaugeColor: '#f2b33d',
           shadow: 'shadow-amber-500/10'
@@ -108,18 +108,18 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       case 'HIGH':
         return {
           bg: 'bg-rose-950/40 border-rose-500/40 text-rose-300',
-          badgeBg: 'bg-rose-500/20 text-rose-300 border-rose-500/50',
+          badgeBg: 'badge-neon-high',
           icon: <AlertTriangle className="h-6 w-6 text-rose-400" />,
-          gaugeColor: '#e8734a',
+          gaugeColor: '#fb923c',
           shadow: 'shadow-rose-500/10'
         };
       case 'EXTREME':
       default:
         return {
           bg: 'bg-red-950/50 border-red-500/60 text-red-300',
-          badgeBg: 'bg-red-500/20 text-red-300 border-red-500/60',
+          badgeBg: 'badge-neon-extreme',
           icon: <AlertOctagon className="h-6 w-6 text-red-400 animate-pulse" />,
-          gaugeColor: '#d6453d',
+          gaugeColor: '#f43f5e',
           shadow: 'shadow-red-500/20'
         };
     }
@@ -247,7 +247,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
               />
             </svg>
             <div className="absolute flex flex-col items-center">
-              <span className="text-base font-extrabold text-white font-mono">{risk.riskScore}</span>
+              <span className="text-base font-extrabold text-white font-mono tabular-nums">{risk.riskScore}</span>
               <span className="text-[9px] text-slate-400 uppercase font-mono">/ 100</span>
             </div>
           </div>
@@ -261,7 +261,7 @@ export const RiskCard: React.FC<RiskCardProps> = ({
             </div>
             <div className="text-[11px] text-slate-400 mt-1 font-mono flex items-center gap-1">
               <Cpu className="h-3 w-3 text-cyan-400" />
-              <span>{dict.confidence}: <strong className="text-slate-200">{risk.confidenceScore}%</strong></span>
+              <span>{dict.confidence}: <strong className="text-slate-200 tabular-nums">{risk.confidenceScore}%</strong></span>
             </div>
           </div>
         </div>
