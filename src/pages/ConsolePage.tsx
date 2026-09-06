@@ -10,6 +10,7 @@ import { AgentExecutionTimeline } from "../components/AgentExecutionTimeline";
 import { GroundedEvidenceDrawer } from "../components/GroundedEvidenceDrawer";
 import { SatelliteAnalysisView } from "../components/SatelliteAnalysisView";
 import { WhatIfSimulator } from "../components/WhatIfSimulator";
+import { AudioAlertController } from "../components/AudioAlertController";
 import { OrcaAnalysisResponse, LanguageCode } from "../types";
 import { COASTAL_LOCATIONS, MULTILINGUAL_DICTIONARY } from "../data/coastalData";
 
@@ -154,6 +155,13 @@ export const ConsolePage: React.FC<ConsolePageProps> = ({ onExit }) => {
               );
             })}
           </div>
+
+          {/* Maritime Audio Siren & Multi-lingual Warning Voice Controller */}
+          <AudioAlertController
+            language={language}
+            geofenceAnalysis={analysisData?.geofenceAnalysis || analysisData?.gisLayers?.geofenceAnalysis}
+            risk={analysisData?.risk}
+          />
 
           {isLoading && (
             <div className="flex items-center gap-3 rounded-sm border border-shoal/25 bg-shoal/8 p-3.5">
