@@ -100,41 +100,40 @@ export const RiskCard: React.FC<RiskCardProps> = ({
     setIsPlayingAudio(false);
   };
 
-  // Semantic styles for Risk Level
+  // Semantic styles for Risk Level (Minimalist Premium UI)
   const getRiskTheme = (level: string) => {
+    // Base elegant glass container for all states
+    const baseBg = 'bg-[#090d16]/80 border-slate-800/60 text-slate-300';
+    
     switch (level) {
       case 'LOW':
         return {
-          bg: 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300',
+          bg: baseBg,
           badgeBg: 'badge-neon-low',
-          icon: <ShieldCheck className="h-6 w-6 text-emerald-400" />,
-          gaugeColor: '#6fd6ae',
-          shadow: 'shadow-emerald-500/10'
+          icon: <ShieldCheck className="h-5 w-5 text-emerald-400" />,
+          gaugeColor: '#34d399',
         };
       case 'MODERATE':
         return {
-          bg: 'bg-amber-950/40 border-amber-500/40 text-amber-300',
+          bg: baseBg,
           badgeBg: 'badge-neon-moderate',
-          icon: <AlertTriangle className="h-6 w-6 text-amber-400" />,
-          gaugeColor: '#f2b33d',
-          shadow: 'shadow-amber-500/10'
+          icon: <AlertTriangle className="h-5 w-5 text-amber-400" />,
+          gaugeColor: '#fbbf24',
         };
       case 'HIGH':
         return {
-          bg: 'bg-rose-950/40 border-rose-500/40 text-rose-300',
+          bg: baseBg,
           badgeBg: 'badge-neon-high',
-          icon: <AlertTriangle className="h-6 w-6 text-rose-400" />,
+          icon: <AlertTriangle className="h-5 w-5 text-orange-400" />,
           gaugeColor: '#fb923c',
-          shadow: 'shadow-rose-500/10'
         };
       case 'EXTREME':
       default:
         return {
-          bg: 'bg-red-950/50 border-red-500/60 text-red-300',
+          bg: baseBg,
           badgeBg: 'badge-neon-extreme',
-          icon: <AlertOctagon className="h-6 w-6 text-red-400 animate-pulse" />,
-          gaugeColor: '#f43f5e',
-          shadow: 'shadow-red-500/20'
+          icon: <AlertOctagon className="h-5 w-5 text-rose-500" />,
+          gaugeColor: '#e11d48',
         };
     }
   };
@@ -142,11 +141,11 @@ export const RiskCard: React.FC<RiskCardProps> = ({
   const theme = getRiskTheme(risk.riskLevel);
 
   return (
-    <div className={`rounded-2xl border ${theme.bg} p-4 sm:p-5 shadow-xl ${theme.shadow} space-y-4 transition-all backdrop-blur-sm`}>
+    <div className={`rounded-2xl border ${theme.bg} p-6 shadow-2xl shadow-black/40 space-y-6 transition-all backdrop-blur-md`}>
       
-      {/* FISHERMAN HIGH-VISIBILITY TRAFFIC LIGHT ADVISORY BANNER */}
+      {/* ADVISORY BANNER (Premium Minimalist Strip) */}
       {(() => {
-        // Geofence breach overrides weather risk — this is the most critical danger
+        // Geofence breach overrides weather risk
         const hasGeofenceBreach =
           geofenceAnalysis?.inRestrictedWaters ||
           geofenceAnalysis?.status === 'RESTRICTED_BREACH' ||
@@ -156,33 +155,33 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           (geofenceAnalysis?.status === 'CAUTION' ||
             geofenceAnalysis?.activeAlerts?.some((a) => a.severity === 'PROXIMITY_WARNING'));
 
-        // Determine banner style based on breach status first, then weather risk
+        // Determine sleek banner style
         const bannerClass = hasGeofenceBreach
-          ? 'bg-red-900/90 border-red-400 text-red-100 shadow-lg shadow-red-900/50 animate-pulse'
+          ? 'bg-rose-950/40 border-l-4 border-l-rose-500 border-y border-y-rose-900/30 border-r border-r-rose-900/30 text-rose-200'
           : hasGeofenceCaution
-          ? 'bg-amber-900/80 border-amber-400 text-amber-100 shadow-lg shadow-amber-900/40'
+          ? 'bg-amber-950/40 border-l-4 border-l-amber-500 border-y border-y-amber-900/30 border-r border-r-amber-900/30 text-amber-200'
           : risk.riskLevel === 'LOW'
-          ? 'bg-emerald-900/80 border-emerald-400 text-emerald-100 shadow-lg shadow-emerald-900/40'
+          ? 'bg-emerald-950/30 border-l-4 border-l-emerald-500 border-y border-y-emerald-900/30 border-r border-r-emerald-900/30 text-emerald-200'
           : risk.riskLevel === 'MODERATE'
-          ? 'bg-amber-900/80 border-amber-400 text-amber-100 shadow-lg shadow-amber-900/40'
-          : 'bg-red-900/90 border-red-400 text-red-100 shadow-lg shadow-red-900/50 animate-pulse';
+          ? 'bg-amber-950/40 border-l-4 border-l-amber-500 border-y border-y-amber-900/30 border-r border-r-amber-900/30 text-amber-200'
+          : 'bg-rose-950/40 border-l-4 border-l-rose-500 border-y border-y-rose-900/30 border-r border-r-rose-900/30 text-rose-200';
 
         const bannerIcon = hasGeofenceBreach
-          ? <AlertOctagon className="h-6 w-6 text-red-300 animate-pulse" />
+          ? <AlertOctagon className="h-5 w-5 text-rose-500" />
           : hasGeofenceCaution
-          ? <AlertTriangle className="h-6 w-6 text-amber-400" />
+          ? <AlertTriangle className="h-5 w-5 text-amber-400" />
           : theme.icon;
 
         // Banner headline
         const bannerHeadline = hasGeofenceBreach
-          ? '🚨 DANGER — MARITIME BREACH'
+          ? 'MARITIME BREACH'
           : hasGeofenceCaution
-          ? '⚠️ CAUTION — BOUNDARY NEARBY'
+          ? 'BOUNDARY PROXIMITY'
           : risk.riskLevel === 'LOW'
-          ? '🟢 SAFE TO SAIL'
+          ? 'SAFE TO SAIL'
           : risk.riskLevel === 'MODERATE'
-          ? '🟡 CAUTION ADVISED'
-          : '🔴 STAY IN PORT / DO NOT SAIL';
+          ? 'CAUTION ADVISED'
+          : 'DO NOT SAIL';
 
         // Sub-message: for breach, show localized native-language phrase with real distance
         const breachAlert =
@@ -281,63 +280,61 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       </div>
 
       {/* Main Score & Categorical Card */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-slate-950/70 border border-slate-800/80 rounded-xl p-4">
+      <div className="flex flex-col md:flex-row gap-6 items-center md:items-start bg-[#0b121f]/50 border border-slate-800/40 rounded-xl p-6 shadow-inner">
         
         {/* Score Circular Gauge */}
-        <div className="md:col-span-4 flex items-center space-x-3.5 border-b md:border-b-0 md:border-r border-slate-800 pb-3 md:pb-0 md:pr-4">
+        <div className="flex items-center space-x-6 md:border-r border-slate-800/60 md:pr-6 shrink-0">
           <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
             {/* SVG Circle Progress */}
             <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
               <path
-                className="text-slate-800"
-                strokeWidth="3.5"
+                className="text-slate-800/40"
+                strokeWidth="2.5"
                 stroke="currentColor"
                 fill="none"
                 d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
               />
               <path
                 strokeDasharray={`${risk.riskScore}, 100`}
-                strokeWidth="3.5"
+                strokeWidth="2.5"
                 strokeLinecap="round"
                 stroke={theme.gaugeColor}
                 fill="none"
                 d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                className="transition-all duration-1000 ease-out"
               />
             </svg>
-            <div className="absolute flex flex-col items-center">
-              <span className="text-base font-extrabold text-white font-mono tabular-nums">{risk.riskScore}</span>
-              <span className="text-[9px] text-slate-400 uppercase font-mono">/ 100</span>
+            <div className="absolute flex flex-col items-center justify-center mt-0.5">
+              <span className="text-lg font-bold text-white font-mono tabular-nums leading-none tracking-tight">{risk.riskScore}</span>
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center space-x-1.5">
-              {theme.icon}
-              <span className={`px-2.5 py-0.5 rounded-md text-xs font-black uppercase tracking-wider border ${theme.badgeBg}`}>
+          <div className="flex flex-col justify-center space-y-1.5">
+            <div className="flex items-center space-x-2">
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border ${theme.badgeBg}`}>
                 {risk.riskLevel === 'LOW' ? dict.lowRisk : risk.riskLevel === 'MODERATE' ? dict.moderateRisk : risk.riskLevel === 'HIGH' ? dict.highRisk : dict.extremeRisk}
               </span>
             </div>
-            <div className="text-[11px] text-slate-400 mt-1 font-mono flex items-center gap-1">
-              <Cpu className="h-3 w-3 text-cyan-400" />
-              <span>{dict.confidence}: <strong className="text-slate-200 tabular-nums">{risk.confidenceScore}%</strong></span>
+            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 uppercase tracking-wider">
+              <Cpu className="h-3 w-3 text-slate-400" />
+              <span>Model Conf: <span className="text-slate-300 tabular-nums font-semibold">{risk.confidenceScore}%</span></span>
             </div>
           </div>
         </div>
 
         {/* Primary Verdict & Safety Recommendation */}
-        <div className="md:col-span-8 space-y-1.5">
-          <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-cyan-400"></span>
+        <div className="space-y-2 flex-1 pt-1">
+          <div className="text-[10px] uppercase tracking-widest font-semibold text-slate-500 flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-slate-400/50"></span>
             <span>{dict.primaryDirective}</span>
           </div>
-          <p className="text-sm font-semibold text-slate-200 leading-snug">
+          <p className="text-sm font-medium text-slate-200 leading-relaxed max-w-xl">
             {risk.primaryRecommendation}
           </p>
-          <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">
+          <p className="text-xs text-slate-400/80 leading-relaxed line-clamp-2 max-w-xl font-mono mt-2">
             {risk.safetySummary}
           </p>
         </div>
-
       </div>
 
       {/* Geofencing & Boundary Security Alert Banner */}
