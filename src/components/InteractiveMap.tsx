@@ -1013,9 +1013,37 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                   id="btn-geofence-audio-broadcast"
                   onClick={async () => {
                     await maritimeSiren.unlock();
-                    const alert = geo.activeAlerts?.[0] || geo.nearestImbl || geo.nearestMpa;
-                    if (alert) {
-                      voiceWarning.evaluateAndAnnounce(alert, risk, language);
+                    // Pick the most critical alert first (CRITICAL_BREACH > PROXIMITY_WARNING > ADVISORY)
+                    const criticalActiveAlert =
+                      geo.activeAlerts?.find((a) => a.severity === 'CRITICAL_BREACH') ||
+                      geo.activeAlerts?.find((a) => a.severity === 'PROXIMITY_WARNING') ||
+                      geo.activeAlerts?.[0];
+                    if (criticalActiveAlert) {
+                      const phrase = voiceWarning.generateGeofencePhrase(criticalActiveAlert, language);
+                      voiceWarning.speak(phrase, language, {
+                        playSirenFirst: true,
+                        isCritical: criticalActiveAlert.severity === 'CRITICAL_BREACH',
+                        force: true,
+                      });
+                    } else if (geo.nearestImbl || geo.nearestMpa) {
+                      // Nearest boundary: use status to determine severity
+                      const nearestAlert = geo.nearestImbl || geo.nearestMpa!;
+                      const isBreach = geo.status === 'RESTRICTED_BREACH';
+                      const isCaution = geo.status === 'CAUTION';
+                      const alertWithSeverity = {
+                        ...nearestAlert,
+                        severity: isBreach
+                          ? ('CRITICAL_BREACH' as const)
+                          : isCaution
+                          ? ('PROXIMITY_WARNING' as const)
+                          : ('ADVISORY' as const),
+                      };
+                      const phrase = voiceWarning.generateGeofencePhrase(alertWithSeverity, language);
+                      voiceWarning.speak(phrase, language, {
+                        playSirenFirst: isBreach || isCaution,
+                        isCritical: isBreach,
+                        force: true,
+                      });
                     } else {
                       const phrase = voiceWarning.generateTestPhrase(language);
                       voiceWarning.speak(phrase, language, { playSirenFirst: false, isCritical: false, force: true });

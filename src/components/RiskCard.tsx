@@ -52,12 +52,50 @@ export const RiskCard: React.FC<RiskCardProps> = ({
     await maritimeSiren.unlock();
     setIsPlayingAudio(true);
 
-    const isCritical = risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH' || Boolean(geofenceAnalysis?.inRestrictedWaters);
+    const isBreach =
+      geofenceAnalysis?.inRestrictedWaters ||
+      geofenceAnalysis?.status === 'RESTRICTED_BREACH' ||
+      geofenceAnalysis?.activeAlerts?.some((a) => a.severity === 'CRITICAL_BREACH');
+    const isCaution =
+      !isBreach &&
+      (geofenceAnalysis?.status === 'CAUTION' ||
+        geofenceAnalysis?.activeAlerts?.some((a) => a.severity === 'PROXIMITY_WARNING'));
 
-    // Determine localized speech text including boundary proximity warnings (100% native language)
-    const geofenceAlert = geofenceAnalysis?.activeAlerts?.[0] || geofenceAnalysis?.nearestImbl;
-    const textToSpeak = voiceWarning.generateRiskVerdictPhrase(location, risk, geofenceAlert, language);
+    // Prioritize geofence breach/proximity announcements
+    if (isBreach) {
+      // Pick the most critical alert (CRITICAL_BREACH first, then by nearest distance)
+      const criticalAlert =
+        geofenceAnalysis?.activeAlerts?.find((a) => a.severity === 'CRITICAL_BREACH') ||
+        geofenceAnalysis?.activeAlerts?.[0];
+      const fallbackAlert = geofenceAnalysis?.nearestImbl || geofenceAnalysis?.nearestMpa;
+      const alert = criticalAlert || fallbackAlert;
+      if (alert) {
+        const alertWithSeverity = { ...alert, severity: 'CRITICAL_BREACH' as const };
+        const phrase = voiceWarning.generateGeofencePhrase(alertWithSeverity, language);
+        await voiceWarning.speak(phrase, language, { playSirenFirst: true, isCritical: true, force: true });
+        setIsPlayingAudio(false);
+        return;
+      }
+    }
 
+    if (isCaution) {
+      const alert =
+        geofenceAnalysis?.activeAlerts?.find((a) => a.severity === 'PROXIMITY_WARNING') ||
+        geofenceAnalysis?.activeAlerts?.[0] ||
+        geofenceAnalysis?.nearestImbl ||
+        geofenceAnalysis?.nearestMpa;
+      if (alert) {
+        const alertWithSeverity = { ...alert, severity: 'PROXIMITY_WARNING' as const };
+        const phrase = voiceWarning.generateGeofencePhrase(alertWithSeverity, language);
+        await voiceWarning.speak(phrase, language, { playSirenFirst: true, isCritical: false, force: true });
+        setIsPlayingAudio(false);
+        return;
+      }
+    }
+
+    // No geofence alert — speak the risk verdict (weather/safety status)
+    const isCritical = risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH';
+    const textToSpeak = voiceWarning.generateRiskVerdictPhrase(location, risk, undefined, language);
     await voiceWarning.speak(textToSpeak, language, { playSirenFirst: true, isCritical, force: true });
     setIsPlayingAudio(false);
   };
@@ -107,31 +145,73 @@ export const RiskCard: React.FC<RiskCardProps> = ({
     <div className={`rounded-2xl border ${theme.bg} p-4 sm:p-5 shadow-xl ${theme.shadow} space-y-4 transition-all backdrop-blur-sm`}>
       
       {/* FISHERMAN HIGH-VISIBILITY TRAFFIC LIGHT ADVISORY BANNER */}
-      <div className={`p-4 rounded-xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left ${
-        risk.riskLevel === 'LOW' 
-          ? 'bg-emerald-900/80 border-emerald-400 text-emerald-100 shadow-lg shadow-emerald-900/40' 
-          : risk.riskLevel === 'MODERATE' 
-          ? 'bg-amber-900/80 border-amber-400 text-amber-100 shadow-lg shadow-amber-900/40' 
-          : 'bg-red-900/90 border-red-400 text-red-100 shadow-lg shadow-red-900/50 animate-pulse'
-      }`}>
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 rounded-full bg-slate-950/40 shrink-0">
-            {theme.icon}
-          </div>
-          <div>
-            <span className="text-[10px] font-mono uppercase tracking-widest opacity-80 block">
-              {location.name} • Official Sea Advisory
-            </span>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight leading-none mt-0.5">
-              {risk.riskLevel === 'LOW' && '🟢 SAFE TO SAIL'}
-              {risk.riskLevel === 'MODERATE' && '🟡 CAUTION ADVISED'}
-              {(risk.riskLevel === 'HIGH' || risk.riskLevel === 'EXTREME') && '🔴 STAY IN PORT / DO NOT SAIL'}
-            </h2>
-            <p className="text-xs font-semibold opacity-90 mt-1">
-              {risk.primaryRecommendation}
-            </p>
-          </div>
-        </div>
+      {(() => {
+        // Geofence breach overrides weather risk — this is the most critical danger
+        const hasGeofenceBreach =
+          geofenceAnalysis?.inRestrictedWaters ||
+          geofenceAnalysis?.status === 'RESTRICTED_BREACH' ||
+          geofenceAnalysis?.activeAlerts?.some((a) => a.severity === 'CRITICAL_BREACH');
+        const hasGeofenceCaution =
+          !hasGeofenceBreach &&
+          (geofenceAnalysis?.status === 'CAUTION' ||
+            geofenceAnalysis?.activeAlerts?.some((a) => a.severity === 'PROXIMITY_WARNING'));
+
+        // Determine banner style based on breach status first, then weather risk
+        const bannerClass = hasGeofenceBreach
+          ? 'bg-red-900/90 border-red-400 text-red-100 shadow-lg shadow-red-900/50 animate-pulse'
+          : hasGeofenceCaution
+          ? 'bg-amber-900/80 border-amber-400 text-amber-100 shadow-lg shadow-amber-900/40'
+          : risk.riskLevel === 'LOW'
+          ? 'bg-emerald-900/80 border-emerald-400 text-emerald-100 shadow-lg shadow-emerald-900/40'
+          : risk.riskLevel === 'MODERATE'
+          ? 'bg-amber-900/80 border-amber-400 text-amber-100 shadow-lg shadow-amber-900/40'
+          : 'bg-red-900/90 border-red-400 text-red-100 shadow-lg shadow-red-900/50 animate-pulse';
+
+        const bannerIcon = hasGeofenceBreach
+          ? <AlertOctagon className="h-6 w-6 text-red-300 animate-pulse" />
+          : hasGeofenceCaution
+          ? <AlertTriangle className="h-6 w-6 text-amber-400" />
+          : theme.icon;
+
+        // Banner headline
+        const bannerHeadline = hasGeofenceBreach
+          ? '🚨 DANGER — MARITIME BREACH'
+          : hasGeofenceCaution
+          ? '⚠️ CAUTION — BOUNDARY NEARBY'
+          : risk.riskLevel === 'LOW'
+          ? '🟢 SAFE TO SAIL'
+          : risk.riskLevel === 'MODERATE'
+          ? '🟡 CAUTION ADVISED'
+          : '🔴 STAY IN PORT / DO NOT SAIL';
+
+        // Sub-message: for breach, show localized native-language phrase with real distance
+        const breachAlert =
+          geofenceAnalysis?.activeAlerts?.find((a) => a.severity === 'CRITICAL_BREACH') ||
+          geofenceAnalysis?.activeAlerts?.find((a) => a.severity === 'PROXIMITY_WARNING');
+        const bannerSubtext = hasGeofenceBreach && breachAlert
+          ? voiceWarning.generateGeofencePhrase({ ...breachAlert, severity: 'CRITICAL_BREACH' }, language)
+          : hasGeofenceCaution && breachAlert
+          ? voiceWarning.generateGeofencePhrase({ ...breachAlert, severity: 'PROXIMITY_WARNING' }, language)
+          : risk.primaryRecommendation;
+
+        return (
+          <div className={`p-4 rounded-xl border-2 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left ${bannerClass}`}>
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 rounded-full bg-slate-950/40 shrink-0">
+                {bannerIcon}
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest opacity-80 block">
+                  {location.name} • {hasGeofenceBreach ? 'Geofence Breach Alert' : hasGeofenceCaution ? 'Boundary Proximity Alert' : 'Official Sea Advisory'}
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight leading-none mt-0.5">
+                  {bannerHeadline}
+                </h2>
+                <p className="text-xs font-semibold opacity-90 mt-1">
+                  {bannerSubtext}
+                </p>
+              </div>
+            </div>
 
         {/* Big One-Handed Listen Button */}
         <button
@@ -147,7 +227,9 @@ export const RiskCard: React.FC<RiskCardProps> = ({
           {isPlayingAudio ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5 text-cyan-400" />}
           <span>{isPlayingAudio ? 'Stop Audio' : '🔊 Listen Warning'}</span>
         </button>
-      </div>
+          </div>
+        );
+      })()}
 
       {/* Header with Risk Level Badge & Audio Narration */}
       <div className="flex items-start justify-between pt-1">

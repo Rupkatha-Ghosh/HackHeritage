@@ -43,6 +43,33 @@ async function fetchTtsChunk(text: string, lang: string): Promise<Buffer | null>
   return Buffer.from(ab);
 }
 
+// Helper function to split text into safe TTS chunks under 150 chars
+function splitIntoTtsChunks(text: string, maxLen = 150): string[] {
+  if (text.length <= maxLen) return [text];
+  const sentences = text.match(/[^।\.!\?;:\n]+[।\.!\?;:\n]?/g) || [text];
+  const result: string[] = [];
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (!trimmed) continue;
+    if (trimmed.length <= maxLen) {
+      result.push(trimmed);
+    } else {
+      const sub = trimmed.split(/([,।\s]+)/);
+      let current = '';
+      for (const piece of sub) {
+        if ((current + piece).length <= maxLen) {
+          current += piece;
+        } else {
+          if (current.trim()) result.push(current.trim());
+          current = piece;
+        }
+      }
+      if (current.trim()) result.push(current.trim());
+    }
+  }
+  return result.length > 0 ? result : [text];
+}
+
 // Synthesize speech for any Indian coastal language
 async function synthesizeIndicSpeech(text: string, lang: string): Promise<Buffer | null> {
   let targetLang = lang;
@@ -60,11 +87,7 @@ async function synthesizeIndicSpeech(text: string, lang: string): Promise<Buffer
     }).join('');
   }
 
-  if (cleanText.length <= 160) {
-    return await fetchTtsChunk(cleanText, targetLang);
-  }
-
-  const chunks = cleanText.match(/[^।\.!\?]+[।\.!\?]?/g) || [cleanText];
+  const chunks = splitIntoTtsChunks(cleanText, 150);
   const buffers: Buffer[] = [];
   for (const chunk of chunks) {
     const trimmed = chunk.trim();

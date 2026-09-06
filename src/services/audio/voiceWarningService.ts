@@ -57,73 +57,390 @@ const RISK_LEVEL_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
   kn: { LOW: 'ಕಡಿಮೆ', MODERATE: 'ಮಧ್ಯಮ', HIGH: 'ಹೆಚ್ಚು', EXTREME: 'ತೀವ್ರ' },
 };
 
-const PORT_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
-  en: {},
-  hi: { 'Digha': 'दीघा बंदरगाह', 'Paradip': 'पारादीप बंदरगाह', 'Puri': 'पुरी बंदरगाह', 'Visakhapatnam': 'विशाखापट्टनम बंदरगाह', 'Kochi': 'कोच्चि बंदरगाह', 'Chennai': 'चेन्नई बंदरगाह', 'Mumbai': 'मुंबई बंदरगाह' },
-  bn: { 'Digha': 'দিঘা বন্দর', 'Paradip': 'পারাদ্বীপ বন্দর', 'Puri': 'পুরী বন্দর', 'Visakhapatnam': 'বিশাখাপত্তনম বন্দর', 'Kochi': 'কোচি বন্দর', 'Chennai': 'চেন্নাই বন্দর', 'Mumbai': 'মুম্বই বন্দর' },
-  ta: { 'Digha': 'திகா துறைமுகம்', 'Paradip': 'பாராதீப் துறைமுகம்', 'Puri': 'பூரி துறைமுகம்', 'Visakhapatnam': 'விசாகப்பட்டினம் துறைமுகம்', 'Kochi': 'கொச்சி துறைமுகம்', 'Chennai': 'சென்னை துறைமுகம்', 'Mumbai': 'மும்பை துறைமுகம்' },
-  te: { 'Digha': 'దిఘా ఓడరేవు', 'Paradip': 'పారదీప్ ఓడరేవు', 'Puri': 'పూరీ ఓడరేవు', 'Visakhapatnam': 'విశాఖపట్నం పోర్టు', 'Kochi': 'కొచ్చి పోర్టు', 'Chennai': 'చెన్నై పోర్టు', 'Mumbai': 'ముంబై పోర్టు' },
-  or: { 'Digha': 'ଦିଘା ବନ୍ଦର', 'Paradip': 'ପାରାଦୀପ ବନ୍ଦର', 'Puri': 'ପୁରୀ ବନ୍ଦର', 'Visakhapatnam': 'ବିଶାଖାପାଟଣା ବନ୍ଦର', 'Kochi': 'କୋଚି ବନ୍ଦର', 'Chennai': 'ଚେନ୍ନାଇ ବନ୍ଦର', 'Mumbai': 'ମୁମ୍ବାଇ ବନ୍ଦର' },
-  ml: { 'Digha': 'ദിഘ തുറമുഖം', 'Paradip': 'പാരാദ്വീപ് തുറമുഖം', 'Puri': 'പുരി തുറമുഖം', 'Visakhapatnam': 'വിശാഖപട്ടണം തുറമുഖം', 'Kochi': 'കൊച്ചി തുറമുഖം', 'Chennai': 'ചെന്നൈ തുറമുഖം', 'Mumbai': 'മുംബൈ തുറമുഖം' },
-  gu: { 'Digha': 'દીઘા બંદર', 'Paradip': 'પારાદીપ બંદર', 'Puri': 'પુરી બંદર', 'Visakhapatnam': 'વિશાખાપટ્ટનમ બંદર', 'Kochi': 'કોચી બંદર', 'Chennai': 'ચેન્નાઈ બંદર', 'Mumbai': 'મુંબઈ બંદર' },
-  mr: { 'Digha': 'दीघा बंदर', 'Paradip': 'पारादीप बंदर', 'Puri': 'पुरी बंदर', 'Visakhapatnam': 'विशाखापट्टणम बंदर', 'Kochi': 'कोची बंदर', 'Chennai': 'चेन्नई बंदर', 'Mumbai': 'मुंबई बंदर' },
-  kn: { 'Digha': 'ದಿಘಾ ಬಂದರು', 'Paradip': 'ಪಾರಾದೀಪ್ ಬಂದರು', 'Puri': 'ಪುರಿ ಬಂದರು', 'Visakhapatnam': 'ವಿಶಾಖಪಟ್ಟಣಂ ಬಂದರು', 'Kochi': 'ಕೊಚ್ಚಿ ಬಂದರು', 'Chennai': 'ಚೆನ್ನೈ ಬಂದರು', 'Mumbai': 'ಮುಂಬೈ ಬಂದರು' },
-};
-
-const BOUNDARY_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
+export const PORT_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
   en: {},
   hi: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'भारत-श्रीलंका अंतर्राष्ट्रीय समुद्री सीमा',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'भारत-पाकिस्तान अंतर्राष्ट्रीय समुद्री सीमा',
+    digha: 'दीघा बंदरगाह',
+    kakdwip: 'काकद्वीप बंदरगाह',
+    namkhana: 'नामखाना बंदरगाह',
+    puri: 'पुरी बंदरगाह',
+    paradip: 'पारादीप बंदरगाह',
+    paradeep: 'पारादीप बंदरगाह',
+    gopalpur: 'गोपालपुर बंदरगाह',
+    visakhapatnam: 'विशाखापट्टनम बंदरगाह',
+    vizag: 'विशाखापट्टनम बंदरगाह',
+    kakinada: 'काकीनाड़ा बंदरगाह',
+    kasimedu: 'चेन्नई बंदरगाह',
+    chennai: 'चेन्नई बंदरगाह',
+    tuticorin: 'तूतीकोरिन बंदरगाह',
+    chidambaranar: 'तूतीकोरिन बंदरगाह',
+    kochi: 'कोच्चि बंदरगाह',
+    cochin: 'कोच्चि बंदरगाह',
+    mangalore: 'मैंगलोर बंदरगाह',
+    mormugao: 'मोरमुगाओ बंदरगाह',
+    goa: 'गोवा बंदरगाह',
+    mumbai: 'मुंबई बंदरगाह',
+    sassoon: 'मुंबई बंदरगाह',
+    veraval: 'वेरावल बंदरगाह',
+    porbandar: 'पोरबंदर बंदरगाह',
+    'port blair': 'पोर्ट ब्लेयर बंदरगाह',
+    haddo: 'पोर्ट ब्लेयर बंदरगाह',
+    dhanushkodi: 'धनुषकोडी',
+    jakhau: 'जाखौ बंदरगाह',
   },
   bn: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ভারত-শ্রীলঙ্কা আন্তর্জাতিক সমুদ্রসীমা',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ভারত-পাকিস্তান আন্তর্জাতিক সমুদ্রসীমা',
+    digha: 'দিঘা বন্দর',
+    kakdwip: 'কাকদ্বীপ বন্দর',
+    namkhana: 'নামখানা বন্দর',
+    puri: 'পুরী বন্দর',
+    paradip: 'পারাদ্বীপ বন্দর',
+    paradeep: 'পারাদ্বীপ বন্দর',
+    gopalpur: 'গোপালপুর বন্দর',
+    visakhapatnam: 'বিশাখাপত্তনম বন্দর',
+    vizag: 'বিশাখাপত্তনম বন্দর',
+    kakinada: 'কাকিনাড়া বন্দর',
+    kasimedu: 'চেন্নাই বন্দর',
+    chennai: 'চেন্নাই বন্দর',
+    tuticorin: 'তুতিকোরিন বন্দর',
+    chidambaranar: 'তুতিকোরিন বন্দর',
+    kochi: 'কোচি বন্দর',
+    cochin: 'কোচি বন্দর',
+    mangalore: 'ম্যাঙ্গালোর বন্দর',
+    mormugao: 'মার্মাগাঁও বন্দর',
+    goa: 'গোয়া বন্দর',
+    mumbai: 'মুম্বই বন্দর',
+    sassoon: 'মুম্বই বন্দর',
+    veraval: 'ভেরাভাল বন্দর',
+    porbandar: 'পোরবন্দর',
+    'port blair': 'পোর্ট ব্লেয়ার বন্দর',
+    haddo: 'পোর্ট ব্লেয়ার বন্দর',
+    dhanushkodi: 'ধনুষ্কোডি',
+    jakhau: 'জাখাউ বন্দর',
   },
   ta: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'இந்தியா-இலங்கை சர்வதேச கடல் எல்லை',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'இந்தியா-பாகிஸ்தான் சர்வதேச கடல் எல்லை',
+    digha: 'திகா துறைமுகம்',
+    kakdwip: 'காக்த்வீプ துறைமுகம்',
+    namkhana: 'நாம்கானா துறைமுகம்',
+    puri: 'பூரி துறைமுகம்',
+    paradip: 'பாராதீப் துறைமுகம்',
+    paradeep: 'பாராதீப் துறைமுகம்',
+    gopalpur: 'கோபால்பூர் துறைமுகம்',
+    visakhapatnam: 'விசாகப்பட்டினம் துறைமுகம்',
+    vizag: 'விசாகப்பட்டினம் துறைமுகம்',
+    kakinada: 'காக்கிநாடா துறைமுகம்',
+    kasimedu: 'சென்னை துறைமுகம்',
+    chennai: 'சென்னை துறைமுகம்',
+    tuticorin: 'தூத்துக்குடி துறைமுகம்',
+    chidambaranar: 'தூத்துக்குடி துறைமுகம்',
+    kochi: 'கொச்சி துறைமுகம்',
+    cochin: 'கொச்சி துறைமுகம்',
+    mangalore: 'மங்களூர் துறைமுகம்',
+    mormugao: 'மர்மகோவா துறைமுகம்',
+    goa: 'கோவா துறைமுகம்',
+    mumbai: 'மும்பை துறைமுகம்',
+    sassoon: 'மும்பை துறைமுகம்',
+    veraval: 'வேராவல் துறைமுகம்',
+    porbandar: 'போர்பந்தர் துறைமுகம்',
+    'port blair': 'போர்ட் பிளேர் துறைமுகம்',
+    haddo: 'போர்ட் பிளேர் துறைமுகம்',
+    dhanushkodi: 'தனுஷ்கோடி',
+    jakhau: 'ஜாகாவ் துறைமுகம்',
   },
   te: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'భారతదేశం-శ్రీలంక అంతర్జాతీయ సముద్ర సరిహద్దు',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'భారతదేశం-పాకిస్తాన్ అంతర్జాతీయ సముద్ర సరిహద్దు',
+    digha: 'దిఘా ఓడరేవు',
+    kakdwip: 'కాకద్వీప్ ఓడరేవు',
+    namkhana: 'నామ్‌ఖానా ఓడరేవు',
+    puri: 'పూరీ ఓడరేవు',
+    paradip: 'పారదీప్ ఓడరేవు',
+    paradeep: 'పారదీప్ ఓడరేవు',
+    gopalpur: 'గోపాల్‌పూర్ ఓడరేవు',
+    visakhapatnam: 'విశాఖపట్నం పోర్టు',
+    vizag: 'విశాఖపట్నం పోర్టు',
+    kakinada: 'కాకినాడ పోర్టు',
+    kasimedu: 'చెన్నై పోర్టు',
+    chennai: 'చెన్నై పోర్టు',
+    tuticorin: 'తూత్తుకుడి పోర్టు',
+    chidambaranar: 'తూత్తుకుడి పోర్టు',
+    kochi: 'కొచ్చి పోర్టు',
+    cochin: 'కొచ్చి పోర్టు',
+    mangalore: 'మంగళూరు పోర్టు',
+    mormugao: 'మోర్ముగావ్ పోర్టు',
+    goa: 'గోవా పోర్టు',
+    mumbai: 'ముంబై పోర్టు',
+    sassoon: 'ముంబై పోర్టు',
+    veraval: 'వెరావల్ పోర్టు',
+    porbandar: 'పోర్‌బందర్ పోర్టు',
+    'port blair': 'పోర్ట్ బ్లెయిర్ పోర్టు',
+    haddo: 'పోర్ట్ బ్లెయిర్ పోర్టు',
+    dhanushkodi: 'ధనుష్కోడి',
+    jakhau: 'జఖౌ పోర్టు',
   },
   or: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ଭାରତ-ଶ୍ରୀଲଙ୍କା ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ଭାରତ-ପାକିସ୍ତାନ ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+    digha: 'ଦିଘା ବନ୍ଦର',
+    kakdwip: 'କାକଦ୍ୱୀପ ବନ୍ଦର',
+    namkhana: 'ନାମଖାନା ବନ୍ଦର',
+    puri: 'ପୁରୀ ବନ୍ଦର',
+    paradip: 'ପାରାଦୀପ ବନ୍ଦର',
+    paradeep: 'ପାରାଦୀପ ବନ୍ଦର',
+    gopalpur: 'ଗୋପାଳପୁର ବନ୍ଦର',
+    visakhapatnam: 'ବିଶାଖାପାଟଣା ବନ୍ଦର',
+    vizag: 'ବିଶାଖାପାଟଣା ବନ୍ଦର',
+    kakinada: 'କାକିନାଡା ବନ୍ଦର',
+    kasimedu: 'ଚେନ୍ନାଇ ବନ୍ଦର',
+    chennai: 'ଚେନ୍ନାଇ ବନ୍ଦର',
+    tuticorin: 'ତୁତିକୋରିନ୍ ବନ୍ଦର',
+    chidambaranar: 'ତୁତିକୋରିନ୍ ବନ୍ଦର',
+    kochi: 'କୋଚି ବନ୍ଦର',
+    cochin: 'କୋଚି ବନ୍ଦର',
+    mangalore: 'ମାଙ୍ଗାଲୋର ବନ୍ଦର',
+    mormugao: 'ମୋର୍ମୁଗାଓ ବନ୍ଦର',
+    goa: 'ଗୋଆ ବନ୍ଦର',
+    mumbai: 'ମୁମ୍ବାଇ ବନ୍ଦର',
+    sassoon: 'ମୁମ୍ବାଇ ବନ୍ଦର',
+    veraval: 'ଭେରାଭାଲ ବନ୍ଦର',
+    porbandar: 'ପୋରବନ୍ଦର ବନ୍ଦର',
+    'port blair': 'ପୋର୍ଟ ବ୍ଲେୟାର ବନ୍ଦର',
+    haddo: 'ପୋର୍ଟ ବ୍ଲେୟାର ବନ୍ଦର',
+    dhanushkodi: 'ଧନୁଷ୍କୋଡି',
+    jakhau: 'ଜାଖାଉ ବନ୍ଦର',
   },
   ml: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ഇന്ത്യ-ശ്രീലങ്ക അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ഇന്ത്യ-പാകിസ്ഥാൻ അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+    digha: 'ദിഘ തുറമുഖം',
+    kakdwip: 'കാകദ്വീപ് തുറമുഖം',
+    namkhana: 'നാംഖാന തുറമുഖം',
+    puri: 'പുരി തുറമുഖം',
+    paradip: 'പാരാദ്വീപ് തുറമുഖം',
+    paradeep: 'പാരാദ്വീപ് തുറമുഖം',
+    gopalpur: 'ഗോപാൽപൂർ തുറമുഖം',
+    visakhapatnam: 'വിശാഖപട്ടണം തുറമുഖം',
+    vizag: 'വിശാഖപട്ടണം തുറമുഖം',
+    kakinada: 'കാക്കിനട തുറമുഖം',
+    kasimedu: 'ചെന്നൈ തുറമുഖം',
+    chennai: 'ചെന്നൈ തുറമുഖം',
+    tuticorin: 'തൂത്തുക്കുടി തുറമുഖം',
+    chidambaranar: 'തൂത്തുക്കുടി തുറമുഖം',
+    kochi: 'കൊച്ചി തുറമുഖം',
+    cochin: 'കൊച്ചി തുറമുഖം',
+    mangalore: 'മംഗലാപുരം തുറമുഖം',
+    mormugao: 'മർമ്മഗോവ തുറമുഖം',
+    goa: 'ഗോവ തുറമുഖം',
+    mumbai: 'മുംബൈ തുറമുഖം',
+    sassoon: 'മുംബൈ തുറമുഖം',
+    veraval: 'വെരാവൽ തുറമുഖം',
+    porbandar: 'പോർബന്ദർ തുറമുഖം',
+    'port blair': 'പോർട്ട് ബ്ലെയർ തുറമുഖം',
+    haddo: 'പോർട്ട് ബ്ലെയർ തുറമുഖം',
+    dhanushkodi: 'ധനുഷ്കോടി',
+    jakhau: 'ജഖാവ് തുറമുഖം',
   },
   gu: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ભારત-શ્રીલંકા આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ભારત-પાકિસ્તાન આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+    digha: 'દીઘા બંદર',
+    kakdwip: 'કાકદ્વીપ બંદર',
+    namkhana: 'નામખાના બંદર',
+    puri: 'પુરી બંદર',
+    paradip: 'પારાદીપ બંદર',
+    paradeep: 'પારાદીપ બંદર',
+    gopalpur: 'ગોપાલપુર બંદર',
+    visakhapatnam: 'વિશાખાપટ્ટનમ બંદર',
+    vizag: 'વિશાખાપટ્ટનમ બંદર',
+    kakinada: 'કાકીનાડા બંદર',
+    kasimedu: 'ચેન્નાઈ બંદર',
+    chennai: 'ચેન્નાઈ બંદર',
+    tuticorin: 'તુતીકોરીન બંદર',
+    chidambaranar: 'તુતીકોરીન બંદર',
+    kochi: 'કોચી બંદર',
+    cochin: 'કોચી બંદર',
+    mangalore: 'મેંગલોર બંદર',
+    mormugao: 'મોર્મુગાઓ બંદર',
+    goa: 'ગોવા બંદર',
+    mumbai: 'મુંબઈ બંદર',
+    sassoon: 'મુંબઈ બંદર',
+    veraval: 'વેરાવળ બંદર',
+    porbandar: 'પોરબંદર',
+    'port blair': 'પોર્ટ બ્લેયર બંદર',
+    haddo: 'પોર્ટ બ્લેયર બંદર',
+    dhanushkodi: 'ધનુષકોડી',
+    jakhau: 'જાખો બંદર',
   },
   mr: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'भारत-श्रीलंका आंतरराष्ट्रीय सागरी सीमा',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'भारत-पाकिस्तान आंतरराष्ट्रीय सागरी सीमा',
+    digha: 'दीघा बंदर',
+    kakdwip: 'काकद्वीप बंदर',
+    namkhana: 'नामखाना बंदर',
+    puri: 'पुरी बंदर',
+    paradip: 'पारादीप बंदर',
+    paradeep: 'पारादीप बंदर',
+    gopalpur: 'गोपाळपूर बंदर',
+    visakhapatnam: 'विशाखापट्टणम बंदर',
+    vizag: 'विशाखापट्टणम बंदर',
+    kakinada: 'काकिनाडा बंदर',
+    kasimedu: 'चेन्नई बंदर',
+    chennai: 'चेन्नई बंदर',
+    tuticorin: 'तुतीकोरीन बंदर',
+    chidambaranar: 'तुतीकोरीन बंदर',
+    kochi: 'कोची बंदर',
+    cochin: 'कोची बंदर',
+    mangalore: 'मंगलोर बंदर',
+    mormugao: 'मोरमुगाओ बंदर',
+    goa: 'गोवा बंदर',
+    mumbai: 'मुंबई बंदर',
+    sassoon: 'मुंबई बंदर',
+    veraval: 'वेरावळ बंदर',
+    porbandar: 'पोरबंदर',
+    'port blair': 'पोर्ट ब्लेअर बंदर',
+    haddo: 'पोर्ट ब्लेअर बंदर',
+    dhanushkodi: 'धनुषकोडी',
+    jakhau: 'जाखौ बंदर',
   },
   kn: {
-    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ಭಾರತ-ಶ್ರೀಲಂಕಾ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
-    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ಭಾರತ-ಪಾಕಿಸ್ತಾನ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+    digha: 'ದಿಘಾ ಬಂದರು',
+    kakdwip: 'ಕಾಕದ್ವೀಪ ಬಂದರು',
+    namkhana: 'ನಾಮ್ಖಾನಾ ಬಂದರು',
+    puri: 'ಪುರಿ ಬಂದರು',
+    paradip: 'ಪಾರಾದೀಪ್ ಬಂದರು',
+    paradeep: 'ಪಾರಾದೀಪ್ ಬಂದರು',
+    gopalpur: 'ಗೋಪಾಲ್ಪುರ ಬಂದರು',
+    visakhapatnam: 'ವಿಶಾಖಪಟ್ಟಣಂ ಬಂದರು',
+    vizag: 'ವಿಶಾಖಪಟ್ಟಣಂ ಬಂದರು',
+    kakinada: 'ಕಾಕಿನಾಡ ಬಂದರು',
+    kasimedu: 'ಚೆನ್ನೈ ಬಂದರು',
+    chennai: 'ಚೆನ್ನೈ ಬಂದರು',
+    tuticorin: 'ತೂತುಕುಡಿ ಬಂದರು',
+    chidambaranar: 'ತೂತುಕುಡಿ ಬಂದರು',
+    kochi: 'ಕೊಚ್ಚಿ ಬಂದರು',
+    cochin: 'ಕೊಚ್ಚಿ ಬಂದರು',
+    mangalore: 'ಮಂಗಳೂರು ಬಂದರು',
+    mormugao: 'ಮೋರ್ಮುಗಾವೊ ಬಂದರು',
+    goa: 'ಗೋವಾ ಬಂದರು',
+    mumbai: 'ಮುಂಬೈ ಬಂದರು',
+    sassoon: 'ಮುಂಬೈ ಬಂದರು',
+    veraval: 'ವೆರಾವಲ್ ಬಂದರು',
+    porbandar: 'ಪೋರ್ಬಂದರ್ ಬಂದರು',
+    'port blair': 'ಪೋರ್ಟ್ ಬ್ಲೇರ್ ಬಂದರು',
+    haddo: 'ಪೋರ್ಟ್ ಬ್ಲೇರ್ ಬಂದರು',
+    dhanushkodi: 'ಧನುಷ್ಕೋಡಿ',
+    jakhau: 'ಜಖೌ ಬಂದರು',
   },
 };
 
-function resolvePortName(name: string, lang: LanguageCode): string {
+export const BOUNDARY_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
+  en: {
+    srilanka: 'India – Sri Lanka International Maritime Boundary Line',
+    bangladesh: 'India – Bangladesh Maritime Boundary',
+    pakistan: 'India – Pakistan Arabian Sea Maritime Boundary',
+    gahirmatha: 'Gahirmatha Marine Wildlife Sanctuary',
+    mannar: 'Gulf of Mannar Marine National Park',
+    sundarbans: 'Sundarbans Biosphere Marine Reserve',
+    generic: 'International Maritime Boundary',
+  },
+  hi: {
+    srilanka: 'भारत-श्रीलंका अंतर्राष्ट्रीय समुद्री सीमा',
+    bangladesh: 'भारत-बांग्लादेश अंतर्राष्ट्रीय समुद्री सीमा',
+    pakistan: 'भारत-पाकिस्तान अंतर्राष्ट्रीय समुद्री सीमा',
+    gahirmatha: 'गहिरमाथा समुद्री अभयारण्य',
+    mannar: 'मन्नार की खाड़ी समुद्री राष्ट्रीय उद्यान',
+    sundarbans: 'सुंदरवन समुद्री संरक्षित क्षेत्र',
+    generic: 'अंतर्राष्ट्रीय समुद्री सीमा',
+  },
+  bn: {
+    srilanka: 'ভারত-শ্রীলঙ্কা আন্তর্জাতিক সমুদ্রসীমা',
+    bangladesh: 'ভারত-বাংলাদেশ আন্তর্জাতিক সমুদ্রসীমা',
+    pakistan: 'ভারত-পাকিস্তান আন্তর্জাতিক সমুদ্রসীমা',
+    gahirmatha: 'গহিরমাথা সামুদ্রিক অভয়ারণ্য',
+    mannar: 'মান্নার উপসাগর সামুদ্রিক জাতীয় উদ্যান',
+    sundarbans: 'সুন্দরবন সামুদ্রিক সংরক্ষিত অঞ্চল',
+    generic: 'আন্তর্জাতিক সমুদ্রসীমা',
+  },
+  ta: {
+    srilanka: 'இந்தியா-இலங்கை சர்வதேச கடல் எல்லை',
+    bangladesh: 'இந்தியா-வங்கதேசம் சர்வதேச கடல் எல்லை',
+    pakistan: 'இந்தியா-பாகிஸ்தான் சர்வதேச கடல் எல்லை',
+    gahirmatha: 'கஹிர்மாதா கடல் சரணாலயம்',
+    mannar: 'மன்னார் வளைகுடா கடல்சார் தேசிய பூங்கா',
+    sundarbans: 'சுந்தரவனக் கடல்சார் காப்பகம்',
+    generic: 'சர்வதேச கடல் எல்லை',
+  },
+  te: {
+    srilanka: 'భారతదేశం-శ్రీలంక అంతర్జాతీయ సముద్ర సరిహద్దు',
+    bangladesh: 'భారతదేశం-బంగ్లాదేశ్ అంతర్జాతీయ సముద్ర సరిహద్దు',
+    pakistan: 'భారతదేశం-పాకిస్తాన్ అంతర్జాతీయ సముద్ర సరిహద్దు',
+    gahirmatha: 'గహిర్‌మాథా సముద్ర అభయారణ్యం',
+    mannar: 'మన్నార్ గల్ఫ్ సముద్ర జాతీయ ఉద్యానవనం',
+    sundarbans: 'సుందర్బన్స్ సముద్ర రిజర్వ్',
+    generic: 'అంతర్జాతీయ సముద్ర సరిహద్దు',
+  },
+  or: {
+    srilanka: 'ଭାରତ-ଶ୍ରୀଲଙ୍କା ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+    bangladesh: 'ଭାରତ-ବାଂଲାଦେଶ ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+    pakistan: 'ଭାରତ-ପାକିସ୍ତାନ ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+    gahirmatha: 'ଗହିରମଥା ସାମୁଦ୍ରିକ ଅଭୟାରଣ୍ୟ',
+    mannar: 'ମନ୍ନାର ଉପସାଗର ସାମୁଦ୍ରିକ ଜାତୀୟ ଉଦ୍ୟାନ',
+    sundarbans: 'ସୁନ୍ଦରବନ ସାମୁଦ୍ରିକ ସଂରକ୍ଷିତ ଅଞ୍ଚଳ',
+    generic: 'ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+  },
+  ml: {
+    srilanka: 'ഇന്ത്യ-ശ്രീലങ്ക അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+    bangladesh: 'ഇന്ത്യ-ബംഗ്ലാദേശ് അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+    pakistan: 'ഇന്ത്യ-പാകിസ്ഥാൻ അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+    gahirmatha: 'ഗഹിർമാതാ മറൈൻ വന്യജീവി സങ്കേതം',
+    mannar: 'മന്നാർ ഉൾക്കടൽ മറൈൻ നാഷണൽ പാർക്ക്',
+    sundarbans: 'സുന്ദർബൻസ് മറൈൻ റിസർവ്വ്',
+    generic: 'അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+  },
+  gu: {
+    srilanka: 'ભારત-શ્રીલંકા આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+    bangladesh: 'ભારત-બાંગ્લાદેશ આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+    pakistan: 'ભારત-પાકિસ્તાન આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+    gahirmatha: 'ગહિરમાથા દરિયાઈ અભયારણ્ય',
+    mannar: 'મન્નારનો અખાત મરીન નેશનલ પાર્ક',
+    sundarbans: 'સુંદરબન દરિયાઈ અનામત વિસ્તાર',
+    generic: 'આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+  },
+  mr: {
+    srilanka: 'भारत-श्रीलंका आंतरराष्ट्रीय सागरी सीमा',
+    bangladesh: 'भारत-बांगलादेश आंतरराष्ट्रीय सागरी सीमा',
+    pakistan: 'भारत-पाकिस्तान आंतरराष्ट्रीय सागरी सीमा',
+    gahirmatha: 'गहिरमाथा सागरी अभयारण्य',
+    mannar: 'मन्नारचे आखात सागरी राष्ट्रीय उद्यान',
+    sundarbans: 'सुंदरबन सागरी राखीव क्षेत्र',
+    generic: 'आंतरराष्ट्रीय सागरी सीमा',
+  },
+  kn: {
+    srilanka: 'ಭಾರತ-ಶ್ರೀಲಂಕಾ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+    bangladesh: 'ಭಾರತ-ಬಾಂಗ್ಲಾದೇಶ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+    pakistan: 'ಭಾರತ-ಪಾಕಿಸ್ತಾನ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+    gahirmatha: 'ಗಹಿರ್‌ಮಾಥಾ ಕಡಲ ವನ್ಯಜೀವಿ ಧಾಮ',
+    mannar: 'ಮನ್ನಾರ್ ಕೊಲ್ಲಿ ಕಡಲ ರಾಷ್ಟ್ರೀಯ ಉದ್ಯಾನ',
+    sundarbans: 'ಸುಂದರಬನ ಕಡಲ ಸಂರಕ್ಷಿತ ಪ್ರದೇಶ',
+    generic: 'ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+  },
+};
+
+export function resolvePortName(name: string, lang: LanguageCode): string {
+  if (lang === 'en') return name;
   const map = PORT_LOCALE_MAP[lang] || {};
+  const lower = name.toLowerCase();
   for (const [key, val] of Object.entries(map)) {
-    if (name.toLowerCase().includes(key.toLowerCase())) return val;
+    if (lower.includes(key)) return val;
   }
   return name;
 }
 
-function resolveBoundaryName(name: string, lang: LanguageCode): string {
+export function resolveBoundaryName(name: string, lang: LanguageCode): string {
+  if (lang === 'en') return name;
+  const lower = name.toLowerCase();
   const map = BOUNDARY_LOCALE_MAP[lang] || {};
-  return map[name] || name;
+
+  if (lower.includes('sri lanka') || lower.includes('srilanka') || lower.includes('palk')) return map.srilanka || name;
+  if (lower.includes('bangladesh')) return map.bangladesh || name;
+  if (lower.includes('pakistan') || lower.includes('sir creek') || lower.includes('creek')) return map.pakistan || name;
+  if (lower.includes('gahirmatha')) return map.gahirmatha || name;
+  if (lower.includes('mannar')) return map.mannar || name;
+  if (lower.includes('sundarban')) return map.sundarbans || name;
+
+  return map.generic || name;
 }
 
-function resolveRiskLevelName(level: string, lang: LanguageCode): string {
+export function resolveRiskLevelName(level: string, lang: LanguageCode): string {
   const map = RISK_LEVEL_LOCALE_MAP[lang] || {};
   return map[level] || level;
 }
@@ -234,18 +551,7 @@ class VoiceWarningService {
    */
   public generateGeofencePhrase(alert: GeofenceAlert, language: LanguageCode): string {
     const dist = alert.distanceNm.toFixed(1);
-    const boundary = alert.boundaryName;
-    const hasNative = this.hasNativeVoiceFor(language);
-
-    // If native regional voice is missing, use Devanagari phonemics for Google हिन्दी
-    if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
-      if (bridge) {
-        return alert.severity === 'CRITICAL_BREACH'
-          ? bridge.critical(boundary, dist)
-          : bridge.proximity(boundary, dist);
-      }
-    }
+    const boundary = resolveBoundaryName(alert.boundaryName, language);
 
     switch (language) {
       case 'hi':
@@ -296,34 +602,30 @@ class VoiceWarningService {
    * Build localized phrase for severe marine weather / gale warnings.
    */
   public generateWeatherPhrase(risk: RiskPrediction, language: LanguageCode): string {
-    const hasNative = this.hasNativeVoiceFor(language);
-    if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
-      if (bridge) return bridge.weather(risk.riskLevel);
-    }
+    const riskLevelText = resolveRiskLevelName(risk.riskLevel, language);
 
     switch (language) {
       case 'hi':
-        return `गंभीर मौसम चेतावनी! समुद्र में जोखिम स्तर ${risk.riskLevel} है। अत्यधिक ऊंची लहरें और तेज हवाएं हैं। बंदरगाह पर लौटें।`;
+        return `गंभीर मौसम चेतावनी! समुद्र में जोखिम स्तर ${riskLevelText} है। अत्यधिक ऊंची लहरें और तेज हवाएं हैं। बंदरगाह पर लौटें।`;
       case 'bn':
-        return `প্রতিকূল আবহাওয়া সতর্কতা! সাগরে ঝুঁকির মাত্রা ${risk.riskLevel}। উত্তাল ঢেউ ও ঝোড়ো বাতাস। নিরাপদ আশ্রয়ে ফিরে যান।`;
+        return `প্রতিকূল আবহাওয়া সতর্কতা! সাগরে ঝুঁকির মাত্রা ${riskLevelText}। উত্তাল ঢেউ ও ঝোড়ো বাতাস। নিরাপদ আশ্রয়ে ফিরে যান।`;
       case 'ta':
-        return `மோசமான வானிலை எச்சரிக்கை! கடலில் ஆபத்து அளவு ${risk.riskLevel} ஆக உள்ளது. கொந்தளிப்பான அலைகள். துறைமுகத்திற்கு திரும்பவும்.`;
+        return `மோசமான வானிலை எச்சரிக்கை! கடலில் ஆபத்து அளவு ${riskLevelText} ஆக உள்ளது. கொந்தளிப்பான அலைகள். துறைமுகத்திற்கு திரும்பவும்.`;
       case 'te':
-        return `తీవ్ర వాతావరణ హెచ్చరిక! సముద్రంలో ప్రమాద స్థాయి ${risk.riskLevel} గా ఉంది. ఎత్తైన అలలు. సురక్షిత తీరానికి చేరుకోండి.`;
+        return `తీవ్ర వాతావరణ హెచ్చరిక! సముద్రంలో ప్రమాద స్థాయి ${riskLevelText} గా ఉంది. ఎత్తైన అలలు. సురಕ್ಷిత తీరానికి చేరుకోండి.`;
       case 'or':
-        return `ପ୍ରତିକୂଳ ପାଣିପାଗ ସତର୍କତା! ସମୁଦ୍ରରେ ବିପଦ ସ୍ତର ${risk.riskLevel}। ତୁରନ୍ତ କୂଳକୁ ଫେରିଆସନ୍ତୁ।`;
+        return `ପ୍ରତିକୂଳ ପାଣିପାଗ ସତର୍କତା! ସମୁଦ୍ରରେ ବିପଦ ସ୍ତର ${riskLevelText}। ତୁରନ୍ତ କୂଳକୁ ଫେରିଆସନ୍ତୁ।`;
       case 'ml':
-        return `പ്രതികൂല കാലാവസ്ഥാ മുന്നറിയിപ്പ്! കടലിൽ അപകടസാധ്യത ${risk.riskLevel} ആണ്. തുറമുഖത്തേക്ക് തിരികെ പോകുക.`;
+        return `പ്രതികൂല കാലാവസ്ഥാ മുന്നറിയിപ്പ്! കടലിൽ അപകടസാധ്യത ${riskLevelText} ആണ്. തുറമുഖത്തേക്ക് തിരികെ പോകുക.`;
       case 'gu':
-        return `ખરાબ હવામાન ચેતવણી! દરિયામાં જોખમ સ્તર ${risk.riskLevel} છે. ઊંચા મોજા અને ભારે પવન. બંદર પર પાછા ફરો.`;
+        return `ખરાબ હવામાન ચેતવણી! દરિયામાં જોખમ સ્તર ${riskLevelText} છે. ઊંચા મોજા અને ભારે પવન. બંદર પર પાછા ફરો.`;
       case 'mr':
-        return `गंभीर हवामान इशारा! समुद्रात धोक्याची पातळी ${risk.riskLevel} आहे. बंदरावर परत या.`;
+        return `गंभीर हवामान इशारा! समुद्रात धोक्याची पातळी ${riskLevelText} आहे. बंदरावर परत या.`;
       case 'kn':
-        return `ಪ್ರತಿಕೂಲ ಹವಾಮಾನ ಎಚ್ಚರಿಕೆ! ಸಮುದ್ರದಲ್ಲಿ ಅಪಾಯ ಮಟ್ಟ ${risk.riskLevel} ಆಗಿದೆ. ಬಲವಾದ ಅಲೆಗಳು. ಬಂದರಿಗೆ ಹಿಂತಿರುಗಿ.`;
+        return `ಪ್ರತಿಕೂಲ ಹವಾಮಾನ ಎಚ್ಚರಿಕೆ! ಸಮುದ್ರದಲ್ಲಿ ಅಪಾಯ ಮಟ್ಟ ${riskLevelText} ಆಗಿದೆ. ಬಲವಾದ ಅಲೆಗಳು. ಬಂದರಿಗೆ ಹಿಂತಿರುಗಿ.`;
       case 'en':
       default:
-        return `Severe weather alert! Marine risk level is ${risk.riskLevel}. Dangerous swell and gale force winds detected. Return to harbor.`;
+        return `Severe weather alert! Marine risk level is ${riskLevelText}. Dangerous swell and gale force winds detected. Return to harbor.`;
     }
   }
 
@@ -331,12 +633,6 @@ class VoiceWarningService {
    * Build localized demo test phrase.
    */
   public generateTestPhrase(language: LanguageCode): string {
-    const hasNative = this.hasNativeVoiceFor(language);
-    if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
-      if (bridge) return bridge.test;
-    }
-
     switch (language) {
       case 'hi':
         return 'यह ओरका एक्स बहुभाषी समुद्री सायरन और चेतावनी प्रणाली का ऑडियो परीक्षण है।';
@@ -355,7 +651,7 @@ class VoiceWarningService {
       case 'mr':
         return 'हे ओरका एक्स बहुभाषिक सागरी साइरन आणि वॉइस इशारा प्रणालीचे ऑडिओ परीक्षण आहे.';
       case 'kn':
-        return 'ಇದು ಓರ್ಕಾ ఎಕ್ಸ್ ಬಹುಭಾಷಾ ಕಡಲ ಸೈರನ್ ಮತ್ತು ಧ್ವನಿ ಎಚ್ಚರಿಕೆ ವ್ಯವಸ್ಥೆಯ ಆಡಿಯೋ ಪರೀಕ್ಷೆ.';
+        return 'ಇದು ಓರ್ಕಾ ಎಕ್ಸ್ ಬಹುಭಾಷಾ ಕಡಲ ಸೈರನ್ ಮತ್ತು ಧ್ವನಿ ಎಚ್ಚರಿಕೆ ವ್ಯವಸ್ಥೆಯ ಆಡಿಯೋ ಪರೀಕ್ಷೆ.';
       case 'en':
       default:
         return 'This is an audio test of the ORCA-X multi-lingual marine siren and voice warning system.';
