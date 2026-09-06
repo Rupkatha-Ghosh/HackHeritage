@@ -20,6 +20,8 @@ import {
 import { LocationInfo, GisLayerData, RiskLevel, OceanData, LanguageCode, GeofenceSpatialAnalysis } from '../types';
 import { COASTAL_LOCATIONS, MULTILINGUAL_DICTIONARY } from '../data/coastalData';
 import { usePrefersReducedMotion } from '../hooks/usePrefersReducedMotion';
+import { maritimeSiren } from '../services/audio/maritimeSirenService';
+import { voiceWarning } from '../services/audio/voiceWarningService';
 
 interface InteractiveMapProps {
   location: LocationInfo;
@@ -1003,6 +1005,26 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                     <span>{geo.activeAlerts[0].warningMessage}</span>
                   </div>
                 )}
+
+                {/* Maritime Audio Broadcast Button */}
+                <button
+                  id="btn-geofence-audio-broadcast"
+                  onClick={async () => {
+                    await maritimeSiren.unlock();
+                    const alert = geo.activeAlerts?.[0] || geo.nearestImbl || geo.nearestMpa;
+                    if (alert) {
+                      voiceWarning.evaluateAndAnnounce(alert, { riskLevel, riskScore: 75 } as any, language);
+                    } else {
+                      const phrase = voiceWarning.generateTestPhrase(language);
+                      voiceWarning.speak(phrase, language, { playSirenFirst: false, isCritical: false, force: true });
+                    }
+                  }}
+                  className="w-full mt-2 py-1.5 px-2 rounded-lg bg-cyan-950/70 hover:bg-cyan-900/80 border border-cyan-700/60 text-cyan-300 font-mono text-[10px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-sm"
+                  title="Broadcast audible voice warning & siren for current boat position"
+                >
+                  <Radio className="h-3 w-3 text-cyan-400 animate-pulse" />
+                  <span>🔊 Broadcast Alert ({language.toUpperCase()})</span>
+                </button>
               </>
             );
           })()}

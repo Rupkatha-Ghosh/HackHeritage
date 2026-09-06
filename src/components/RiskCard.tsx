@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { RiskPrediction, LanguageCode, LocationInfo, TimeWindow, GeofenceSpatialAnalysis } from '../types';
 import { MULTILINGUAL_DICTIONARY } from '../data/coastalData';
+import { maritimeSiren } from '../services/audio/maritimeSirenService';
+import { voiceWarning } from '../services/audio/voiceWarningService';
 
 interface RiskCardProps {
   risk: RiskPrediction;
@@ -38,20 +40,28 @@ export const RiskCard: React.FC<RiskCardProps> = ({
   const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
   const dict = MULTILINGUAL_DICTIONARY[language] || MULTILINGUAL_DICTIONARY.en;
 
-  // Speak the verdict using browser SpeechSynthesis
-  const handleToggleAudio = () => {
-    if (!('speechSynthesis' in window)) {
-      alert('Text-to-speech is not supported in your browser.');
-      return;
-    }
-
+  // Speak the verdict using browser SpeechSynthesis & Maritime Siren
+  const handleToggleAudio = async () => {
     if (isPlayingAudio) {
-      window.speechSynthesis.cancel();
+      voiceWarning.cancel();
+      maritimeSiren.stop();
       setIsPlayingAudio(false);
       return;
     }
 
-    window.speechSynthesis.cancel(); // Stop existing
+    await maritimeSiren.unlock();
+    setIsPlayingAudio(true);
+
+    const isCritical = risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH' || Boolean(geofenceAnalysis?.inRestrictedWaters);
+
+    // Sound nautical emergency siren or chime first
+    if (isCritical) {
+      maritimeSiren.playCriticalSiren(3.0);
+      await new Promise((r) => setTimeout(r, 3200));
+    } else {
+      maritimeSiren.playProximityChime();
+      await new Promise((r) => setTimeout(r, 900));
+    }
 
     // Determine speech text including boundary proximity warnings
     let geofenceSpeech = '';
@@ -61,29 +71,9 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       geofenceSpeech = ` Distance to nearest international maritime boundary is ${geofenceAnalysis.nearestImbl.distanceNm} nautical miles.`;
     }
     const textToSpeak = `${location.name}. Marine Risk Level: ${risk.riskLevel}.${geofenceSpeech} Risk score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}. ${risk.safetySummary}`;
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
 
-    // Map language
-    const langMap: Record<LanguageCode, string> = {
-      en: 'en-IN',
-      bn: 'bn-IN',
-      hi: 'hi-IN',
-      ta: 'ta-IN',
-      or: 'or-IN',
-      te: 'te-IN',
-      ml: 'ml-IN',
-      gu: 'gu-IN',
-      mr: 'mr-IN',
-      kn: 'kn-IN'
-    };
-    utterance.lang = langMap[language] || 'en-IN';
-    utterance.rate = 0.95;
-
-    utterance.onstart = () => setIsPlayingAudio(true);
-    utterance.onend = () => setIsPlayingAudio(false);
-    utterance.onerror = () => setIsPlayingAudio(false);
-
-    window.speechSynthesis.speak(utterance);
+    await voiceWarning.speak(textToSpeak, language, { force: true });
+    setIsPlayingAudio(false);
   };
 
   // Semantic styles for Risk Level
