@@ -49,6 +49,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const geojsonLayerRef = useRef<L.GeoJSON | null>(null);
   const pfzLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const routeLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const targetMarkerRef = useRef<L.Marker | null>(null);
   const clickMarkerRef = useRef<L.Marker | null>(null);
   const onCoordinateClickRef = useRef(onCoordinateClick);
@@ -59,15 +60,25 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [pfzZones, setPfzZones] = useState<any[]>([]);
 
-  // Global callback for leaflet popups to relocate boat
+  // Safe Routing Navigation State
+  const [routeDestination, setRouteDestination] = useState<{ latitude: number; longitude: number; name?: string } | null>(null);
+  const [safeRouteResult, setSafeRouteResult] = useState<any | null>(null);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState<boolean>(false);
+  const [showSafeRouteLayer, setShowSafeRouteLayer] = useState<boolean>(true);
+
+  // Global callbacks for leaflet popups (relocate boat & plot safe route)
   useEffect(() => {
     (window as any).__orcaSetBoatLocation = (lat: number, lon: number) => {
       if (onCoordinateClickRef.current) {
         onCoordinateClickRef.current(lat, lon);
       }
     };
+    (window as any).__orcaPlotRouteTo = (lat: number, lon: number, name?: string) => {
+      setRouteDestination({ latitude: lat, longitude: lon, name });
+    };
     return () => {
       delete (window as any).__orcaSetBoatLocation;
+      delete (window as any).__orcaPlotRouteTo;
     };
   }, []);
 
@@ -128,6 +139,42 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
     return () => { isMounted = false; };
   }, [location.latitude, location.longitude, location.name]);
+
+  // Fetch dynamic conflict-free safe navigation route
+  useEffect(() => {
+    if (!routeDestination) {
+      setSafeRouteResult(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsCalculatingRoute(true);
+
+    fetch('/api/routing/safe-route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        origin: { latitude: location.latitude, longitude: location.longitude },
+        destination: { latitude: routeDestination.latitude, longitude: routeDestination.longitude },
+        riskLevel: riskLevel
+      })
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (isMounted) {
+          setIsCalculatingRoute(false);
+          if (data) setSafeRouteResult(data);
+        }
+      })
+      .catch(err => {
+        if (isMounted) {
+          setIsCalculatingRoute(false);
+          console.error('Failed to calculate safe navigation route:', err);
+        }
+      });
+
+    return () => { isMounted = false; };
+  }, [location.latitude, location.longitude, routeDestination, riskLevel]);
 
   // Native Fullscreen API Handler
   const toggleFullscreen = () => {
@@ -214,12 +261,25 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         const newMarker = L.marker([lat, lon], { icon: clickIcon })
           .addTo(map)
           .bindPopup(`
-            <div class="p-2 space-y-1">
+            <div class="p-2 space-y-1.5 min-w-[190px]">
               <div class="font-bold text-cyan-300 text-xs flex items-center gap-1">
-                <span>📍 Boat Position Selected</span>
+                <span>📍 Map Location Selected</span>
               </div>
               <div class="text-[11px] font-mono text-slate-200">${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E</div>
-              <p class="text-[10px] text-amber-300 animate-pulse">Calculating live distance to IMBL & zones...</p>
+              <div class="pt-1 border-t border-slate-700 space-y-1">
+                <button 
+                  onclick="window.__orcaSetBoatLocation && window.__orcaSetBoatLocation(${lat}, ${lon})"
+                  class="w-full py-1 px-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-[10px] flex items-center justify-center gap-1 shadow cursor-pointer transition-all"
+                >
+                  ⚓ Set Boat Position Here
+                </button>
+                <button 
+                  onclick="window.__orcaPlotRouteTo && window.__orcaPlotRouteTo(${lat}, ${lon}, 'Custom Target Point')"
+                  class="w-full py-1 px-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] flex items-center justify-center gap-1 shadow cursor-pointer transition-all"
+                >
+                  🧭 Plot Safe Route to Here
+                </button>
+              </div>
             </div>
           `)
           .openPopup();
@@ -577,12 +637,20 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             </div>
           ` : ''}
 
-          <button
-            onclick="window.__orcaSetBoatLocation && window.__orcaSetBoatLocation(${zone.latitude}, ${zone.longitude})"
-            class="w-full py-1.5 px-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-[11px] rounded transition-all text-center flex items-center justify-center gap-1 shadow cursor-pointer"
-          >
-            ⚓ Set Boat Position to PFZ Zone
-          </button>
+          <div class="grid grid-cols-2 gap-1 pt-1">
+            <button
+              onclick="window.__orcaSetBoatLocation && window.__orcaSetBoatLocation(${zone.latitude}, ${zone.longitude})"
+              class="py-1 px-1.5 bg-cyan-700 hover:bg-cyan-600 text-white font-bold text-[10px] rounded transition-all text-center flex items-center justify-center gap-1 shadow cursor-pointer"
+            >
+              ⚓ Move Boat Here
+            </button>
+            <button
+              onclick="window.__orcaPlotRouteTo && window.__orcaPlotRouteTo(${zone.latitude}, ${zone.longitude}, 'PFZ Zone #${zone.rank}')"
+              class="py-1 px-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] rounded transition-all text-center flex items-center justify-center gap-1 shadow cursor-pointer"
+            >
+              🧭 Safe Route
+            </button>
+          </div>
         </div>
       `;
 
@@ -596,6 +664,82 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     layerGroup.addTo(map);
     pfzLayerGroupRef.current = layerGroup;
   }, [showPfz, pfzZones]);
+
+  // Render Dynamic Safe Navigation Polyline & Waypoint Markers
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (routeLayerGroupRef.current) {
+      map.removeLayer(routeLayerGroupRef.current);
+      routeLayerGroupRef.current = null;
+    }
+
+    if (!showSafeRouteLayer || !safeRouteResult || safeRouteResult.status !== 'ROUTE_FOUND' || !safeRouteResult.waypoints || safeRouteResult.waypoints.length === 0) return;
+
+    const layerGroup = L.layerGroup();
+    const waypoints = safeRouteResult.waypoints;
+    const latLngs = waypoints.map((wp: any) => [wp.latitude, wp.longitude]);
+
+    // 1. Safe Navigation Polyline (Emerald Glowing Dashed Line)
+    const polyline = L.polyline(latLngs, {
+      color: '#10b981',
+      weight: 4.5,
+      opacity: 0.9,
+      dashArray: '8, 8'
+    });
+
+    // 2. Waypoint Markers along the route
+    waypoints.forEach((wp: any, idx: number) => {
+      const isStart = idx === 0;
+      const isEnd = idx === waypoints.length - 1;
+      if (!isStart && !isEnd && idx % 2 !== 0 && waypoints.length > 8) return;
+
+      const wpIcon = L.divIcon({
+        className: 'custom-wp-marker-icon',
+        html: `
+          <div class="relative flex items-center justify-center cursor-pointer">
+            <div class="w-6 h-6 rounded-full ${isStart ? 'bg-cyan-600 border-2 border-white' : isEnd ? 'bg-emerald-600 border-2 border-white animate-pulse' : 'bg-slate-800 border border-emerald-400'} shadow-lg flex items-center justify-center text-[10px] text-white font-bold font-mono">
+              ${isStart ? '⚓' : isEnd ? '🏁' : idx}
+            </div>
+          </div>
+        `,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+
+      const marker = L.marker([wp.latitude, wp.longitude], { icon: wpIcon });
+
+      const popupContent = `
+        <div class="p-2 space-y-1 bg-slate-900 text-slate-100 rounded-lg text-xs font-mono">
+          <div class="font-bold text-emerald-400 border-b border-slate-700 pb-1 flex items-center gap-1">
+            <span>${isStart ? '⚓ Route Origin (Boat)' : isEnd ? '🏁 Safe Destination' : `Waypoint #${idx}`}</span>
+          </div>
+          <div class="flex justify-between text-[11px]">
+            <span class="text-slate-400">Cumulative:</span>
+            <span class="font-bold text-cyan-300">${((wp.cumulativeDistanceKm || 0) / 1.852).toFixed(1)} NM (${(wp.cumulativeDistanceKm || 0).toFixed(1)} KM)</span>
+          </div>
+          ${wp.bearingDeg !== undefined ? `
+            <div class="flex justify-between text-[11px]">
+              <span class="text-slate-400">Compass Bearing:</span>
+              <span class="font-bold text-amber-300">${wp.bearingDeg}°</span>
+            </div>
+          ` : ''}
+          <div class="flex justify-between text-[11px]">
+            <span class="text-slate-400">Geofence Status:</span>
+            <span class="font-bold ${wp.geofenceStatus === 'CLEAR' ? 'text-emerald-400' : 'text-amber-400'}">${wp.geofenceStatus}</span>
+          </div>
+        </div>
+      `;
+
+      marker.bindPopup(popupContent);
+      marker.addTo(layerGroup);
+    });
+
+    polyline.addTo(layerGroup);
+    layerGroup.addTo(map);
+    routeLayerGroupRef.current = layerGroup;
+  }, [showSafeRouteLayer, safeRouteResult]);
 
   return (
     <div 
@@ -720,6 +864,30 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             <span>🐟</span>
             <span className="hidden sm:inline">PFZ Hotspots</span>
           </button>
+
+          <button
+            onClick={() => {
+              setShowSafeRouteLayer(true);
+              if (!routeDestination) {
+                if (pfzZones && pfzZones.length > 0 && pfzZones[0].geofenceStatus !== 'RESTRICTED') {
+                  setRouteDestination({ latitude: pfzZones[0].latitude, longitude: pfzZones[0].longitude, name: `PFZ Zone #${pfzZones[0].rank}` });
+                } else {
+                  setRouteDestination({ latitude: Number((location.latitude + 0.12).toFixed(4)), longitude: Number((location.longitude + 0.15).toFixed(4)), name: 'Offshore Channel Point' });
+                }
+              } else {
+                setShowSafeRouteLayer(!showSafeRouteLayer);
+              }
+            }}
+            title="Toggle Dynamic Safe Navigation Route Polyline"
+            className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all whitespace-nowrap ${
+              showSafeRouteLayer && (safeRouteResult || routeDestination)
+                ? 'bg-emerald-950/90 text-emerald-200 border border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.5)] font-bold'
+                : 'text-slate-400 hover:bg-slate-800/60'
+            }`}
+          >
+            <Navigation className="h-3 w-3 text-emerald-400" />
+            <span className="hidden sm:inline">Safe Route</span>
+          </button>
         </div>
 
       </div>
@@ -841,6 +1009,72 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         </div>
       )}
 
+      {/* Dynamic Safe Navigation Route HUD (Top Left under controls) */}
+      {(routeDestination || isCalculatingRoute || safeRouteResult) && (
+        <div className="orca-glass-panel absolute top-20 left-3 z-[400] p-3 max-w-[280px] sm:max-w-[300px] text-xs space-y-2 shadow-2xl border border-emerald-500/60 bg-slate-950/90 rounded-xl">
+          <div className="flex items-center justify-between border-b border-slate-700/80 pb-1.5">
+            <span className="font-mono text-[11px] uppercase font-bold text-emerald-400 flex items-center gap-1.5">
+              <Navigation className={`h-3.5 w-3.5 ${isCalculatingRoute ? 'animate-spin text-cyan-400' : 'text-emerald-400'}`} />
+              <span>Safe Route Navigation</span>
+            </span>
+            <button
+              onClick={() => {
+                setRouteDestination(null);
+                setSafeRouteResult(null);
+              }}
+              className="text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 px-1.5 py-0.5 rounded text-[10px] font-bold"
+              title="Clear Active Navigation Route"
+            >
+              ✕ Clear
+            </button>
+          </div>
+
+          {isCalculatingRoute ? (
+            <div className="py-2 text-center text-cyan-300 text-[11px] font-mono animate-pulse flex items-center justify-center gap-1.5">
+              <Compass className="h-3.5 w-3.5 animate-spin" />
+              <span>Calculating safe waypoints around IMBL & sanctuaries...</span>
+            </div>
+          ) : safeRouteResult?.status === 'ROUTE_FOUND' ? (
+            <div className="space-y-1.5 font-mono text-[11px]">
+              <div className="flex justify-between items-center bg-slate-900 p-1.5 rounded border border-slate-800">
+                <span className="text-slate-400">Total Route:</span>
+                <span className="font-bold text-emerald-400 text-xs">
+                  {((safeRouteResult.distanceKm || 0) / 1.852).toFixed(1)} NM ({safeRouteResult.distanceKm} KM)
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-[10px]">
+                <span className="text-slate-400">Direct vs Safe:</span>
+                <span className="text-cyan-300">{((safeRouteResult.directDistanceKm || 0) / 1.852).toFixed(1)} NM direct</span>
+              </div>
+              {safeRouteResult.avoidedConstraints?.length > 0 && (
+                <div className="text-[10px] text-amber-300 bg-amber-950/40 p-1.5 rounded border border-amber-800/50 space-y-0.5">
+                  <div className="font-bold text-amber-400 flex items-center gap-1">
+                    <ShieldCheck className="h-3 w-3 text-amber-400" />
+                    <span>Avoided Constraints:</span>
+                  </div>
+                  <div className="truncate text-slate-200">{safeRouteResult.avoidedConstraints.join(', ')}</div>
+                </div>
+              )}
+              {safeRouteResult.rationale && (
+                <p className="text-[10px] text-slate-300 italic leading-tight pt-0.5">
+                  💡 {safeRouteResult.rationale}
+                </p>
+              )}
+            </div>
+          ) : safeRouteResult?.status === 'ROUTE_UNAVAILABLE' ? (
+            <div className="p-2 bg-rose-950/50 border border-rose-800/80 rounded text-[11px] text-rose-300 space-y-1">
+              <div className="font-bold text-rose-400 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 text-rose-400" />
+                <span>ROUTE BLOCKED / RESTRICTED</span>
+              </div>
+              <p className="text-[10px] text-slate-300 leading-tight">
+                {safeRouteResult.warnings?.[0] || 'Destination is inside or too close to a restricted zone.'}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* Map Floating Legend (Bottom Left) */}
       <div className="orca-glass-panel absolute bottom-3 left-3 z-[400] p-2.5 text-xs space-y-1.5 max-w-[240px] hidden sm:block">
         <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 uppercase border-b border-slate-700/60 pb-1">
@@ -881,6 +1115,10 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           <div className="flex items-center space-x-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 border border-emerald-200 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
             <span className="text-emerald-300 font-semibold">PFZ Hotspot (NOAA/ISRO)</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="w-3.5 h-0.5 bg-emerald-400 border border-emerald-300 border-dashed"></span>
+            <span className="text-cyan-300 font-semibold">Safe Route Polyline</span>
           </div>
         </div>
         <div className="text-[10px] text-cyan-300/90 pt-0.5 font-mono">
