@@ -866,15 +866,26 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </button>
 
           <button
-            onClick={() => setShowSafeRouteLayer(!showSafeRouteLayer)}
+            onClick={() => {
+              setShowSafeRouteLayer(true);
+              if (!routeDestination) {
+                if (pfzZones && pfzZones.length > 0 && pfzZones[0].geofenceStatus !== 'RESTRICTED') {
+                  setRouteDestination({ latitude: pfzZones[0].latitude, longitude: pfzZones[0].longitude, name: `PFZ Zone #${pfzZones[0].rank}` });
+                } else {
+                  setRouteDestination({ latitude: Number((location.latitude + 0.12).toFixed(4)), longitude: Number((location.longitude + 0.15).toFixed(4)), name: 'Offshore Channel Point' });
+                }
+              } else {
+                setShowSafeRouteLayer(!showSafeRouteLayer);
+              }
+            }}
             title="Toggle Dynamic Safe Navigation Route Polyline"
             className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 transition-all whitespace-nowrap ${
               showSafeRouteLayer && (safeRouteResult || routeDestination)
-                ? 'bg-cyan-950/90 text-cyan-200 border border-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.4)] font-bold'
+                ? 'bg-emerald-950/90 text-emerald-200 border border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.5)] font-bold'
                 : 'text-slate-400 hover:bg-slate-800/60'
             }`}
           >
-            <Navigation className="h-3 w-3 text-cyan-400" />
+            <Navigation className="h-3 w-3 text-emerald-400" />
             <span className="hidden sm:inline">Safe Route</span>
           </button>
         </div>
