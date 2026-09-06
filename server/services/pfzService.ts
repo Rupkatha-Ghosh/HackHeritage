@@ -1,6 +1,7 @@
 import { fetchRealOceanMetricsGrid, type RealOceanMetrics } from '../../src/services/satellite/realOceanColorService.ts';
 import type { LocationInfo, RiskPrediction } from '../../src/types.ts';
 import { fuseMarineDecision, type DecisionFusionResult } from './decisionFusion.ts';
+import { analyzeMaritimeGeofencing } from './geofenceService.ts';
 
 export type PfzConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNAVAILABLE';
 export type PfzSuitability = 'HIGH' | 'MODERATE' | 'LOW';
@@ -172,8 +173,9 @@ export async function analyzePfz(
 
   const zones = candidates.map((candidate, index) => {
     const candidateLocation = { ...location, latitude: candidate.latitude, longitude: candidate.longitude };
-    const restricted = Boolean(geofence?.inRestrictedWaters) && index === 0;
-    const caution = Boolean(geofence?.activeAlerts?.some((alert) => alert.severity === 'ADVISORY' || alert.severity === 'PROXIMITY_WARNING'));
+    const spatialGeo = analyzeMaritimeGeofencing(candidate.latitude, candidate.longitude);
+    const restricted = spatialGeo.inRestrictedWaters || (Boolean(geofence?.inRestrictedWaters) && index === 0);
+    const caution = spatialGeo.status === 'CAUTION' || Boolean(geofence?.activeAlerts?.some((alert) => alert.severity === 'ADVISORY' || alert.severity === 'PROXIMITY_WARNING'));
     return buildZone(index, candidateLocation, metricsGrid[index], risk, restricted, caution);
   });
 
