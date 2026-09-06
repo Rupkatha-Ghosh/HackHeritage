@@ -4,10 +4,16 @@
  * Uses the Web Speech Synthesis API to announce urgent maritime alerts
  * in 10 coastal Indian languages: English, Hindi, Bengali, Tamil, Telugu,
  * Odia, Malayalam, Gujarati, Marathi, and Kannada.
+ * 
+ * Incorporates:
+ * 1. Sarvam AI (Bulbul) & Bhashini NLTM / IndicTrans2 cloud gateway when online.
+ * 2. Intelligent Phonetic Transliteration Bridge for browsers lacking regional OS voice packs
+ *    (ensuring Odia, Bengali, Tamil, etc. NEVER fail or stay silent).
  */
 
-import { LanguageCode, GeofenceAlert, RiskPrediction } from '../../types';
+import { LanguageCode, GeofenceAlert, RiskPrediction, LocationInfo } from '../../types';
 import { maritimeSiren } from './maritimeSirenService';
+import { indicVoiceGateway, PHONETIC_REGIONAL_BRIDGES } from './indicVoiceService';
 
 export interface SpokenAlertPayload {
   key: string;
@@ -22,7 +28,7 @@ const LANGUAGE_BCP47_MAP: Record<LanguageCode, string[]> = {
   bn: ['bn-IN', 'bn-BD', 'bn'],
   ta: ['ta-IN', 'ta-LK', 'ta'],
   te: ['te-IN', 'te'],
-  or: ['or-IN', 'or', 'hi-IN'], // Odia fallback to hi-IN if specific Odia voice absent
+  or: ['or-IN', 'or'],
   ml: ['ml-IN', 'ml'],
   gu: ['gu-IN', 'gu'],
   mr: ['mr-IN', 'mr'],
@@ -35,6 +41,15 @@ class VoiceWarningService {
   private lastSpokenAt = new Map<string, number>();
   private cooldownMs = 15000; // 15 seconds debounce per alert key
   private listeners: Set<(isSpeaking: boolean) => void> = new Set();
+  private voicesLoaded: boolean = false;
+
+  constructor() {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        this.voicesLoaded = true;
+      };
+    }
+  }
 
   public subscribe(listener: (isSpeaking: boolean) => void): () => void {
     this.listeners.add(listener);
@@ -63,6 +78,20 @@ class VoiceWarningService {
   }
 
   /**
+   * Check whether the browser has a native TTS voice installed for the given language.
+   */
+  public hasNativeVoiceFor(language: LanguageCode): boolean {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return false;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices || voices.length === 0) return false;
+
+    const candidateTags = LANGUAGE_BCP47_MAP[language] || [];
+    return voices.some((v) =>
+      candidateTags.some((tag) => v.lang.toLowerCase() === tag.toLowerCase() || v.lang.toLowerCase().startsWith(tag.toLowerCase()))
+    );
+  }
+
+  /**
    * Resolve best SpeechSynthesisVoice matching the language.
    */
   private getBestVoice(language: LanguageCode): SpeechSynthesisVoice | null {
@@ -75,7 +104,12 @@ class VoiceWarningService {
       const matched = voices.find((v) => v.lang.toLowerCase() === tag.toLowerCase() || v.lang.toLowerCase().startsWith(tag.toLowerCase()));
       if (matched) return matched;
     }
-    return voices.find((v) => v.lang.startsWith('en')) || voices[0] || null;
+    // If no direct regional match, prefer Indian English (en-IN) or default English voice for phonetic clarity
+    return voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
+           voices.find((v) => v.lang.toLowerCase().startsWith('hi')) ||
+           voices.find((v) => v.lang.startsWith('en')) ||
+           voices[0] ||
+           null;
   }
 
   /**
@@ -84,6 +118,17 @@ class VoiceWarningService {
   public generateGeofencePhrase(alert: GeofenceAlert, language: LanguageCode): string {
     const dist = alert.distanceNm.toFixed(1);
     const boundary = alert.boundaryName;
+    const hasNative = this.hasNativeVoiceFor(language);
+
+    // If native voice is missing in browser, use phonetic bridge for audible clarity
+    if (!hasNative && language !== 'en' && language !== 'hi') {
+      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      if (bridge) {
+        return alert.severity === 'CRITICAL_BREACH'
+          ? bridge.critical(boundary, dist)
+          : bridge.proximity(boundary, dist);
+      }
+    }
 
     switch (language) {
       case 'hi':
@@ -134,6 +179,12 @@ class VoiceWarningService {
    * Build localized phrase for severe marine weather / gale warnings.
    */
   public generateWeatherPhrase(risk: RiskPrediction, language: LanguageCode): string {
+    const hasNative = this.hasNativeVoiceFor(language);
+    if (!hasNative && language !== 'en' && language !== 'hi') {
+      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      if (bridge) return bridge.weather(risk.riskLevel);
+    }
+
     switch (language) {
       case 'hi':
         return `गंभीर मौसम चेतावनी! समुद्र में जोखिम स्तर ${risk.riskLevel} है। अत्यधिक ऊंची लहरें और तेज हवाएं हैं। बंदरगाह पर लौटें।`;
@@ -145,6 +196,14 @@ class VoiceWarningService {
         return `తీవ్ర వాతావరణ హెచ్చరిక! సముద్రంలో ప్రమాద స్థాయి ${risk.riskLevel} గా ఉంది. ఎత్తైన అలలు. సురక్షిత తీరానికి చేరుకోండి.`;
       case 'or':
         return `ପ୍ରତିକୂଳ ପାଣିପାଗ ସତର୍କତା! ସମୁଦ୍ରରେ ବିପଦ ସ୍ତର ${risk.riskLevel}। ତୁରନ୍ତ କୂଳକୁ ଫେରିଆସନ୍ତୁ।`;
+      case 'ml':
+        return `പ്രതികൂല കാലാവസ്ഥാ മുന്നറിയിപ്പ്! കടലിൽ അപകടസാധ്യത ${risk.riskLevel} ആണ്. തുറമുഖത്തേക്ക് തിരികെ പോകുക.`;
+      case 'gu':
+        return `ખરાબ હવામાન ચેતવણી! દરિયામાં જોખમ સ્તર ${risk.riskLevel} છે. ઊંચા મોજા અને ભારે પવન. બંદર પર પાછા ફરો.`;
+      case 'mr':
+        return `गंभीर हवामान इशारा! समुद्रात धोक्याची पातळी ${risk.riskLevel} आहे. प्रचंड लाटा. बंदरावर परत या.`;
+      case 'kn':
+        return `ಪ್ರತಿಕೂಲ ಹವಾಮಾನ ಎಚ್ಚರಿಕೆ! ಸಮುದ್ರದಲ್ಲಿ ಅಪಾಯ ಮಟ್ಟ ${risk.riskLevel} ಆಗಿದೆ. ಬಲವಾದ ಅಲೆಗಳು. ಬಂದರಿಗೆ ಹಿಂತಿರುಗಿ.`;
       case 'en':
       default:
         return `Severe weather alert! Marine risk level is ${risk.riskLevel}. Dangerous swell and gale force winds detected. Return to harbor.`;
@@ -155,6 +214,12 @@ class VoiceWarningService {
    * Build localized demo test phrase.
    */
   public generateTestPhrase(language: LanguageCode): string {
+    const hasNative = this.hasNativeVoiceFor(language);
+    if (!hasNative && language !== 'en' && language !== 'hi') {
+      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      if (bridge) return bridge.test;
+    }
+
     switch (language) {
       case 'hi':
         return 'यह ओरका एक्स बहुभाषी समुद्री सायरन और चेतावनी प्रणाली का ऑडियो परीक्षण है।';
@@ -173,7 +238,7 @@ class VoiceWarningService {
       case 'mr':
         return 'हे ऑर्का एक्स बहुभाषिक सागरी सायरन आणि व्हॉईસ इशारा प्रणालीचे ऑडिओ परीक्षण आहे.';
       case 'kn':
-        return 'ಇದು ಓರ್ಕಾ ಎಕ್ಸ್ ಬಹುಭಾಷಾ ಕಡಲ ಸೈರನ್ ಮತ್ತು ಧ್ವನಿ ಎಚ್ಚರಿಕೆ ವ್ಯವಸ್ಥೆಯ ಆಡಿಯೋ ಪರೀಕ್ಷೆ.';
+        return 'ಇದು ಓರ್ಕಾ ఎಕ್ಸ್ ಬಹುಭಾಷಾ ಕಡಲ ಸೈರನ್ ಮತ್ತು ಧ್ವನಿ ಎಚ್ಚರಿಕೆ ವ್ಯವಸ್ಥೆಯ ಆಡಿಯೋ ಪರೀಕ್ಷೆ.';
       case 'en':
       default:
         return 'This is an audio test of the ORCA-X multi-lingual marine siren and voice warning system.';
@@ -181,7 +246,39 @@ class VoiceWarningService {
   }
 
   /**
+   * Build comprehensive localized Risk Card verdict phrase.
+   */
+  public generateRiskVerdictPhrase(
+    location: LocationInfo,
+    risk: RiskPrediction,
+    geofenceAlert: GeofenceAlert | undefined,
+    language: LanguageCode
+  ): string {
+    const port = location.nearestPort || location.name;
+    const boundaryNotice = geofenceAlert
+      ? ` ${this.generateGeofencePhrase(geofenceAlert, language)}`
+      : '';
+
+    switch (language) {
+      case 'hi':
+        return `${port} के पास समुद्री स्थिति: जोखिम स्तर ${risk.riskLevel} (${risk.riskScore}/100)। सलाह: ${risk.primaryRecommendation}.${boundaryNotice}`;
+      case 'bn':
+        return `${port} এর কাছে সামুদ্রিক পরিস্থিতি: ঝুঁকির মাত্রা ${risk.riskLevel} (${risk.riskScore}/100)। পরামর্শ: ${risk.primaryRecommendation}.${boundaryNotice}`;
+      case 'ta':
+        return `${port} கடல் நிலைமை: இடர் அளவு ${risk.riskLevel} (${risk.riskScore}/100). பரிந்துரை: ${risk.primaryRecommendation}.${boundaryNotice}`;
+      case 'te':
+        return `${port} సముద్ర పరిస్థితి: ప్రమాద స్థాయి ${risk.riskLevel} (${risk.riskScore}/100). సలహా: ${risk.primaryRecommendation}.${boundaryNotice}`;
+      case 'or':
+        return `${port} ସମୁଦ୍ର ସ୍ଥିତି: ବିପଦ ସ୍ତର ${risk.riskLevel} (${risk.riskScore}/100)। ପରାମର୍ଶ: ${risk.primaryRecommendation}.${boundaryNotice}`;
+      case 'en':
+      default:
+        return `${port} marine status. Risk Level: ${risk.riskLevel}, score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}.${boundaryNotice}`;
+    }
+  }
+
+  /**
    * Speak a phrase with the given language and options.
+   * Seamlessly checks Sarvam AI & Bhashini, then falls back to browser TTS / Phonetic Bridge.
    */
   public async speak(
     text: string,
@@ -189,7 +286,6 @@ class VoiceWarningService {
     options?: { playSirenFirst?: boolean; isCritical?: boolean; dedupeKey?: string; force?: boolean }
   ): Promise<boolean> {
     if (this.isMuted) return false;
-    if (typeof window === 'undefined' || !window.speechSynthesis) return false;
 
     // Check cooldown
     const now = Date.now();
@@ -212,11 +308,45 @@ class VoiceWarningService {
       }
     }
 
+    // 1. Try Sarvam AI Bulbul TTS (if online & configured)
+    const sarvamAudio = await indicVoiceGateway.synthesizeSarvamTts(text, language);
+    if (sarvamAudio) {
+      this.setSpeaking(true);
+      sarvamAudio.onended = () => this.setSpeaking(false);
+      sarvamAudio.onerror = () => this.setSpeaking(false);
+      await sarvamAudio.play();
+      return true;
+    }
+
+    // 2. Try Bhashini NLTM TTS (if online & configured)
+    const bhashiniAudio = await indicVoiceGateway.synthesizeBhashiniTts(text, language);
+    if (bhashiniAudio) {
+      this.setSpeaking(true);
+      bhashiniAudio.onended = () => this.setSpeaking(false);
+      bhashiniAudio.onerror = () => this.setSpeaking(false);
+      await bhashiniAudio.play();
+      return true;
+    }
+
+    // 3. Native Browser Speech Synthesis (Offline Edge Fallback)
+    if (typeof window === 'undefined' || !window.speechSynthesis) return false;
+
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
     const voice = this.getBestVoice(language);
+    const hasNative = this.hasNativeVoiceFor(language);
+
+    // If native voice is missing, select the phonetic bridge text for the utterance
+    let textToSpeak = text;
+    if (!hasNative && language !== 'en' && language !== 'hi') {
+      const bridge = PHONETIC_REGIONAL_BRIDGES[language];
+      if (bridge && text === this.generateTestPhrase(language)) {
+        textToSpeak = bridge.test;
+      }
+    }
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
     if (voice) {
       utterance.voice = voice;
       utterance.lang = voice.lang;

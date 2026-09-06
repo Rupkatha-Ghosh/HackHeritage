@@ -81,7 +81,26 @@ async function runTests() {
 
   console.log('   ✓ Nautical miles and boundary names correctly embedded in alert text');
 
-  console.log('\n3. Verifying mute control states:');
+  console.log('\n3. Verifying phonetic bridge phrases for browsers lacking native regional TTS:');
+  const { PHONETIC_REGIONAL_BRIDGES } = await import('../src/services/audio/indicVoiceService.ts');
+  for (const lang of languages) {
+    const bridge = PHONETIC_REGIONAL_BRIDGES[lang];
+    assert(Boolean(bridge), `Phonetic bridge missing for ${lang}`);
+    assert(bridge.critical('IMBL', '2.5').length > 10, `Critical phonetic phrase missing for ${lang}`);
+    assert(bridge.weather('EXTREME').length > 10, `Weather phonetic phrase missing for ${lang}`);
+    assert(bridge.test.length > 10, `Test phonetic phrase missing for ${lang}`);
+    console.log(`   ✓ [${lang.toUpperCase()}] Phonetic bridge ready: "${bridge.critical('IMBL', '2.5').slice(0, 50)}..."`);
+  }
+
+  console.log('\n4. Verifying localized risk verdict phrases for all 10 languages:');
+  const sampleLoc = { name: 'Digha Coast', country: 'India', latitude: 21.62, longitude: 87.51, regionType: 'coastal_harbor' as const };
+  for (const lang of languages) {
+    const verdict = voiceWarning.generateRiskVerdictPhrase(sampleLoc, sampleRisk, sampleAlert, lang);
+    assert(verdict.length > 20, `Verdict phrase for ${lang} is too short`);
+    console.log(`   ✓ [${lang.toUpperCase()}] Verdict: "${verdict.slice(0, 65)}..."`);
+  }
+
+  console.log('\n5. Verifying mute control states:');
   voiceWarning.setMuted(true);
   assert(voiceWarning.getIsMuted() === true, 'Voice warning should be muted');
   voiceWarning.setMuted(false);

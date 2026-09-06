@@ -63,14 +63,9 @@ export const RiskCard: React.FC<RiskCardProps> = ({
       await new Promise((r) => setTimeout(r, 900));
     }
 
-    // Determine speech text including boundary proximity warnings
-    let geofenceSpeech = '';
-    if (geofenceAnalysis?.activeAlerts && geofenceAnalysis.activeAlerts.length > 0) {
-      geofenceSpeech = ` Warning: ${geofenceAnalysis.activeAlerts[0].warningMessage}`;
-    } else if (geofenceAnalysis?.nearestImbl) {
-      geofenceSpeech = ` Distance to nearest international maritime boundary is ${geofenceAnalysis.nearestImbl.distanceNm} nautical miles.`;
-    }
-    const textToSpeak = `${location.name}. Marine Risk Level: ${risk.riskLevel}.${geofenceSpeech} Risk score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}. ${risk.safetySummary}`;
+    // Determine localized speech text including boundary proximity warnings
+    const geofenceAlert = geofenceAnalysis?.activeAlerts?.[0] || geofenceAnalysis?.nearestImbl;
+    const textToSpeak = voiceWarning.generateRiskVerdictPhrase(location, risk, geofenceAlert, language);
 
     await voiceWarning.speak(textToSpeak, language, { force: true });
     setIsPlayingAudio(false);

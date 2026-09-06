@@ -155,6 +155,12 @@ export const AudioAlertController: React.FC<AudioAlertControllerProps> = ({
         })}
       </div>
 
+      {/* Indic AI Gateway Badge (Bhashini NLTM & Sarvam AI) */}
+      <div className="hidden lg:flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-900/90 border border-slate-800 text-[10px] font-mono text-cyan-300">
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+        <span>Bhashini &amp; Sarvam Indic AI Gateway</span>
+      </div>
+
       {/* Right: Controls (Test Button & Halt) */}
       <div className="flex items-center space-x-2">
         <button
