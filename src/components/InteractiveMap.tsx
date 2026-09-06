@@ -537,12 +537,12 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               <span class="text-slate-400">Fishing Score:</span>
               <span class="font-bold text-cyan-300">${zone.score}/100</span>
             </div>
-            ${zone.chlorophyllMgM3 !== undefined ? `
-              <div class="flex justify-between">
-                <span class="text-slate-400">Chlorophyll-a:</span>
-                <span class="text-emerald-400 font-bold">${zone.chlorophyllMgM3.toFixed(2)} mg/m³</span>
-              </div>
-            ` : ''}
+            <div class="flex justify-between">
+              <span class="text-slate-400">Chlorophyll-a:</span>
+              <span class="${zone.chlorophyllMgM3 !== undefined ? 'text-emerald-400 font-bold' : 'text-slate-400 font-semibold'}">
+                ${zone.chlorophyllMgM3 !== undefined ? `${zone.chlorophyllMgM3.toFixed(2)} mg/m³` : 'Cloud Masked (NOAA)'}
+              </span>
+            </div>
             ${zone.sstC !== undefined ? `
               <div class="flex justify-between">
                 <span class="text-slate-400">Sea Surface Temp:</span>
