@@ -17,7 +17,7 @@ class MaritimeSirenService {
   private autoStopTimer: number | null = null;
   private listeners: Set<(isPlaying: boolean) => void> = new Set();
 
-  private getAudioContext(): AudioContext | null {
+  public getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
       const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;

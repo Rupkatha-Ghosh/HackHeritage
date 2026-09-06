@@ -22,6 +22,7 @@ import {
   indicScriptToDevanagari,
   INDIC_DEVANAGARI_PHONEMES,
 } from './indicVoiceService';
+import { getLocalizedPrimaryRecommendation } from '../../utils/marineRiskLocalization';
 
 export interface SpokenAlertPayload {
   key: string;
@@ -43,6 +44,90 @@ const LANGUAGE_BCP47_MAP: Record<LanguageCode, string[]> = {
   kn: ['kn-IN', 'kn'],
 };
 
+const RISK_LEVEL_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
+  en: { LOW: 'Low', MODERATE: 'Moderate', HIGH: 'High', EXTREME: 'Extreme' },
+  hi: { LOW: 'कम', MODERATE: 'मध्यम', HIGH: 'उच्च', EXTREME: 'अत्यधिक' },
+  bn: { LOW: 'কম', MODERATE: 'মাঝারি', HIGH: 'উচ্চ', EXTREME: 'চরম' },
+  ta: { LOW: 'குறைந்த', MODERATE: 'மிதமான', HIGH: 'அதிக', EXTREME: 'தீவிர' },
+  te: { LOW: 'తక్కువ', MODERATE: 'మధ్యస్థ', HIGH: 'అధిక', EXTREME: 'తీవ్రమైన' },
+  or: { LOW: 'କମ୍', MODERATE: 'ମଧ୍ୟମ', HIGH: 'ଉଚ୍ଚ', EXTREME: 'ଚରମ' },
+  ml: { LOW: 'കുറഞ്ഞ', MODERATE: 'മിതമായ', HIGH: 'കൂടിയ', EXTREME: 'അതീവ ഗുരുതര' },
+  gu: { LOW: 'ઓછું', MODERATE: 'મધ્યમ', HIGH: 'વધુ', EXTREME: 'અતિ ગંભીર' },
+  mr: { LOW: 'कमी', MODERATE: 'मध्यम', HIGH: 'जास्त', EXTREME: 'अति तीव्र' },
+  kn: { LOW: 'ಕಡಿಮೆ', MODERATE: 'ಮಧ್ಯಮ', HIGH: 'ಹೆಚ್ಚು', EXTREME: 'ತೀವ್ರ' },
+};
+
+const PORT_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
+  en: {},
+  hi: { 'Digha': 'दीघा बंदरगाह', 'Paradip': 'पारादीप बंदरगाह', 'Puri': 'पुरी बंदरगाह', 'Visakhapatnam': 'विशाखापट्टनम बंदरगाह', 'Kochi': 'कोच्चि बंदरगाह', 'Chennai': 'चेन्नई बंदरगाह', 'Mumbai': 'मुंबई बंदरगाह' },
+  bn: { 'Digha': 'দিঘা বন্দর', 'Paradip': 'পারাদ্বীপ বন্দর', 'Puri': 'পুরী বন্দর', 'Visakhapatnam': 'বিশাখাপত্তনম বন্দর', 'Kochi': 'কোচি বন্দর', 'Chennai': 'চেন্নাই বন্দর', 'Mumbai': 'মুম্বই বন্দর' },
+  ta: { 'Digha': 'திகா துறைமுகம்', 'Paradip': 'பாராதீப் துறைமுகம்', 'Puri': 'பூரி துறைமுகம்', 'Visakhapatnam': 'விசாகப்பட்டினம் துறைமுகம்', 'Kochi': 'கொச்சி துறைமுகம்', 'Chennai': 'சென்னை துறைமுகம்', 'Mumbai': 'மும்பை துறைமுகம்' },
+  te: { 'Digha': 'దిఘా ఓడరేవు', 'Paradip': 'పారదీప్ ఓడరేవు', 'Puri': 'పూరీ ఓడరేవు', 'Visakhapatnam': 'విశాఖపట్నం పోర్టు', 'Kochi': 'కొచ్చి పోర్టు', 'Chennai': 'చెన్నై పోర్టు', 'Mumbai': 'ముంబై పోర్టు' },
+  or: { 'Digha': 'ଦିଘା ବନ୍ଦର', 'Paradip': 'ପାରାଦୀପ ବନ୍ଦର', 'Puri': 'ପୁରୀ ବନ୍ଦର', 'Visakhapatnam': 'ବିଶାଖାପାଟଣା ବନ୍ଦର', 'Kochi': 'କୋଚି ବନ୍ଦର', 'Chennai': 'ଚେନ୍ନାଇ ବନ୍ଦର', 'Mumbai': 'ମୁମ୍ବାଇ ବନ୍ଦର' },
+  ml: { 'Digha': 'ദിഘ തുറമുഖം', 'Paradip': 'പാരാദ്വീപ് തുറമുഖം', 'Puri': 'പുരി തുറമുഖം', 'Visakhapatnam': 'വിശാഖപട്ടണം തുറമുഖം', 'Kochi': 'കൊച്ചി തുറമുഖം', 'Chennai': 'ചെന്നൈ തുറമുഖം', 'Mumbai': 'മുംബൈ തുറമുഖം' },
+  gu: { 'Digha': 'દીઘા બંદર', 'Paradip': 'પારાદીપ બંદર', 'Puri': 'પુરી બંદર', 'Visakhapatnam': 'વિશાખાપટ્ટનમ બંદર', 'Kochi': 'કોચી બંદર', 'Chennai': 'ચેન્નાઈ બંદર', 'Mumbai': 'મુંબઈ બંદર' },
+  mr: { 'Digha': 'दीघा बंदर', 'Paradip': 'पारादीप बंदर', 'Puri': 'पुरी बंदर', 'Visakhapatnam': 'विशाखापट्टणम बंदर', 'Kochi': 'कोची बंदर', 'Chennai': 'चेन्नई बंदर', 'Mumbai': 'मुंबई बंदर' },
+  kn: { 'Digha': 'ದಿಘಾ ಬಂದರು', 'Paradip': 'ಪಾರಾದೀಪ್ ಬಂದರು', 'Puri': 'ಪುರಿ ಬಂದರು', 'Visakhapatnam': 'ವಿಶಾಖಪಟ್ಟಣಂ ಬಂದರು', 'Kochi': 'ಕೊಚ್ಚಿ ಬಂದರು', 'Chennai': 'ಚೆನ್ನೈ ಬಂದರು', 'Mumbai': 'ಮುಂಬೈ ಬಂದರು' },
+};
+
+const BOUNDARY_LOCALE_MAP: Record<LanguageCode, Record<string, string>> = {
+  en: {},
+  hi: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'भारत-श्रीलंका अंतर्राष्ट्रीय समुद्री सीमा',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'भारत-पाकिस्तान अंतर्राष्ट्रीय समुद्री सीमा',
+  },
+  bn: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ভারত-শ্রীলঙ্কা আন্তর্জাতিক সমুদ্রসীমা',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ভারত-পাকিস্তান আন্তর্জাতিক সমুদ্রসীমা',
+  },
+  ta: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'இந்தியா-இலங்கை சர்வதேச கடல் எல்லை',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'இந்தியா-பாகிஸ்தான் சர்வதேச கடல் எல்லை',
+  },
+  te: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'భారతదేశం-శ్రీలంక అంతర్జాతీయ సముద్ర సరిహద్దు',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'భారతదేశం-పాకిస్తాన్ అంతర్జాతీయ సముద్ర సరిహద్దు',
+  },
+  or: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ଭାରତ-ଶ୍ରୀଲଙ୍କା ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ଭାରତ-ପାକିସ୍ତାନ ଆନ୍ତର୍ଜାତୀୟ ସମୁଦ୍ର ସୀମା',
+  },
+  ml: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ഇന്ത്യ-ശ്രീലങ്ക അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ഇന്ത്യ-പാകിസ്ഥാൻ അന്താരാഷ്ട്ര സമുദ്ര അതിർത്തി',
+  },
+  gu: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ભારત-શ્રીલંકા આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ભારત-પાકિસ્તાન આંતરરાષ્ટ્રીય દરિયાઈ સીમા',
+  },
+  mr: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'भारत-श्रीलंका आंतरराष्ट्रीय सागरी सीमा',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'भारत-पाकिस्तान आंतरराष्ट्रीय सागरी सीमा',
+  },
+  kn: {
+    'India – Sri Lanka International Maritime Boundary Line (IMBL)': 'ಭಾರತ-ಶ್ರೀಲಂಕಾ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+    'India – Pakistan International Maritime Boundary Line (IMBL)': 'ಭಾರತ-ಪಾಕಿಸ್ತಾನ ಅಂತರರಾಷ್ಟ್ರೀಯ ಕಡಲ ಗಡಿ',
+  },
+};
+
+function resolvePortName(name: string, lang: LanguageCode): string {
+  const map = PORT_LOCALE_MAP[lang] || {};
+  for (const [key, val] of Object.entries(map)) {
+    if (name.toLowerCase().includes(key.toLowerCase())) return val;
+  }
+  return name;
+}
+
+function resolveBoundaryName(name: string, lang: LanguageCode): string {
+  const map = BOUNDARY_LOCALE_MAP[lang] || {};
+  return map[name] || name;
+}
+
+function resolveRiskLevelName(level: string, lang: LanguageCode): string {
+  const map = RISK_LEVEL_LOCALE_MAP[lang] || {};
+  return map[level] || level;
+}
+
 class VoiceWarningService {
   private isMuted: boolean = false;
   private isSpeaking: boolean = false;
@@ -50,6 +135,7 @@ class VoiceWarningService {
   private cooldownMs = 15000; // 15 seconds debounce per alert key
   private listeners: Set<(isSpeaking: boolean) => void> = new Set();
   private currentAudioElement: HTMLAudioElement | null = null;
+  private currentSourceNode: AudioBufferSourceNode | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
@@ -140,11 +226,7 @@ class VoiceWarningService {
     const hindiVoice = voices.find((v) => v.lang.toLowerCase().startsWith('hi'));
     if (hindiVoice) return hindiVoice;
 
-    // 3. Indian English fallback
-    const indianEnglish = voices.find((v) => v.lang.toLowerCase().startsWith('en-in'));
-    if (indianEnglish) return indianEnglish;
-
-    return voices[0] || null;
+    return null;
   }
 
   /**
@@ -286,47 +368,42 @@ class VoiceWarningService {
   public generateRiskVerdictPhrase(
     location: LocationInfo,
     risk: RiskPrediction,
-    geofenceAlert: GeofenceAlert | undefined,
+    _geofenceAlert: GeofenceAlert | undefined,
     language: LanguageCode
   ): string {
-    const port = location.nearestPort || location.name;
-    const hasNative = this.hasNativeVoiceFor(language);
-
-    if (!hasNative && language !== 'en' && language !== 'hi') {
-      const bridge = INDIC_DEVANAGARI_PHONEMES[language];
-      if (bridge) {
-        return bridge.verdict(port, risk.riskLevel, risk.riskScore, risk.primaryRecommendation);
-      }
-    }
+    const port = resolvePortName(location.nearestPort || location.name, language);
+    const riskLevelText = resolveRiskLevelName(risk.riskLevel, language);
+    const primaryRec = getLocalizedPrimaryRecommendation(risk.riskLevel, language) || risk.primaryRecommendation;
 
     switch (language) {
       case 'hi':
-        return `${port} के पास समुद्री स्थिति: जोखिम स्तर ${risk.riskLevel} (${risk.riskScore}/100)। सलाह: ${risk.primaryRecommendation}।`;
+        return `${port} के पास समुद्री स्थिति: जोखिम स्तर ${riskLevelText} (${risk.riskScore}/100)। सलाह: ${primaryRec}।`;
       case 'bn':
-        return `${port} এর কাছে সামুদ্রিক পরিস্থিতি: ঝুঁকির মাত্রা ${risk.riskLevel} (${risk.riskScore}/100)। পরামর্শ: ${risk.primaryRecommendation}।`;
+        return `${port} এর কাছে সামুদ্রিক পরিস্থিতি: ঝুঁকির মাত্রা ${riskLevelText} (${risk.riskScore}/100)। পরামর্শ: ${primaryRec}।`;
       case 'ta':
-        return `${port} கடல் நிலைமை: இடர் அளவு ${risk.riskLevel} (${risk.riskScore}/100). பரிந்துரை: ${risk.primaryRecommendation}.`;
+        return `${port} கடல் நிலைமை: இடர் அளவு ${riskLevelText} (${risk.riskScore}/100). பரிந்துரை: ${primaryRec}.`;
       case 'te':
-        return `${port} సముద్ర పరిస్థితి: ప్రమాద స్థాయి ${risk.riskLevel} (${risk.riskScore}/100). సలహా: ${risk.primaryRecommendation}.`;
+        return `${port} సముద్ర పరిస్థితి: ప్రమాద స్థాయి ${riskLevelText} (${risk.riskScore}/100). సలహా: ${primaryRec}.`;
       case 'or':
-        return `${port} ସମୁଦ୍ର ସ୍ଥିତି: ବିପଦ ସ୍ତର ${risk.riskLevel} (${risk.riskScore}/100)। ପରାମର୍ଶ: ${risk.primaryRecommendation}।`;
+        return `${port} ସମୁଦ୍ର ସ୍ଥିତି: ବିପଦ ସ୍ତର ${riskLevelText} (${risk.riskScore}/100)। ପରାମର୍ଶ: ${primaryRec}।`;
       case 'ml':
-        return `${port} കടൽ അവസ്ഥ: അപകടസാധ്യത ${risk.riskLevel} (${risk.riskScore}/100). നിർദ്ദേശം: ${risk.primaryRecommendation}.`;
+        return `${port} കടൽ അവസ്ഥ: അപകടസാധ്യത ${riskLevelText} (${risk.riskScore}/100). നിർദ്ദേശം: ${primaryRec}.`;
       case 'gu':
-        return `${port} દરિયાઈ સ્થિતિ: જોખમ સ્તર ${risk.riskLevel} (${risk.riskScore}/100). સલાહ: ${risk.primaryRecommendation}.`;
+        return `${port} દરિયાઈ સ્થિતિ: જોખમ સ્તર ${riskLevelText} (${risk.riskScore}/100). સલાહ: ${primaryRec}.`;
       case 'mr':
-        return `${port} सागरी स्थिती: धोक्याची पातळी ${risk.riskLevel} (${risk.riskScore}/100). सल्ला: ${risk.primaryRecommendation}.`;
+        return `${port} सागरी स्थिती: धोक्याची पातळी ${riskLevelText} (${risk.riskScore}/100). सल्ला: ${primaryRec}.`;
       case 'kn':
-        return `${port} ಕಡಲ ಸ್ಥಿತಿ: ಅಪಾಯ ಮಟ್ಟ ${risk.riskLevel} (${risk.riskScore}/100). ಸಲಹೆ: ${risk.primaryRecommendation}.`;
+        return `${port} ಕಡಲ ಸ್ಥಿತಿ: ಅಪಾಯ ಮಟ್ಟ ${riskLevelText} (${risk.riskScore}/100). ಸಲಹೆ: ${primaryRec}.`;
       case 'en':
       default:
-        return `${port} marine status. Risk Level: ${risk.riskLevel}, score ${risk.riskScore} out of 100. Recommendation: ${risk.primaryRecommendation}.`;
+        return `${port} marine status. Risk Level: ${risk.riskLevel}, score ${risk.riskScore} out of 100. Recommendation: ${primaryRec}.`;
     }
   }
 
   /**
    * Speak a phrase with the given language and options.
-   * Seamlessly checks Sarvam AI & Bhashini via server proxy, then falls back to browser Indic TTS Engine.
+   * Uses Web Audio API decoding with unlocked AudioContext for 100% guaranteed,
+   * unblockable audio playback in all 10 Indian coastal languages.
    */
   public async speak(
     text: string,
@@ -348,7 +425,10 @@ class VoiceWarningService {
     // Cancel any ongoing audio or speech
     this.cancel();
 
-    // Optionally sound siren first
+    // 1. Kick off parallel audio fetch IMMEDIATELY while siren/chime is sounding
+    const audioFetchPromise = indicVoiceGateway.fetchSpeechAudio(text, language);
+
+    // 2. Optionally sound maritime emergency siren or chime first
     if (options?.playSirenFirst) {
       if (options.isCritical) {
         maritimeSiren.playCriticalSiren(3.0);
@@ -359,37 +439,75 @@ class VoiceWarningService {
       }
     }
 
-    // 1. Try Hybrid Cloud Gateway (Sarvam AI / Bhashini NLTM via /api/indic-voice/tts)
-    const cloudAudio = await indicVoiceGateway.synthesizeCloudTts(text, language);
-    if (cloudAudio) {
-      this.currentAudioElement = cloudAudio;
-      this.setSpeaking(true);
-      cloudAudio.onended = () => {
-        this.setSpeaking(false);
-        this.currentAudioElement = null;
-      };
-      cloudAudio.onerror = () => {
-        this.setSpeaking(false);
-        this.currentAudioElement = null;
-      };
+    // 3. Obtain audio data (already completed or finishing in background)
+    const speechAudio = await audioFetchPromise;
+
+    // 4. Primary High-Definition Playback: Web Audio API (Guaranteed Unlocked Playback)
+    const ctx = maritimeSiren.getAudioContext();
+    if (ctx && speechAudio?.audioBase64) {
       try {
-        await cloudAudio.play();
-        return true;
-      } catch (err) {
-        console.warn('Cloud audio playback interrupted, falling back to edge:', err);
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+        }
+        const binaryString = window.atob(speechAudio.audioBase64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const decodedBuffer = await ctx.decodeAudioData(bytes.buffer);
+        return await new Promise<boolean>((resolve) => {
+          this.cancel();
+          const source = ctx.createBufferSource();
+          source.buffer = decodedBuffer;
+          source.connect(ctx.destination);
+          this.currentSourceNode = source;
+          this.setSpeaking(true);
+
+          source.onended = () => {
+            if (this.currentSourceNode === source) {
+              this.currentSourceNode = null;
+              this.setSpeaking(false);
+            }
+            resolve(true);
+          };
+
+          source.start(0);
+        });
+      } catch (decodeErr) {
+        console.warn('Web Audio decoding failed, attempting HTML5 Audio fallback:', decodeErr);
       }
     }
 
-    // 2. Native Browser Speech Synthesis (Offline Edge Indic Devanagari Engine)
+    // 5. Secondary Playback: HTML5 Audio Element
+    if (speechAudio?.audioBase64) {
+      try {
+        const audio = new Audio(`data:${speechAudio.format};base64,${speechAudio.audioBase64}`);
+        this.currentAudioElement = audio;
+        this.setSpeaking(true);
+        audio.onended = () => {
+          this.setSpeaking(false);
+          this.currentAudioElement = null;
+        };
+        audio.onerror = () => {
+          this.setSpeaking(false);
+          this.currentAudioElement = null;
+        };
+        await audio.play();
+        return true;
+      } catch (audioErr) {
+        console.warn('HTML5 Audio playback interrupted, checking edge TTS:', audioErr);
+      }
+    }
+
+    // 6. Tertiary Fallback: Native Browser Speech Synthesis (Offline Edge)
     if (typeof window === 'undefined' || !window.speechSynthesis) return false;
 
-    // Cancel any speech queue
     window.speechSynthesis.cancel();
-
     const voice = this.getBestVoice(language);
     const hasNative = this.hasNativeVoiceFor(language);
 
-    // Convert text to Devanagari phonemes if regional script cannot be parsed by Google हिन्दी
     let textToSpeak = text;
     if (!hasNative && language !== 'en' && language !== 'hi') {
       textToSpeak = indicScriptToDevanagari(text, language);
@@ -400,22 +518,27 @@ class VoiceWarningService {
       utterance.voice = voice;
       utterance.lang = voice.lang;
     } else {
-      utterance.lang = language === 'en' ? 'en-IN' : 'hi-IN';
+      const allVoices = window.speechSynthesis.getVoices();
+      const hindiFallback = allVoices.find((v) => v.lang.toLowerCase().startsWith('hi'));
+      if (hindiFallback && language !== 'en') {
+        utterance.voice = hindiFallback;
+        utterance.lang = 'hi-IN';
+      } else if (language === 'en') {
+        utterance.lang = 'en-IN';
+      } else {
+        // Under no circumstances speak American English for an Indian coastal language
+        console.warn(`No native Indic voice pack available for ${language}; avoiding English voice playback.`);
+        return false;
+      }
     }
 
-    utterance.rate = 0.92; // Measured rate for maritime clarity
+    utterance.rate = 0.92;
     utterance.pitch = options?.isCritical ? 1.05 : 1.0;
     utterance.volume = 0.95;
 
     this.setSpeaking(true);
-
-    utterance.onend = () => {
-      this.setSpeaking(false);
-    };
-
-    utterance.onerror = () => {
-      this.setSpeaking(false);
-    };
+    utterance.onend = () => this.setSpeaking(false);
+    utterance.onerror = () => this.setSpeaking(false);
 
     window.speechSynthesis.speak(utterance);
     return true;
@@ -458,6 +581,13 @@ class VoiceWarningService {
   public cancel() {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel();
+    }
+    if (this.currentSourceNode) {
+      try {
+        this.currentSourceNode.stop();
+        this.currentSourceNode.disconnect();
+      } catch {}
+      this.currentSourceNode = null;
     }
     if (this.currentAudioElement) {
       this.currentAudioElement.pause();

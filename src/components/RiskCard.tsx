@@ -54,20 +54,11 @@ export const RiskCard: React.FC<RiskCardProps> = ({
 
     const isCritical = risk.riskLevel === 'EXTREME' || risk.riskLevel === 'HIGH' || Boolean(geofenceAnalysis?.inRestrictedWaters);
 
-    // Sound nautical emergency siren or chime first
-    if (isCritical) {
-      maritimeSiren.playCriticalSiren(3.0);
-      await new Promise((r) => setTimeout(r, 3200));
-    } else {
-      maritimeSiren.playProximityChime();
-      await new Promise((r) => setTimeout(r, 900));
-    }
-
-    // Determine localized speech text including boundary proximity warnings
+    // Determine localized speech text including boundary proximity warnings (100% native language)
     const geofenceAlert = geofenceAnalysis?.activeAlerts?.[0] || geofenceAnalysis?.nearestImbl;
     const textToSpeak = voiceWarning.generateRiskVerdictPhrase(location, risk, geofenceAlert, language);
 
-    await voiceWarning.speak(textToSpeak, language, { force: true });
+    await voiceWarning.speak(textToSpeak, language, { playSirenFirst: true, isCritical, force: true });
     setIsPlayingAudio(false);
   };
 

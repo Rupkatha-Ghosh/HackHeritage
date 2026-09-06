@@ -148,11 +148,12 @@ class IndicVoiceGateway {
 
   private loadConfig(): IndicVoiceConfig {
     if (typeof window !== 'undefined' && window.localStorage) {
+      const savedEngine = window.localStorage.getItem('orca_preferred_engine');
       return {
         sarvamApiKey: window.localStorage.getItem('orca_sarvam_api_key') || undefined,
         bhashiniApiKey: window.localStorage.getItem('orca_bhashini_api_key') || undefined,
         bhashiniUserId: window.localStorage.getItem('orca_bhashini_user_id') || undefined,
-        preferredEngine: (window.localStorage.getItem('orca_preferred_engine') as IndicVoiceConfig['preferredEngine']) || 'auto',
+        preferredEngine: (savedEngine && savedEngine !== 'edge' ? savedEngine : 'auto') as IndicVoiceConfig['preferredEngine'],
       };
     }
     return {
@@ -175,14 +176,14 @@ class IndicVoiceGateway {
   }
 
   /**
-   * Synthesize audio via Backend Indic Gateway (proxies Sarvam AI Bulbul & Bhashini NLTM)
+   * Fetch raw audio bytes (base64 and format) from the Backend Indic Gateway
    */
-  public async synthesizeCloudTts(text: string, language: LanguageCode): Promise<HTMLAudioElement | null> {
-    if (this.config.preferredEngine === 'edge') {
-      return null;
-    }
-
+  public async fetchSpeechAudio(
+    text: string,
+    language: LanguageCode
+  ): Promise<{ audioBase64: string; format: string } | null> {
     try {
+      const engine = this.config.preferredEngine === 'edge' ? 'auto' : this.config.preferredEngine;
       const response = await fetch('/api/indic-voice/tts', {
         method: 'POST',
         headers: {
@@ -191,7 +192,7 @@ class IndicVoiceGateway {
         body: JSON.stringify({
           text,
           language,
-          engine: this.config.preferredEngine,
+          engine,
           sarvamApiKey: this.config.sarvamApiKey,
           bhashiniApiKey: this.config.bhashiniApiKey,
           bhashiniUserId: this.config.bhashiniUserId,
@@ -207,13 +208,22 @@ class IndicVoiceGateway {
       };
 
       if (data.success && data.audioBase64) {
-        const audio = new Audio(`data:${data.format || 'audio/wav'};base64,${data.audioBase64}`);
-        return audio;
+        return { audioBase64: data.audioBase64, format: data.format || 'audio/mpeg' };
       }
-    } catch {
-      // Backend not reached or offline; fall back to client edge engine
+    } catch (err) {
+      console.warn('Backend Indic Voice fetch failed:', err);
     }
+    return null;
+  }
 
+  /**
+   * Synthesize audio via Backend Indic Gateway (proxies Sarvam AI Bulbul & Bhashini NLTM)
+   */
+  public async synthesizeCloudTts(text: string, language: LanguageCode): Promise<HTMLAudioElement | null> {
+    const audioData = await this.fetchSpeechAudio(text, language);
+    if (audioData) {
+      return new Audio(`data:${audioData.format};base64,${audioData.audioBase64}`);
+    }
     return null;
   }
 }
